@@ -754,6 +754,14 @@ impl Selection {
         }
         if let Some(r) = &self.relay {
             check_node_id("sel.relay", r)?;
+            // `sel.relay` называет звено цепочки, а `rcc = --` говорит, что
+            // цепочки нет: вместе это два разных ответа на один вопрос.
+            // Предикат решается по байтам самой директивы, без каталога,
+            // поэтому живёт здесь, а не в `Catalog::check_selection`, где
+            // проверяются два предиката 7.4, требующие каталог.
+            if self.rcc == RelayResolution::NoRelay {
+                return Err(field_err("sel.relay", "назван релей при rcc = --"));
+            }
         }
         if let Some(p) = &self.preset {
             check_text("sel.preset", p, PRESET_ID_MAX)?;

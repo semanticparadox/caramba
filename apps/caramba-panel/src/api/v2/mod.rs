@@ -13,7 +13,7 @@ pub mod node;
 
 use crate::AppState;
 use crate::handlers;
-use axum::routing::{delete, get, patch, post};
+use axum::routing::{delete, get, patch, post, put};
 
 /// Защищённый роутер для всех /api/v2/bot/* маршрутов бота.
 ///
@@ -175,6 +175,14 @@ pub fn app_routes(_state: AppState) -> axum::Router<AppState> {
             delete(app_account::remove_family_member),
         )
         .route("/subscriptions", get(app_account::list_subscriptions))
+        // Выбор exit-ноды и relay-страны — единственный легитимный писатель
+        // subscriptions.node_id / relay_country со стороны приложения.
+        // Мини-аппный POST /api/client/subscription/{id}/server сюда не годится:
+        // он за другим JWT (session_secret по tg_id), которого у приложения нет.
+        .route(
+            "/subscriptions/{id}/selection",
+            put(app_account::update_subscription_selection),
+        )
         .route("/relays", get(app_account::list_relays))
         // Биллинг: история трафика (график) + создание чек-аута покупки.
         .route("/traffic", get(app_billing::get_traffic))

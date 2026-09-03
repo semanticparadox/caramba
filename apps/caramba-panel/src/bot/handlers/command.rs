@@ -3,6 +3,8 @@ use crate::bot::keyboards::{language_keyboard, main_menu, terms_keyboard};
 use crate::bot::translations::{Lang, contains_any_lang, lang_for, matches_any_lang, t, tf};
 use crate::bot::utils::{escape_html, register_bot_message};
 use crate::services::logging_service::LoggingService;
+use std::collections::HashSet;
+use std::sync::{LazyLock, Mutex};
 use teloxide::prelude::*;
 use teloxide::types::{ChatId, ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
 use tracing::{error, info};
@@ -263,6 +265,123 @@ fn alert_admins_stars(state: &AppState, message: &str) {
     tokio::spawn(async move {
         bot_manager.notify_admins(&pool, &message).await;
     });
+}
+
+/// tg_id тех, чью пригодность подписки в этом процессе уже выяснили.
+///
+/// Существует ровно из-за побочного эффекта выдачи: `grant_free_plan_on_signup`
+/// заканчивается `notify_nodes_for_plans`, а это публикация конфига на КАЖДУЮ
+/// активную ноду плана, то есть перезапуск sing-box и разрыв живых сессий
+/// платящих подписчиков. Проверка «есть ли план» без такой отметки шла бы на
+/// каждом сообщении и перезапускала бы флот в темпе входящего трафика.
+///
+/// Отметка живёт только в процессе: перезапуск панели просто вернёт по одной
+/// проверке на пользователя, а не сломает состояние.
+static FREE_PLAN_SELF_HEAL_SEEN: LazyLock<Mutex<HashSet<i64>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// Потолок размера отметок. Сброс по достижении возвращает систему к одной
+/// проверке на пользователя — к штатному режиму, а не к чему-то опасному,
+/// поэтому грубой очистки достаточно и LRU здесь не нужен.
+const FREE_PLAN_SELF_HEAL_CAP: usize = 50_000;
+
+/// Досаживает на бесплатный план того, кто ПОЛЬЗУЕТСЯ ботом, но подписки не имеет.
+///
+/// Выдача при принятии соглашения (`callback.rs`, ветка "accept_terms")
+/// срабатывает ровно один раз в жизни аккаунта. Для всех, кто принял соглашение
+/// раньше, чем эта выдача появилась в коде, она не сработает никогда: в проде
+/// это 5 аккаунтов из 18, включая заведённый сегодня. Разовый backfill руками
+/// закрывает сегодняшний срез и ничего не обещает про завтрашний — любой новый
+/// путь, создающий пользователя без плана, вернёт систему в то же состояние.
+/// Поэтому проверка стоит на общем пути бота, а не в одноразовой ветке.
+///
+/// Форму проверки задали два ограничения:
+///   * ИДЕМПОТЕНТНОСТИ НА УРОВНЕ БАЗЫ НЕДОСТАТОЧНО. `ensure_free_plan_subscription`
+///     действительно ничего не создаёт повторно, но `grant_free_plan_on_signup`
+///     публикует план на ноды и в этом случае тоже — он специально достаёт
+///     plan_id запасным запросом, когда выдача вернула None. Значит вызывать его
+///     можно только после того, как ЧТЕНИЕ показало отсутствие подписки.
+///   * Одна проверка на пользователя за время жизни процесса, не одна на
+///     сообщение (см. `FREE_PLAN_SELF_HEAL_SEEN`).
+///
+/// «Пригодная подписка» здесь — ровно то, что требует нода: живой статус и
+/// непустой uuid. Генерация ключей (`handlers::api::internal::get_user_keys`)
+/// берёт `COALESCE(vless_uuid, subscription_uuid)` и молча пропускает строки, где
+/// его нет; такая строка видна в кабинете и не пускает ни в один inbound, то есть
+/// подпиской не является.
+///
+/// Проверка терминов и бана — в том же запросе: колбэки, в отличие от сообщений,
+/// не проходят через шлюз соглашения в `message_handler`, а выдавать доступ
+/// раньше принятия соглашения нельзя.
+pub(crate) async fn ensure_free_plan_for_active_bot_user(state: &AppState, tg_id: i64) {
+    // Заявка на проверку, а не просто чтение отметки: Telegram доставляет
+    // апдейты одного пользователя конкурентно, и два сообщения подряд иначе
+    // прошли бы гейт оба и опубликовали конфиг на ноды дважды.
+    let claimed = match FREE_PLAN_SELF_HEAL_SEEN.lock() {
+        Ok(mut seen) => {
+            if seen.len() >= FREE_PLAN_SELF_HEAL_CAP {
+                seen.clear();
+            }
+            seen.insert(tg_id)
+        }
+        // Отравленный мьютекс не повод отказывать в доступе: идём дальше, худшее
+        // последствие — лишняя проверка.
+        Err(_) => true,
+    };
+    if !claimed {
+        return;
+    }
+
+    let verdict = sqlx::query_as::<_, (i64, bool)>(
+        "SELECT u.id, EXISTS ( \
+             SELECT 1 FROM subscriptions s \
+             WHERE s.user_id = u.id \
+               AND s.status IN ('active', 'pending', 'throttled') \
+               AND COALESCE(NULLIF(s.vless_uuid, ''), NULLIF(s.subscription_uuid, '')) IS NOT NULL \
+         ) \
+         FROM users u \
+         WHERE u.tg_id = $1 \
+           AND u.terms_accepted_at IS NOT NULL \
+           AND COALESCE(u.is_banned, FALSE) = FALSE",
+    )
+    .bind(tg_id)
+    .fetch_optional(&state.pool)
+    .await;
+
+    // Не-вердикт (сбой чтения, соглашение ещё не принято, бан) отметку снимает:
+    // иначе один сетевой сбой оставил бы человека без плана до перезапуска
+    // панели, а тот, кто примет соглашение через минуту, никогда бы не проверился.
+    let release = || {
+        if let Ok(mut seen) = FREE_PLAN_SELF_HEAL_SEEN.lock() {
+            seen.remove(&tg_id);
+        }
+    };
+
+    let row = match verdict {
+        Ok(row) => row,
+        Err(e) => {
+            release();
+            error!(tg_id, error = %e, "free plan self-heal: check failed");
+            return;
+        }
+    };
+    let Some((user_id, has_usable_subscription)) = row else {
+        release();
+        return;
+    };
+
+    if has_usable_subscription {
+        return;
+    }
+
+    info!(
+        tg_id,
+        user_id, "free plan self-heal: no usable subscription, granting the free plan"
+    );
+    // Тот же вызов, что и на регистрации в приложении: выдача плюс раскатка на
+    // ноды одной последовательностью. Вторая копия этой последовательности
+    // неизбежно разъехалась бы с оригиналом.
+    crate::api::v2::app_auth::grant_free_plan_on_signup(state, user_id).await;
 }
 
 pub async fn message_handler(
@@ -542,6 +661,13 @@ pub async fn message_handler(
                     .map_err(|e| error!("Failed to send terms: {}", e));
                 return Ok(());
             }
+
+            // Сюда доходит только пользователь, прошедший все шлюзы выше: не
+            // забанен, язык выбран, соглашение принято. Дальше по коду он получает
+            // рабочее меню — значит именно здесь система обязана убедиться, что за
+            // этим меню есть подписка. Ветка "accept_terms" покрывает только тех,
+            // кто принимает соглашение ПОСЛЕ появления той выдачи в коде.
+            ensure_free_plan_for_active_bot_user(&state, tg_id).await;
 
             // --- Dissolving Effect: Delete previous bot message & this command ---
             // --- Dissolving Effect: History Handled by register_bot_message ---

@@ -36,7 +36,7 @@ use ed25519_dalek::SigningKey;
 use sha2::{Digest, Sha256};
 
 use super::cbor::{self, Value};
-use super::directive::{Capabilities, PRESET_VOCABULARY};
+use super::directive::{Capabilities, PRESET_VOCABULARY, RelayResolution, Selection};
 use super::docs::{DohEntry, LIFETIME_CATALOG, Mirror, SPEC_VERSION};
 use super::frame::{self, DocType, FrameError, MAX_PAYLOAD_LEN};
 use super::pad::{PadError, pad_to_bucket};
@@ -78,7 +78,13 @@ pub mod cap {
     /// Доступны запечатанные директивы (HPKE, `0x06`).
     pub const SEALED_DIRECTIVES: u32 = Capabilities::SEALED_DIRECTIVES;
     /// Цепочки через релэй реальны: ставится только когда генератор Clash их
-    /// действительно выпускает (P8).
+    /// действительно выпускает (P8) — не когда флот их допускает. Наличие
+    /// записей `re` и ссылок `rl` условие необходимое, но не достаточное, и
+    /// [`Catalog::validate`] эти два поля намеренно не связывает: бит
+    /// описывает деплой оператора, а не содержимое кадра. Решение принимает
+    /// панель, `csm::catalog_store::implemented_capabilities`.
+    ///
+    /// [`Catalog::validate`]: super::Catalog::validate
     pub const RELAY_CHAINING: u32 = Capabilities::RELAY_CHAINING;
     /// Доступна запись настроек.
     pub const SETTINGS_WRITE: u32 = Capabilities::SETTINGS_WRITE;
@@ -368,7 +374,11 @@ impl Node {
         Value::Map(m)
     }
 
-    fn validate(&self, role: &'static str) -> Result<(), CatalogError> {
+    /// Правила 8.2.1, относящиеся к одной записи. Публичный вход нужен
+    /// панели: она отбрасывает негодный инбаунд по одному, а не теряет тир
+    /// целиком, и правило отбора обязано быть тем же, по которому потом
+    /// проверяется весь каталог. `role` попадает в текст ошибки: `ex` или `re`.
+    pub fn validate(&self, role: &'static str) -> Result<(), CatalogError> {
         let ctx = |reason: &str| CatalogError::Invalid(format!("{role} {:?}: {reason}", self.id));
         if !is_node_id(&self.id) {
             return Err(ctx("id вне формата 1..24 символов [0-9A-Za-z_-]"));
@@ -1130,6 +1140,53 @@ impl Catalog {
         }
         if let Some(l) = &self.ladder {
             l.validate()?;
+        }
+        Ok(())
+    }
+
+    /// Два предиката `02-SPEC.md` 7.4, которые решаются только против
+    /// каталога: `sel.exit` обязан называть запись `ex`, а `sel.relay` —
+    /// запись `re`, чья страна равна `sel.rcc`.
+    ///
+    /// Клиенту эти два предиката запрещено проверять при разборе и запрещено
+    /// отвергать по ним директиву: на первом запуске привязанного каталога
+    /// у него ещё нет. Подписант в другом положении — у него на руках обе
+    /// стороны, — и невыполнимый здесь выбор он выпускать не вправе, иначе
+    /// клиент получит подписанную ссылку в никуда и молча свалится на
+    /// умолчание оператора.
+    ///
+    /// Третий предикат, `sel.relay` при `rcc = --`, решается по одним байтам
+    /// директивы и живёт в [`Selection::validate`](super::directive::Selection).
+    pub fn check_selection(&self, sel: &Selection) -> Result<(), CatalogError> {
+        if let Some(e) = &sel.exit
+            && !self.exits.iter().any(|n| n.id == *e)
+        {
+            return Err(CatalogError::Invalid(format!(
+                "sel.exit {e:?}: нет такой записи в ex"
+            )));
+        }
+        let Some(r) = &sel.relay else {
+            return Ok(());
+        };
+        let Some(entry) = self.relays.iter().find(|n| n.id == *r) else {
+            return Err(CatalogError::Invalid(format!(
+                "sel.relay {r:?}: нет такой записи в re"
+            )));
+        };
+        let cc = match sel.rcc {
+            RelayResolution::Country(cc) => cc,
+            RelayResolution::NoRelay => {
+                return Err(CatalogError::Invalid(format!(
+                    "sel.relay {r:?} при rcc = --"
+                )));
+            }
+        };
+        if entry.cc.as_bytes() != cc {
+            return Err(CatalogError::Invalid(format!(
+                "sel.relay {r:?}: страна записи {:?} не равна rcc {:?}",
+                entry.cc,
+                String::from_utf8_lossy(&cc)
+            )));
         }
         Ok(())
     }

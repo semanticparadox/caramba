@@ -1,5 +1,9 @@
+use anyhow::Context as _;
 use sqlx::PgPool;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::future::Future;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tracing::{error, info, warn};
 
 // Removed unused Subscription import
@@ -13,6 +17,137 @@ use caramba_db::repositories::node_repo::NodeRepository;
 // Added import
 use crate::services::pubsub_service::PubSubService;
 
+/// Окно склейки уведомлений об обновлении конфига одной ноды.
+///
+/// Агент ноды на каждый изменившийся хеш конфига делает systemd **restart**
+/// sing-box, а не reload — то есть рвёт все живые TCP-сессии всех клиентов
+/// этой ноды. Бесплатный план лежит в той же группе нод, что и платный, так
+/// что каждая регистрация в боте била рестартом по всем платным подписчикам.
+///
+/// 10 секунд выбраны как компромисс между двумя ценами:
+///  * новый подписчик ждёт появления себя в конфиге ноды не дольше окна плюс
+///    задержки поллинга агента — на фоне онбординга в приложении это
+///    незаметно (лонг-полл агента и так живёт до 30 с);
+///  * поток регистраций схлопывается максимум в один рестарт на ноду в 10 с
+///    вместо одного рестарта на каждую регистрацию.
+///
+/// Меньшее окно почти не склеивает волну регистраций, большее — начинает
+/// ощущаться как «приложение не подключается сразу после регистрации».
+const NODE_NOTIFY_COALESCE_WINDOW: Duration = Duration::from_secs(10);
+
+/// Состояние склейки для одной ноды.
+#[derive(Debug, Default)]
+struct NodeNotifySlot {
+    /// Есть непогашенный запрос на публикацию: кто-то попросил уведомить ноду,
+    /// а уведомление ещё не ушло. Флаг гасится ТОЛЬКО перед самой публикацией
+    /// и восстанавливается, если публикация не удалась.
+    dirty: bool,
+    /// Для этой ноды уже крутится задача-склейщик. Новые запросы только
+    /// поднимают `dirty`; вторую задачу не порождаем.
+    draining: bool,
+}
+
+/// Склейка уведомлений «обнови конфиг» по нодам.
+///
+/// Инвариант, который здесь действительно обеспечивается, и его граница:
+/// **внутри одного процесса запрос на уведомление не теряется**. `dirty`
+/// гасится под тем же мьютексом, под которым снимается `draining`, поэтому
+/// запрос, пришедший в любой момент цикла, либо попадает в текущий круг, либо
+/// порождает следующий; неудачная публикация возвращается через `requeue` и
+/// повторяется, пока не пройдёт.
+///
+/// Чего этот инвариант НЕ покрывает — границу процесса. `dirty` живёт только
+/// в памяти панели и до [`NODE_NOTIFY_COALESCE_WINDOW`] (10 с) не отражён
+/// нигде: ни в Redis, ни в БД. Рестарт или падение панели внутри окна теряет
+/// ещё не опубликованное уведомление, и восстановит его не панель, а сам
+/// агент ноды — он перечитывает конфиг раз в 120 с независимо от уведомлений
+/// (`apps/caramba-node/src/main.rs`, `CONFIG_CHECK_INTERVAL`). То есть худшее
+/// последствие потери — задержка применения конфига примерно до двух минут,
+/// а не нода, навсегда оставшаяся без нового пользователя.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct NodeNotifyCoalescer {
+    slots: Arc<Mutex<HashMap<i64, NodeNotifySlot>>>,
+}
+
+impl NodeNotifyCoalescer {
+    /// Регистрирует запрос на уведомление ноды.
+    /// Возвращает `true`, если вызывающий должен запустить цикл-склейщик.
+    fn request(&self, node_id: i64) -> bool {
+        let mut slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
+        let slot = slots.entry(node_id).or_default();
+        slot.dirty = true;
+        if slot.draining {
+            false
+        } else {
+            slot.draining = true;
+            true
+        }
+    }
+
+    /// Начало очередного круга: забирает накопленный запрос.
+    /// `true` — публиковать надо; `false` — новых запросов не было, цикл
+    /// завершается и слот освобождается (всё под одним мьютексом, поэтому
+    /// параллельный `request` либо успел поднять `dirty` до проверки, либо
+    /// увидит `draining = false` и запустит новый цикл).
+    fn begin_round(&self, node_id: i64) -> bool {
+        let mut slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(slot) = slots.get_mut(&node_id) else {
+            return false;
+        };
+        if slot.dirty {
+            slot.dirty = false;
+            true
+        } else {
+            slots.remove(&node_id);
+            false
+        }
+    }
+
+    /// Публикация не удалась — возвращаем запрос обратно, чтобы следующий
+    /// круг попробовал ещё раз. Без этого сбой Redis молча съедал бы
+    /// уведомление.
+    fn requeue(&self, node_id: i64) {
+        let mut slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
+        slots.entry(node_id).or_default().dirty = true;
+    }
+
+    /// Запускает цикл-склейщик, если он ещё не запущен для этой ноды.
+    ///
+    /// `emit` — фактическая публикация. Вынесена параметром, чтобы инвариант
+    /// «не потерять уведомление» проверялся тестами без Redis и без БД.
+    fn schedule<F, Fut>(&self, node_id: i64, window: Duration, emit: F)
+    where
+        F: Fn(i64) -> Fut + Send + 'static,
+        Fut: Future<Output = anyhow::Result<()>> + Send,
+    {
+        if !self.request(node_id) {
+            // Цикл уже крутится, он подхватит поднятый `dirty`.
+            return;
+        }
+
+        let coalescer = self.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(window).await;
+                if !coalescer.begin_round(node_id) {
+                    break;
+                }
+                if let Err(e) = emit(node_id).await {
+                    // Не сдаёмся: цикл продолжает крутиться и повторяет
+                    // публикацию раз в окно, пока она не пройдёт. Один
+                    // «висящий» цикл на ноду при недоступном Redis дешевле,
+                    // чем нода, навсегда оставшаяся без нового пользователя.
+                    warn!(
+                        "Node {} update notification failed, will retry in {:?}: {}",
+                        node_id, window, e
+                    );
+                    coalescer.requeue(node_id);
+                }
+            }
+        });
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct OrchestrationService {
     pub pool: PgPool,
@@ -22,6 +157,9 @@ pub struct OrchestrationService {
     pubsub_service: Arc<PubSubService>,
     // Added for Sync Fix
     redis_client: Option<redis::Client>,
+    /// Разделяется между клонами сервиса — склейка должна быть общей на весь
+    /// процесс, иначе каждый клон схлопывал бы только свои уведомления.
+    notify_coalescer: NodeNotifyCoalescer,
 }
 
 impl OrchestrationService {
@@ -41,14 +179,46 @@ impl OrchestrationService {
             security_service,
             pubsub_service,
             redis_client,
+            notify_coalescer: NodeNotifyCoalescer::default(),
         }
     }
 
     // ... (init_default_inbounds and other methods remain unchanged)
 
+    /// Просит ноду перечитать конфиг.
+    ///
+    /// Уведомление НЕ уходит немедленно: оно склеивается с другими запросами
+    /// по этой же ноде в окне [`NODE_NOTIFY_COALESCE_WINDOW`] — см. комментарий
+    /// у константы, каждое уведомление стоит рестарта sing-box и разрыва всех
+    /// живых сессий ноды.
+    ///
+    /// Поэтому же метод больше не может сообщить об ошибке публикации:
+    /// публикация происходит позже, в фоновой задаче, которая повторяет её до
+    /// успеха. `Ok(())` здесь означает «запрос принят живым процессом панели»,
+    /// а не «нода уведомлена»: рестарт панели внутри окна склейки теряет ещё
+    /// не опубликованное уведомление (подробнее — у [`NodeNotifyCoalescer`]),
+    /// и подхватывает его плановая перечитка конфига агентом раз в 120 с.
+    /// Сигнатура сохранена ради вызывающих сторон.
     pub async fn notify_node_update(&self, node_id: i64) -> anyhow::Result<()> {
-        info!("🔔 Node {} update notification triggered", node_id);
+        info!("🔔 Node {} update notification queued", node_id);
 
+        let this = self.clone();
+        self.notify_coalescer
+            .schedule(node_id, NODE_NOTIFY_COALESCE_WINDOW, move |id| {
+                let this = this.clone();
+                async move { this.publish_node_update_now(id).await }
+            });
+
+        Ok(())
+    }
+
+    /// Непосредственная публикация уведомления: флаг pending в Redis + PubSub.
+    ///
+    /// Флаг и publish обязаны уезжать вместе и одинаково отложенно: агент
+    /// забирает флаг на ближайшем поллинге (`api/v2/node.rs::poll_updates`),
+    /// так что выставленный сразу флаг сам по себе вызвал бы рестарт и свёл
+    /// склейку на нет.
+    async fn publish_node_update_now(&self, node_id: i64) -> anyhow::Result<()> {
         // Set "Pending Sync" flag in Redis (TTL 60s)
         if let Some(client) = &self.redis_client {
             let pending_key = format!("node_sync_pending:{}", node_id);
@@ -129,11 +299,14 @@ impl OrchestrationService {
         .await?;
 
         if node_ids.is_empty() {
+            // Ошибка запроса — это НЕ «активных нод нет». Проглоченная ошибка
+            // здесь означает ноль уведомлений и, как следствие, ноду, которая
+            // никогда не узнает о новом пользователе. Пробрасываем.
             node_ids = self
                 .node_repo
                 .get_active_node_ids()
                 .await
-                .unwrap_or_default();
+                .context("failed to list active nodes for plan notification fallback")?;
         }
 
         for node_id in node_ids {
@@ -958,11 +1131,15 @@ impl OrchestrationService {
             if let Err(e) = self.init_default_inbounds(node_id).await {
                 warn!("Auto-bootstrap failed for node {}: {}", node_id, e);
             }
+            // Ошибка перечитывания inbound'ов не равна «inbound'ов нет»:
+            // пустой список уезжает на ноду как конфиг без единого слушателя.
             inbounds = self
                 .node_repo
                 .get_inbounds_by_node(node_id)
                 .await
-                .unwrap_or_default();
+                .with_context(|| {
+                    format!("failed to re-read inbounds for node {node_id} after bootstrap")
+                })?;
         }
         info!(
             "Step 2: Found {} inbounds for node {} ({})",
@@ -1130,13 +1307,24 @@ impl OrchestrationService {
             }
 
             // Fetch users only if we have plans
+            // Сбой запроса — это НЕ «подписчиков нет». Пустой список отсюда
+            // публикуется на ноду как конфиг без клиентов: все активные
+            // подписчики теряют доступ разом, тихо и без самовосстановления
+            // (каждая следующая выдача конфига публикует такую же пустоту).
+            // Поэтому ошибка прерывает генерацию: нода остаётся на прежнем,
+            // рабочем конфиге — «конфиг не изменился» вместо «конфиг очищен».
             let active_subs = if linked_plans.is_empty() {
                 Vec::new()
             } else {
                 self.store_service
                     .get_active_subs_by_plans(&linked_plans)
                     .await
-                    .unwrap_or_default()
+                    .with_context(|| {
+                        format!(
+                            "failed to load active subscriptions for inbound {} (node {}), plans {:?}",
+                            inbound.tag, node_id, linked_plans
+                        )
+                    })?
             };
 
             info!(
@@ -1170,15 +1358,18 @@ impl OrchestrationService {
                     match &mut settings {
                         InboundType::Vless(vless) => {
                             for sub in &active_subs {
-                                if let (_sub_id, Some(uuid), tg_id, _username) =
+                                if let (_sub_id, Some(uuid), client_id, _username) =
                                     (sub.0, &sub.1, sub.2, &sub.3)
                                 {
-                                    if !visited_users.insert(tg_id) {
+                                    if !visited_users.insert(client_id) {
                                         continue;
                                     }
 
-                                    // Use user_{tg_id} for consistent identification
-                                    let auth_name = crate::services::user_tag::user_tag(tg_id);
+                                    // Тег user_{client_id}: client_id — это
+                                    // Telegram id, а у аккаунтов без него —
+                                    // стабильный суррогат из
+                                    // caramba_db::...::config_client_identity.
+                                    let auth_name = crate::services::user_tag::user_tag(client_id);
 
                                     info!(
                                         "🔑 Injecting VLESS user: {} (UUID: {})",
@@ -1212,13 +1403,13 @@ impl OrchestrationService {
                         }
                         InboundType::Hysteria2(hy2) => {
                             for sub in &active_subs {
-                                if let (_sub_id, Some(uuid), tg_id, _) =
+                                if let (_sub_id, Some(uuid), client_id, _) =
                                     (sub.0, &sub.1, sub.2, &sub.3)
                                 {
-                                    if !visited_users.insert(tg_id) {
+                                    if !visited_users.insert(client_id) {
                                         continue;
                                     }
-                                    let auth_name = crate::services::user_tag::user_tag(tg_id);
+                                    let auth_name = crate::services::user_tag::user_tag(client_id);
 
                                     info!(
                                         "🔑 Injecting HYSTERIA user: {} (Pass: {})",
@@ -1226,8 +1417,14 @@ impl OrchestrationService {
                                     );
                                     hy2.users.push(Hysteria2User {
                                         name: Some(auth_name),
-                                        // Password must match client format: "tg_id:uuid_no_dashes"
-                                        password: format!("{}:{}", tg_id, uuid.replace("-", "")),
+                                        // Пароль обязан совпадать с тем, что
+                                        // отдаётся клиенту в ссылке подписки.
+                                        // Обе половины зовут один построитель,
+                                        // чтобы формат физически не мог
+                                        // разойтись между ними.
+                                        password: crate::services::user_tag::proxy_auth_password(
+                                            client_id, uuid,
+                                        ),
                                     });
                                 }
                             }
@@ -1235,13 +1432,13 @@ impl OrchestrationService {
                         InboundType::AmneziaWg(awg) => {
                             use caramba_db::models::network::AmneziaWgUser;
                             for sub in &active_subs {
-                                if let (_sub_id, Some(uuid), tg_id, _) =
+                                if let (_sub_id, Some(uuid), client_id, _) =
                                     (sub.0, &sub.1, sub.2, &sub.3)
                                 {
-                                    if !visited_users.insert(tg_id) {
+                                    if !visited_users.insert(client_id) {
                                         continue;
                                     }
-                                    let auth_name = crate::services::user_tag::user_tag(tg_id);
+                                    let auth_name = crate::services::user_tag::user_tag(client_id);
 
                                     let client_priv = self.derive_awg_key(uuid);
                                     let client_pub = self.priv_to_pub(&client_priv);
@@ -1255,7 +1452,16 @@ impl OrchestrationService {
                                         private_key: client_priv,
                                         public_key: client_pub,
                                         preshared_key: None,
-                                        client_ip: format!("10.10.0.{}", (tg_id % 250) + 2),
+                                        // rem_euclid, а не `%`: идентичность
+                                        // клиента бывает отрицательной (см.
+                                        // config_client_identity — аккаунты
+                                        // без Telegram id), а `-42 % 250` в
+                                        // Rust даёт -42 и собрало бы строку
+                                        // "10.10.0.-40" — невалидный конфиг.
+                                        client_ip: format!(
+                                            "10.10.0.{}",
+                                            client_id.rem_euclid(250) + 2
+                                        ),
                                     });
                                 }
                             }
@@ -1263,13 +1469,13 @@ impl OrchestrationService {
                         InboundType::Trojan(trojan) => {
                             use caramba_db::models::network::TrojanClient;
                             for sub in &active_subs {
-                                if let (_sub_id, Some(uuid), tg_id, _) =
+                                if let (_sub_id, Some(uuid), client_id, _) =
                                     (sub.0, &sub.1, sub.2, &sub.3)
                                 {
-                                    if !visited_users.insert(tg_id) {
+                                    if !visited_users.insert(client_id) {
                                         continue;
                                     }
-                                    let auth_name = crate::services::user_tag::user_tag(tg_id);
+                                    let auth_name = crate::services::user_tag::user_tag(client_id);
                                     trojan.clients.push(TrojanClient {
                                         password: uuid.clone(),
                                         email: Some(auth_name),
@@ -1279,13 +1485,13 @@ impl OrchestrationService {
                         }
                         InboundType::Tuic(tuic) => {
                             for sub in &active_subs {
-                                if let (_sub_id, Some(uuid), tg_id, _) =
+                                if let (_sub_id, Some(uuid), client_id, _) =
                                     (sub.0, &sub.1, sub.2, &sub.3)
                                 {
-                                    if !visited_users.insert(tg_id) {
+                                    if !visited_users.insert(client_id) {
                                         continue;
                                     }
-                                    let auth_name = crate::services::user_tag::user_tag(tg_id);
+                                    let auth_name = crate::services::user_tag::user_tag(client_id);
 
                                     info!("🔑 Injecting TUIC user: {} (UUID: {})", auth_name, uuid);
                                     tuic.users.push(caramba_db::models::network::TuicUser {
@@ -1298,13 +1504,13 @@ impl OrchestrationService {
                         }
                         InboundType::Naive(naive) => {
                             for sub in &active_subs {
-                                if let (_sub_id, Some(uuid), tg_id, _) =
+                                if let (_sub_id, Some(uuid), client_id, _) =
                                     (sub.0, &sub.1, sub.2, &sub.3)
                                 {
-                                    if !visited_users.insert(tg_id) {
+                                    if !visited_users.insert(client_id) {
                                         continue;
                                     }
-                                    let auth_name = crate::services::user_tag::user_tag(tg_id);
+                                    let auth_name = crate::services::user_tag::user_tag(client_id);
 
                                     info!(
                                         "🔑 Injecting NAIVE user: {} (Pass: {})",
@@ -1319,13 +1525,13 @@ impl OrchestrationService {
                         }
                         InboundType::Shadowsocks(ss) => {
                             for sub in &active_subs {
-                                if let (_sub_id, Some(uuid), tg_id, _) =
+                                if let (_sub_id, Some(uuid), client_id, _) =
                                     (sub.0, &sub.1, sub.2, &sub.3)
                                 {
-                                    if !visited_users.insert(tg_id) {
+                                    if !visited_users.insert(client_id) {
                                         continue;
                                     }
-                                    let auth_name = crate::services::user_tag::user_tag(tg_id);
+                                    let auth_name = crate::services::user_tag::user_tag(client_id);
 
                                     info!(
                                         "🔑 Injecting SHADOWSOCKS user: {} (Pass: {})",
@@ -1368,17 +1574,23 @@ impl OrchestrationService {
         if let Some(target_id) = node.relay_id
             && node.is_relay
         {
+            // Тот же принцип, что и с подписчиками: сбой запроса не должен
+            // выглядеть как «целевой ноды нет» / «у неё нет inbound'ов».
+            // Иначе relay-нода получит конфиг без цепочки на выход — её
+            // клиенты остаются без интернета, хотя данные в БД целы.
             relay_target_node = self
                 .node_repo
                 .get_node_by_id(target_id)
                 .await
-                .unwrap_or(None);
+                .with_context(|| format!("failed to load relay target node {target_id}"))?;
             if relay_target_node.is_some() {
                 let mut target_inbounds = self
                     .node_repo
                     .get_inbounds_by_node(target_id)
                     .await
-                    .unwrap_or_default();
+                    .with_context(|| {
+                        format!("failed to load inbounds of relay target node {target_id}")
+                    })?;
                 target_inbounds.sort_by_key(|i| i.listen_port);
                 relay_target_inbound = target_inbounds
                     .into_iter()
@@ -1386,11 +1598,14 @@ impl OrchestrationService {
             }
         }
 
+        // Пустой список relay-клиентов из-за сбоя запроса — это конфиг,
+        // в котором relay никого не пускает: та же катастрофа, что и пустой
+        // список подписчиков, только для relay-нод.
         let relay_clients = self
             .node_repo
             .get_relay_clients(node.id)
             .await
-            .unwrap_or_default();
+            .with_context(|| format!("failed to load relay clients for node {}", node.id))?;
         if !relay_clients.is_empty() {
             info!(
                 "Context: Node {} has {} relay clients",
@@ -1473,5 +1688,179 @@ impl OrchestrationService {
         let public = PublicKey::from(&secret);
 
         base64::Engine::encode(&base64::prelude::BASE64_STANDARD, public.as_bytes())
+    }
+}
+
+#[cfg(test)]
+mod notify_coalescer_tests {
+    use super::NodeNotifyCoalescer;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    const WINDOW: Duration = Duration::from_millis(60);
+
+    /// Счётчик фактических публикаций: имитирует publish на ноду.
+    #[derive(Clone, Default)]
+    struct Sink {
+        emitted: Arc<AtomicUsize>,
+        /// Сколько первых попыток должны провалиться (имитация недоступного Redis).
+        fail_first: Arc<AtomicUsize>,
+        attempts: Arc<AtomicUsize>,
+        /// Сколько времени публикация «занимает» — окно для гонки
+        /// «запрос пришёл, пока идёт публикация».
+        emit_delay: Duration,
+    }
+
+    impl Sink {
+        fn emitted(&self) -> usize {
+            self.emitted.load(Ordering::SeqCst)
+        }
+
+        fn attempts(&self) -> usize {
+            self.attempts.load(Ordering::SeqCst)
+        }
+
+        fn call(
+            &self,
+        ) -> impl Fn(i64) -> std::pin::Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> + use<>
+        {
+            let sink = self.clone();
+            move |_node_id| {
+                let sink = sink.clone();
+                Box::pin(async move {
+                    sink.attempts.fetch_add(1, Ordering::SeqCst);
+                    if sink.fail_first.load(Ordering::SeqCst) > 0 {
+                        sink.fail_first.fetch_sub(1, Ordering::SeqCst);
+                        return Err(anyhow::anyhow!("redis down"));
+                    }
+                    if !sink.emit_delay.is_zero() {
+                        tokio::time::sleep(sink.emit_delay).await;
+                    }
+                    sink.emitted.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                })
+            }
+        }
+    }
+
+    /// Волна регистраций схлопывается в ОДИН рестарт ноды — ради этого
+    /// склейка и существует (каждая публикация = systemd restart sing-box =
+    /// разрыв сессий всех платных подписчиков ноды).
+    #[tokio::test]
+    async fn burst_collapses_into_a_single_publish() {
+        let coalescer = NodeNotifyCoalescer::default();
+        let sink = Sink::default();
+
+        for _ in 0..25 {
+            coalescer.schedule(7, WINDOW, sink.call());
+        }
+
+        tokio::time::sleep(WINDOW * 5).await;
+        assert_eq!(
+            sink.emitted(),
+            1,
+            "25 уведомлений по одной ноде должны были дать одну публикацию"
+        );
+    }
+
+    /// Склейка не сваливает разные ноды в одну: у каждой свой слот.
+    #[tokio::test]
+    async fn different_nodes_are_coalesced_independently() {
+        let coalescer = NodeNotifyCoalescer::default();
+        let sink = Sink::default();
+
+        for _ in 0..5 {
+            coalescer.schedule(1, WINDOW, sink.call());
+            coalescer.schedule(2, WINDOW, sink.call());
+            coalescer.schedule(5, WINDOW, sink.call());
+        }
+
+        tokio::time::sleep(WINDOW * 5).await;
+        assert_eq!(
+            sink.emitted(),
+            3,
+            "по одной публикации на каждую из трёх нод"
+        );
+    }
+
+    /// Ключевое свойство: уведомление НЕЛЬЗЯ потерять.
+    /// Запрос, пришедший ровно во время публикации (после того как круг забрал
+    /// dirty, но до того как цикл решил завершиться), обязан вызвать ещё одну
+    /// публикацию. Иначе новый пользователь навсегда остался бы вне конфига.
+    #[tokio::test]
+    async fn request_arriving_during_publish_is_not_lost() {
+        let coalescer = NodeNotifyCoalescer::default();
+        let sink = Sink {
+            emit_delay: WINDOW * 2,
+            ..Sink::default()
+        };
+
+        coalescer.schedule(9, WINDOW, sink.call());
+
+        // Ждём начала первой публикации и попадаем внутрь её «долгого» тела.
+        tokio::time::sleep(WINDOW + WINDOW / 2).await;
+        assert_eq!(sink.attempts(), 1, "первая публикация должна была начаться");
+        assert_eq!(sink.emitted(), 0, "и ещё не завершиться");
+
+        // Запрос ровно в этот момент — самый опасный случай.
+        coalescer.schedule(9, WINDOW, sink.call());
+
+        tokio::time::sleep(WINDOW * 8).await;
+        assert_eq!(
+            sink.emitted(),
+            2,
+            "запрос, пришедший во время публикации, обязан получить свою публикацию"
+        );
+    }
+
+    /// Уведомление не теряется и после того, как цикл завершился: следующий
+    /// запрос обязан запустить новый цикл.
+    #[tokio::test]
+    async fn request_after_loop_exit_starts_a_new_cycle() {
+        let coalescer = NodeNotifyCoalescer::default();
+        let sink = Sink::default();
+
+        coalescer.schedule(11, WINDOW, sink.call());
+        // Двух окон хватает, чтобы круг опубликовал и следующий круг вышел.
+        tokio::time::sleep(WINDOW * 4).await;
+        assert_eq!(sink.emitted(), 1);
+        assert!(
+            coalescer.slots.lock().unwrap().is_empty(),
+            "после холостого круга слот должен освобождаться, иначе течёт память"
+        );
+
+        coalescer.schedule(11, WINDOW, sink.call());
+        tokio::time::sleep(WINDOW * 4).await;
+        assert_eq!(
+            sink.emitted(),
+            2,
+            "новый запрос обязан дать новую публикацию"
+        );
+    }
+
+    /// Провал публикации (Redis недоступен) не съедает уведомление: цикл
+    /// повторяет попытку, пока она не пройдёт.
+    #[tokio::test]
+    async fn failed_publish_is_retried_not_dropped() {
+        let coalescer = NodeNotifyCoalescer::default();
+        let sink = Sink {
+            fail_first: Arc::new(AtomicUsize::new(2)),
+            ..Sink::default()
+        };
+
+        coalescer.schedule(13, WINDOW, sink.call());
+
+        tokio::time::sleep(WINDOW * 8).await;
+        assert_eq!(
+            sink.emitted(),
+            1,
+            "после двух сбоев публикация обязана всё-таки состояться"
+        );
+        assert_eq!(
+            sink.attempts(),
+            3,
+            "две провалившиеся попытки плюс успешная"
+        );
     }
 }

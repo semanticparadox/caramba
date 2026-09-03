@@ -1078,13 +1078,17 @@ impl SubscriptionService {
                             params.push(format!("obfs-password={}", obfs.password));
                         }
 
-                        let tg_id: i64 =
-                            sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
-                                .bind(sub.user_id)
-                                .fetch_optional(&self.pool)
-                                .await?
-                                .unwrap_or(0);
-                        let auth = format!("{}:{}", tg_id, uuid.replace("-", ""));
+                        // Та же идентичность, что нода кладёт в
+                        // Hysteria2User::password, и тот же построитель —
+                        // см. services::user_tag.
+                        let client_identity =
+                            crate::services::user_tag::config_client_identity_for_user(
+                                &self.pool,
+                                sub.user_id,
+                            )
+                            .await?;
+                        let auth =
+                            crate::services::user_tag::proxy_auth_password(client_identity, &uuid);
                         links.push(format!(
                             "hysteria2://{}@{}:{}?{}#{}",
                             auth,
@@ -1167,13 +1171,23 @@ impl SubscriptionService {
                             }
                         }
 
-                        let tg_id: i64 =
-                            sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
-                                .bind(sub.user_id)
-                                .fetch_optional(&self.pool)
-                                .await?
-                                .unwrap_or(0);
-                        let auth = format!("{}:{}", tg_id, uuid.replace("-", ""));
+                        // Идентичность берётся тем же способом, что и для
+                        // ноды. ВНИМАНИЕ: форма учётки naive расходится с
+                        // конфигом ноды и БЕЗ NULL — нода пишет
+                        // `username: user_{identity}` / `password: {uuid}`, а
+                        // ссылка отдаёт `{identity}:{uuid}` (без префикса
+                        // `user_` и с другим паролем). Это отдельный, более
+                        // старый дефект: чинить его здесь значило бы менять
+                        // формат живых ссылок, поэтому форма сохранена, а
+                        // расхождение вынесено в отчёт.
+                        let client_identity =
+                            crate::services::user_tag::config_client_identity_for_user(
+                                &self.pool,
+                                sub.user_id,
+                            )
+                            .await?;
+                        let auth =
+                            crate::services::user_tag::proxy_auth_password(client_identity, &uuid);
                         links.push(format!(
                             "naive+https://{}@{}:{}?{}#{}",
                             auth,
@@ -1211,16 +1225,23 @@ impl SubscriptionService {
         .context("Failed to resolve active subscription by tg_id")
     }
 
-    /// Возвращает tg_id владельца и vless_uuid подписки — для матчинга живых
-    /// соединений: sing-box помечает их тегом `user_{tg_id}`, а в chains может
-    /// присутствовать vless UUID (легаси-путь).
+    /// Возвращает идентичность клиента и vless_uuid подписки — для матчинга
+    /// живых соединений: sing-box помечает их тегом `user_{identity}`, а в
+    /// chains может присутствовать vless UUID (легаси-путь).
+    ///
+    /// Идентичность, а не сырой `u.tg_id`, по двум причинам. Во-первых, тег в
+    /// конфиге ноды строится из `config_client_identity`, и матчинг обязан
+    /// брать ровно то же значение, иначе kill-switch промахнётся мимо
+    /// аккаунта без Telegram id. Во-вторых, non-optional декодирование
+    /// nullable-колонки — это `Err(UnexpectedNull)`, то есть весь enforcement
+    /// по такой подписке падал бы в ошибку.
     pub async fn get_subscription_connection_identity(
         &self,
         subscription_id: i64,
     ) -> Result<Option<(i64, Option<String>)>> {
-        sqlx::query_as(
+        let row: Option<(Option<i64>, i64, Option<String>)> = sqlx::query_as(
             r#"
-            SELECT u.tg_id, s.vless_uuid
+            SELECT u.tg_id, u.id, s.vless_uuid
             FROM subscriptions s
             JOIN users u ON u.id = s.user_id
             WHERE s.id = $1
@@ -1229,7 +1250,14 @@ impl SubscriptionService {
         .bind(subscription_id)
         .fetch_optional(&self.pool)
         .await
-        .context("Failed to resolve subscription connection identity")
+        .context("Failed to resolve subscription connection identity")?;
+
+        Ok(row.map(|(tg_id, user_id, vless_uuid)| {
+            (
+                crate::services::user_tag::config_client_identity(tg_id, user_id),
+                vless_uuid,
+            )
+        }))
     }
 
     /// Есть ли у владельца подписки ДРУГАЯ активная подписка. Нужно
@@ -1307,9 +1335,16 @@ impl SubscriptionService {
             return Ok(false);
         }
 
+        // is_free и daily_traffic_mb передаются в предикат, а не только
+        // выбирают статус ниже: у бесплатного плана потолок — суточная норма, а
+        // не traffic_limit_gb. Если сюда уйдут не все четыре аргумента, эта
+        // проверка разъедется с ночными свипами и подписка начнёт мигать между
+        // 'active' и 'throttled'.
         if !crate::services::bonus_traffic::is_over_quota(
             used_traffic,
+            is_free,
             traffic_limit_gb as i64,
+            daily_traffic_mb as i64,
             bonus_traffic_mb,
         ) {
             return Ok(true);
@@ -1377,6 +1412,11 @@ impl SubscriptionService {
         // Bonus traffic counts here too: a free-plan user who was given extra
         // MB must keep connecting until the plan's daily quota AND the bonus
         // are gone, otherwise the grant would be invisible to them.
+        //
+        // {limited} — «у плана вообще есть потолок» — вынесен в общую константу
+        // и разделяется с ночным снятием троттлинга (monitoring::
+        // daily_traffic_topup). Раньше здесь стояли два условия > 0, а там —
+        // своё представление о безлимите; расхождение и есть тот самый флап.
         let sql = format!(
             r#"
             UPDATE subscriptions s
@@ -1386,11 +1426,11 @@ impl SubscriptionService {
               AND u.id = s.user_id
               AND s.status = 'active'
               AND COALESCE(p.is_free, FALSE) = TRUE
-              AND COALESCE(p.daily_traffic_mb, 0) > 0
-              AND COALESCE(p.traffic_limit_gb, 0) > 0
+              AND {limited}
               AND COALESCE(s.used_traffic, 0) >= {limit}
             RETURNING s.id AS subscription_id, s.user_id, s.node_id, s.plan_id
             "#,
+            limited = crate::services::bonus_traffic::QUOTA_LIMITED_PLAN_SQL,
             limit = crate::services::bonus_traffic::QUOTA_LIMIT_BYTES_SQL,
         );
         let rows = sqlx::query_as::<_, ExpiredQuotaSubscription>(&sql)
@@ -1899,13 +1939,16 @@ impl SubscriptionService {
             )
         })?;
 
-        let tg_id: i64 = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
-            .bind(sub.user_id)
-            .fetch_optional(&self.pool)
-            .await?
-            .unwrap_or(0);
+        // Раньше здесь `SELECT tg_id` декодировался в non-optional i64:
+        // у email-аккаунта sqlx возвращал Err(UnexpectedNull), `?` вылетал
+        // наружу, и GET /sub/{uuid} превращался в 500 — стоявший ниже
+        // `.unwrap_or(0)` до этого места просто не доживал.
+        let client_identity =
+            crate::services::user_tag::config_client_identity_for_user(&self.pool, sub.user_id)
+                .await?;
 
-        let hy2_password = format!("{}:{}", tg_id, user_uuid.replace("-", ""));
+        let hy2_password =
+            crate::services::user_tag::proxy_auth_password(client_identity, &user_uuid);
         let awg_private_key = self.derive_awg_key(&user_uuid);
 
         Ok(UserKeys {

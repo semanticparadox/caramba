@@ -40,9 +40,29 @@
 //! heartbeat ingestion in `api/v2/node.rs` enforces through
 //! `expire_over_quota_candidates`.
 //!
+//! `plan_limit_bytes` is not the same quantity on both tiers: a paid plan is
+//! capped by `plans.traffic_limit_gb`, a free plan by `plans.daily_traffic_mb`.
+//! The free tier is sold as a per-day budget and `traffic_limit_gb` is a whole
+//! number of gigabytes, so it cannot express the 200 MB/day the free plan
+//! actually grants — the daily column is the only place that number fits.
+//!
 //! The SQL side of that comparison is spelled once in [`QUOTA_LIMIT_BYTES_SQL`]
-//! so the gates cannot drift apart; the same arithmetic is available as a pure
-//! function in [`quota_limit_bytes`] for the tests and for the display paths.
+//! (and "is it capped at all" in [`QUOTA_LIMITED_PLAN_SQL`]) so the gates cannot
+//! drift apart; the same arithmetic is available as a pure function in
+//! [`plan_quota_limit_bytes`] for the tests and for the display paths.
+//!
+//! # One ceiling function, no plan-blind shortcut
+//!
+//! [`plan_quota_limit_bytes`] is the ONLY way to obtain a ceiling. There used to
+//! be a second, `quota_limit_bytes(traffic_limit_gb, bonus_mb)`, which existed
+//! for display paths that "only had the gigabyte column in hand" and answered by
+//! hard-coding `is_free = false`. Every display path did in fact have — or was
+//! one JOIN away from — `is_free`, so all it bought was a wrong number: a free
+//! user throttled at 200 MB/day was shown 2% of 10 GB used and no explanation.
+//! A function that silently answers for the wrong plan class is exactly how that
+//! divergence happened, so it is gone rather than fixed. Anything that needs a
+//! ceiling must produce `is_free` and `daily_traffic_mb` first — which the type
+//! signature now forces.
 
 use anyhow::{Context, Result};
 use sqlx::{PgPool, Postgres, Transaction};
@@ -93,15 +113,45 @@ pub fn parse_bonus_mb(raw: Option<&str>) -> i64 {
 
 /// The effective traffic ceiling for a subscription, in bytes.
 ///
-/// `None` means unlimited: a plan with `traffic_limit_gb <= 0` has no ceiling,
-/// and bonus traffic on top of "unlimited" is still unlimited.
+/// A FREE plan is measured by its DAILY allowance (`daily_traffic_mb`), not by
+/// `traffic_limit_gb`: the free tier is a per-day budget that
+/// `monitoring::daily_traffic_topup` refills, and `traffic_limit_gb` is cast to
+/// BIGINT everywhere, so it cannot express anything below 1 GB. A PAID plan is
+/// measured by `traffic_limit_gb` exactly as before.
+///
+/// `None` means unlimited, and there are two ways to get there: any plan with
+/// `traffic_limit_gb <= 0`, and a free plan with no daily allowance. The second
+/// case is not cosmetic — `throttle_free_quota_subscriptions` refuses to
+/// throttle a free plan without a daily refill (there would be no automatic way
+/// back out of 'throttled'), so a ceiling for such a plan would be a ceiling
+/// nothing can act on. Bonus traffic on top of "unlimited" is still unlimited.
+///
+/// OPERATOR TRAP, deliberately preserved: `traffic_limit_gb <= 0` reads as
+/// unlimited even when `is_free` is true and `daily_traffic_mb` is set. So the
+/// intuitive response to "the free plan shows the wrong gigabytes" — zeroing
+/// plan 3's `traffic_limit_gb` — does not blank a misleading column, it hands
+/// the free tier an uncapped, un-throttleable plan. `traffic_limit_gb` is the
+/// free plan's on/off switch as much as the paid plan's ceiling; to change what
+/// a free user gets per day, edit `daily_traffic_mb`.
 ///
 /// This is the Rust twin of [`QUOTA_LIMIT_BYTES_SQL`]; the two must agree.
-pub fn quota_limit_bytes(traffic_limit_gb: i64, bonus_traffic_mb: i64) -> Option<i64> {
+pub fn plan_quota_limit_bytes(
+    is_free: bool,
+    traffic_limit_gb: i64,
+    daily_traffic_mb: i64,
+    bonus_traffic_mb: i64,
+) -> Option<i64> {
     if traffic_limit_gb <= 0 {
         return None;
     }
-    let plan_bytes = traffic_limit_gb.saturating_mul(1024 * 1024 * 1024);
+    let plan_bytes = if is_free {
+        if daily_traffic_mb <= 0 {
+            return None;
+        }
+        daily_traffic_mb.saturating_mul(1024 * 1024)
+    } else {
+        traffic_limit_gb.saturating_mul(1024 * 1024 * 1024)
+    };
     let bonus_bytes = bonus_traffic_mb.max(0).saturating_mul(1024 * 1024);
     Some(plan_bytes.saturating_add(bonus_bytes))
 }
@@ -110,8 +160,19 @@ pub fn quota_limit_bytes(traffic_limit_gb: i64, bonus_traffic_mb: i64) -> Option
 ///
 /// The single predicate behind every expire/throttle decision; `false` for
 /// unlimited plans.
-pub fn is_over_quota(used_traffic: i64, traffic_limit_gb: i64, bonus_traffic_mb: i64) -> bool {
-    match quota_limit_bytes(traffic_limit_gb, bonus_traffic_mb) {
+pub fn is_over_quota(
+    used_traffic: i64,
+    is_free: bool,
+    traffic_limit_gb: i64,
+    daily_traffic_mb: i64,
+    bonus_traffic_mb: i64,
+) -> bool {
+    match plan_quota_limit_bytes(
+        is_free,
+        traffic_limit_gb,
+        daily_traffic_mb,
+        bonus_traffic_mb,
+    ) {
         None => false,
         Some(limit) => used_traffic >= limit,
     }
@@ -124,8 +185,26 @@ pub fn is_over_quota(used_traffic: i64, traffic_limit_gb: i64, bonus_traffic_mb:
 /// scope. Kept as one shared constant so an added gate cannot forget the bonus
 /// term — the failure mode of forgetting is throttling a user who still has
 /// traffic left, which is invisible until they complain.
-pub const QUOTA_LIMIT_BYTES_SQL: &str = "(CAST(p.traffic_limit_gb AS BIGINT) * 1073741824 \
+///
+/// The `is_free` branch is the same split as [`plan_quota_limit_bytes`]: free
+/// plans are capped by the daily allowance, paid plans by `traffic_limit_gb`.
+/// The paid branch is byte-for-byte the expression that shipped before the free
+/// tier existed, so no paid subscription changes its ceiling.
+pub const QUOTA_LIMIT_BYTES_SQL: &str = "(CASE WHEN COALESCE(p.is_free, FALSE) \
+     THEN COALESCE(p.daily_traffic_mb, 0)::BIGINT * 1048576 \
+     ELSE CAST(p.traffic_limit_gb AS BIGINT) * 1073741824 END \
      + COALESCE(u.bonus_traffic_mb, 0) * 1048576)";
+
+/// Whether the plan has a ceiling at all, as a SQL predicate — the `Some(..)`
+/// half of [`plan_quota_limit_bytes`].
+///
+/// Exists so the throttle sweep and the nightly un-throttle sweep cannot
+/// disagree about which plans are capped. They already share
+/// [`QUOTA_LIMIT_BYTES_SQL`]; if they disagreed about "unlimited" instead, a
+/// user would either stick in 'throttled' forever or flap in and out of it
+/// every night — the same failure, reached through the other door.
+pub const QUOTA_LIMITED_PLAN_SQL: &str = "(COALESCE(p.traffic_limit_gb, 0) > 0 \
+     AND (NOT COALESCE(p.is_free, FALSE) OR COALESCE(p.daily_traffic_mb, 0) > 0))";
 
 /// Clamp a requested grant into the allowed range.
 ///
@@ -418,24 +497,33 @@ mod tests {
 
     #[test]
     fn unlimited_plans_stay_unlimited_with_or_without_bonus() {
-        assert_eq!(quota_limit_bytes(0, 0), None);
-        assert_eq!(quota_limit_bytes(0, 5000), None);
-        assert_eq!(quota_limit_bytes(-1, 5000), None);
-        assert!(!is_over_quota(i64::MAX / 2, 0, 0));
-        assert!(!is_over_quota(i64::MAX / 2, 0, 1024));
+        assert_eq!(plan_quota_limit_bytes(false, 0, 0, 0), None);
+        assert_eq!(plan_quota_limit_bytes(false, 0, 0, 5000), None);
+        assert_eq!(plan_quota_limit_bytes(false, -1, 0, 5000), None);
+        assert!(!is_over_quota(i64::MAX / 2, false, 0, 0, 0));
+        assert!(!is_over_quota(i64::MAX / 2, false, 0, 0, 1024));
+        // traffic_limit_gb = 0 остаётся безлимитом и на бесплатном плане, даже
+        // когда суточная норма задана: троттлить такой план некому.
+        assert!(!is_over_quota(i64::MAX / 2, true, 0, 200, 0));
     }
 
     #[test]
     fn bonus_is_added_on_top_of_the_plan_allowance() {
         // 1 GB plan, no bonus.
-        assert_eq!(quota_limit_bytes(1, 0), Some(1024 * 1024 * 1024));
+        assert_eq!(
+            plan_quota_limit_bytes(false, 1, 0, 0),
+            Some(1024 * 1024 * 1024)
+        );
         // 1 GB plan + 200 MB bonus.
         assert_eq!(
-            quota_limit_bytes(1, 200),
+            plan_quota_limit_bytes(false, 1, 0, 200),
             Some(1024 * 1024 * 1024 + 200 * 1024 * 1024)
         );
         // A negative cached balance can never SHRINK the plan allowance.
-        assert_eq!(quota_limit_bytes(1, -500), Some(1024 * 1024 * 1024));
+        assert_eq!(
+            plan_quota_limit_bytes(false, 1, 0, -500),
+            Some(1024 * 1024 * 1024)
+        );
     }
 
     #[test]
@@ -446,21 +534,86 @@ mod tests {
         // 1 GB plan, 200 MB bonus => ceiling is 1 GB + 200 MB.
         // Exactly at the plan allowance: NOT over quota any more (this is the
         // regression bonus traffic exists to prevent).
-        assert!(!is_over_quota(gb, 1, 200));
+        assert!(!is_over_quota(gb, false, 1, 0, 200));
         // One byte below the bonus ceiling: still fine.
-        assert!(!is_over_quota(gb + 200 * mb - 1, 1, 200));
+        assert!(!is_over_quota(gb + 200 * mb - 1, false, 1, 0, 200));
         // Exactly at the bonus ceiling: over quota (the gates use `>=`).
-        assert!(is_over_quota(gb + 200 * mb, 1, 200));
+        assert!(is_over_quota(gb + 200 * mb, false, 1, 0, 200));
         // Beyond it: over quota.
-        assert!(is_over_quota(gb + 500 * mb, 1, 200));
+        assert!(is_over_quota(gb + 500 * mb, false, 1, 0, 200));
     }
 
     #[test]
     fn without_bonus_the_gate_behaves_exactly_as_before() {
         let gb = 1024 * 1024 * 1024;
-        assert!(!is_over_quota(gb - 1, 1, 0));
-        assert!(is_over_quota(gb, 1, 0));
-        assert!(is_over_quota(gb + 1, 1, 0));
+        assert!(!is_over_quota(gb - 1, false, 1, 0, 0));
+        assert!(is_over_quota(gb, false, 1, 0, 0));
+        assert!(is_over_quota(gb + 1, false, 1, 0, 0));
+    }
+
+    #[test]
+    fn a_free_plan_is_capped_by_its_daily_allowance_not_its_gigabytes() {
+        let mb = 1024 * 1024;
+
+        // The shipped free plan: traffic_limit_gb = 10, daily_traffic_mb = 200.
+        // The 10 GB column must not be what the user gets to burn.
+        assert_eq!(
+            plan_quota_limit_bytes(true, 10, 200, 0),
+            Some(200 * mb),
+            "a free plan is measured in daily megabytes"
+        );
+        assert!(!is_over_quota(200 * mb - 1, true, 10, 200, 0));
+        assert!(is_over_quota(200 * mb, true, 10, 200, 0));
+
+        // Bonus traffic still stacks on top of the daily allowance.
+        assert_eq!(plan_quota_limit_bytes(true, 10, 200, 50), Some(250 * mb));
+        assert!(!is_over_quota(249 * mb, true, 10, 200, 50));
+
+        // The same plan row read as PAID keeps the old gigabyte ceiling: no
+        // paid subscription may shift because the free tier was fixed, and the
+        // daily column is simply ignored off the free branch.
+        assert_eq!(
+            plan_quota_limit_bytes(false, 10, 200, 0),
+            Some(10 * 1024 * mb)
+        );
+
+        // A free plan with no daily refill is unlimited here BECAUSE
+        // throttle_free_quota_subscriptions refuses to throttle it — a ceiling
+        // no sweep can enforce would only mislead the display paths.
+        assert_eq!(plan_quota_limit_bytes(true, 10, 0, 0), None);
+        assert!(!is_over_quota(i64::MAX, true, 10, 0, 0));
+    }
+
+    /// The display paths (client.rs, api/v2/app.rs, admin/users.rs,
+    /// subscription.rs' `Subscription-Userinfo`) and the enforcement gates now
+    /// call the SAME function with the SAME arguments. This test is the
+    /// statement of that invariant: for the shipped free plan there is exactly
+    /// one number, and it is the daily one. If a display path is ever given a
+    /// plan-blind shortcut again, it will disagree with this.
+    #[test]
+    fn what_is_displayed_is_what_is_enforced() {
+        let mb = 1024i64 * 1024;
+        // Production plan 3: is_free, traffic_limit_gb = 10, daily = 200 MB.
+        let shown = plan_quota_limit_bytes(true, 10, 200, 0).expect("free plan is capped");
+        assert_eq!(shown, 200 * mb);
+        // One byte under the shown ceiling the user still passes the gate; at
+        // the ceiling he is throttled. No screen may promise the 10 GB column.
+        assert!(!is_over_quota(shown - 1, true, 10, 200, 0));
+        assert!(is_over_quota(shown, true, 10, 200, 0));
+        assert_ne!(shown, 10 * 1024 * mb, "10 GB is the column, not the budget");
+    }
+
+    /// The operator trap, pinned so nobody "fixes" the free plan by zeroing its
+    /// gigabytes. `traffic_limit_gb = 0` is the unlimited switch on BOTH plan
+    /// classes — on a free plan it does not hide a misleading column, it removes
+    /// the ceiling and, via `QUOTA_LIMITED_PLAN_SQL`, the throttle sweep too.
+    #[test]
+    fn zeroing_a_free_plans_gigabytes_makes_it_unlimited_not_daily() {
+        assert_eq!(plan_quota_limit_bytes(true, 0, 200, 0), None);
+        assert!(!is_over_quota(i64::MAX / 2, true, 0, 200, 0));
+        // The SQL twin agrees: the "is it capped at all" predicate leads with
+        // traffic_limit_gb > 0 regardless of is_free.
+        assert!(QUOTA_LIMITED_PLAN_SQL.starts_with("(COALESCE(p.traffic_limit_gb, 0) > 0"));
     }
 
     #[test]
@@ -470,8 +623,9 @@ mod tests {
         // rows it left behind. The property is kept as a guard: whatever puts a
         // negative in front of this function, it must read as "plenty left" and
         // never as over quota.
-        assert!(!is_over_quota(-500 * 1024 * 1024, 1, 0));
-        assert!(!is_over_quota(-500 * 1024 * 1024, 1, 200));
+        assert!(!is_over_quota(-500 * 1024 * 1024, false, 1, 0, 0));
+        assert!(!is_over_quota(-500 * 1024 * 1024, false, 1, 0, 200));
+        assert!(!is_over_quota(-500 * 1024 * 1024, true, 10, 200, 0));
     }
 
     #[test]
@@ -483,6 +637,14 @@ mod tests {
         assert!(QUOTA_LIMIT_BYTES_SQL.contains("u.bonus_traffic_mb"));
         assert!(QUOTA_LIMIT_BYTES_SQL.contains("1073741824"));
         assert!(QUOTA_LIMIT_BYTES_SQL.contains("1048576"));
+        // The free tier is the reason this expression branches at all: if the
+        // CASE is ever flattened back to one term, free users silently regain
+        // the 10 GB the gigabyte column advertises.
+        assert!(QUOTA_LIMIT_BYTES_SQL.contains("p.is_free"));
+        assert!(QUOTA_LIMIT_BYTES_SQL.contains("p.daily_traffic_mb"));
+        assert!(QUOTA_LIMITED_PLAN_SQL.contains("p.is_free"));
+        assert!(QUOTA_LIMITED_PLAN_SQL.contains("p.daily_traffic_mb"));
+        assert!(QUOTA_LIMITED_PLAN_SQL.contains("p.traffic_limit_gb"));
         assert_eq!(1024i64 * 1024 * 1024, 1_073_741_824);
         assert_eq!(1024i64 * 1024, 1_048_576);
     }

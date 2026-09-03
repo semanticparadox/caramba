@@ -16,8 +16,9 @@ use std::path::{Path, PathBuf};
 
 use caramba_shared::csm::catalog::{
     self, CHUNK_PAYLOAD_MAX, Catalog, Fingerprint, Flow, Network, Node, Protocol, Security,
-    Thresholds, cap,
+    SsMethod, Thresholds, cap,
 };
+use caramba_shared::csm::directive::{RelayResolution, Selection};
 use caramba_shared::csm::{self, DocType};
 use ed25519_dalek::SigningKey;
 
@@ -349,4 +350,234 @@ fn a_fleet_over_one_chunk_is_split_at_the_signed_boundary() {
             .all(|f| f.len() <= catalog::CHUNK_RESP_MAX),
         "кадр части обязан помещаться под CHUNK_RESP_MAX до набивки"
     );
+}
+
+// ---------------------------------------------------------------- цепочки релэев
+//
+// Корпус несёт `re` только внутри `c1_typical.bin`, где ни один из сорока
+// выходов не ссылается на релей, а `cap` выставлен целиком, чтобы показать
+// форму всех двенадцати битов. Форму связки «запись `re` плюс `rl` выхода,
+// который в неё разрешается» там не проверяет ничего, а панель выпускает
+// именно её. Эти тесты закрывают разрыв на уровне байтов и правил.
+
+/// Узел-релей: Shadowsocks-2022, без TLS и без SNI — та самая форма, которую
+/// таблица размеров `03-WIRE.md` 8.2.1 измеряет в 60 байт.
+fn relay_ss2022(id: &str, cc: &str, host: &str) -> Node {
+    let mut n = Node::new(
+        id,
+        "\u{1F1F7}\u{1F1FA} Relay",
+        cc,
+        host,
+        8388,
+        Protocol::Shadowsocks,
+        Network::Tcp,
+        Security::None,
+    );
+    n.ss_method = Some(SsMethod::Blake3Aes256Gcm);
+    n
+}
+
+/// Минимальный каталог с одной цепочкой: DE-выход через RU-релей.
+fn chained_catalog() -> Catalog {
+    let mut c = minimal_catalog();
+    c.relays = vec![relay_ss2022("n2i1", "RU", "ru-r1.exa-nodes.net")];
+    c.exits[0].relay = Some("n2i1".into());
+    c.cap |= cap::RELAY_CHAINING;
+    c
+}
+
+#[test]
+fn a_relay_entry_and_the_link_to_it_encode_as_the_field_table_says() {
+    let payload = chained_catalog().encode().expect("модель и пределы");
+
+    // `re` это ключ 12, массив из одной записи. Запись развёрнута по 8.2.1:
+    // id, pn, cc, h, p, pr = 6 (shadowsocks), nw = 1 (tcp), se = 0 (none),
+    // ssm = 2 (2022-blake3-aes-256-gcm). Девять пар, ни одного лишнего поля.
+    let re = hex(concat!(
+        "0c81",
+        "a9",
+        "01646e326931",
+        "026ef09f87b7f09f87ba2052656c6179",
+        "03625255",
+        "047372752d72312e6578612d6e6f6465732e6e6574",
+        "051920c4",
+        "0606",
+        "0701",
+        "0800",
+        "1702",
+    ));
+    assert!(
+        payload.windows(re.len()).any(|w| w == re),
+        "пара `re` с записью релея не найдена в payload"
+    );
+    // Первая пара это заголовок массива, дальше сама запись: её длина и есть
+    // измеренные 60 байт формы «Shadowsocks-2022 relay» в таблице 8.2.1.
+    assert_eq!(re.len() - 2, 60);
+
+    // `rl` это ключ 22 записи выхода, tstr с `id` записи из `re`.
+    let rl = hex("16646e326931");
+    assert!(
+        payload.windows(rl.len()).any(|w| w == rl),
+        "пара `rl` выхода не найдена в payload"
+    );
+
+    // Минимальный каталог без цепочки не несёт ни того, ни другого: обе пары
+    // появляются вместе и только вместе.
+    let plain = minimal_catalog().encode().unwrap();
+    assert!(!plain.windows(re.len()).any(|w| w == re));
+    assert!(!plain.windows(rl.len()).any(|w| w == rl));
+
+    // Кадр с цепочкой подписывается и режется тем же путём.
+    let signed = chained_catalog().sign(&[online()]).expect("подпись");
+    assert_eq!(signed.chunk_count(), 1);
+    assert_eq!(signed.frame.len(), 272 + re.len() + rl.len());
+}
+
+#[test]
+fn the_catalog_refuses_a_chain_that_does_not_resolve() {
+    // Висячий `rl`: клиент такую ссылку разрешить не может, и подписывать её
+    // нельзя — поэтому выпуск записи `re` и ссылка на неё это одно изменение.
+    let mut dangling = minimal_catalog();
+    dangling.exits[0].relay = Some("n2i1".into());
+    assert!(dangling.validate().is_err(), "rl без записи в re");
+    assert!(dangling.sign(&[online()]).is_err());
+
+    // Релей не ссылается на релей: цепочка ровно в два звена.
+    let mut nested = chained_catalog();
+    nested.relays[0].relay = Some("n2i1".into());
+    assert!(nested.validate().is_err(), "re со своим rl");
+
+    // Один узел не может быть и выходом, и релеем: `02-SPEC.md` 4.4.
+    let mut both = chained_catalog();
+    both.relays.push(both.exits[0].clone());
+    assert!(both.validate().is_err(), "узел в ex и re одновременно");
+
+    // Дубликат внутри `re` ловится так же, как внутри `ex`.
+    let mut dup = chained_catalog();
+    dup.relays
+        .push(relay_ss2022("n2i1", "FI", "fi-r1.exa-nodes.net"));
+    assert!(dup.validate().is_err(), "дубликат id в re");
+}
+
+#[test]
+fn the_chaining_bit_moves_the_content_digest_and_costs_one_resign() {
+    // Бит 2 входит в `content_pairs`, значит поднятие его над уже
+    // подписанным тиром меняет дайджест содержимого и требует ровно одной
+    // переподписи: церемония обязана назвать новый `chash` тира.
+    let with = chained_catalog();
+    let mut without_bit = with.clone();
+    without_bit.cap &= !cap::RELAY_CHAINING;
+    assert_ne!(with.content_digest(), without_bit.content_digest());
+    assert_ne!(
+        with.sign(&[online()]).unwrap().chash,
+        without_bit.sign(&[online()]).unwrap().chash
+    );
+
+    // И сам флот тоже: релей и ссылка на него это содержимое.
+    assert_ne!(with.content_digest(), minimal_catalog().content_digest());
+
+    // Порядок строк базы на дайджест по-прежнему не влияет: массив `re`
+    // нормализуется по `id` как сырым байтам, наравне с `ex`.
+    let mut two = chained_catalog();
+    two.relays
+        .push(relay_ss2022("n3i1", "FI", "fi-r1.exa-nodes.net"));
+    let mut reversed = two.clone();
+    reversed.relays.reverse();
+    assert_eq!(two.content_digest(), reversed.content_digest());
+    assert_eq!(
+        two.sign(&[online()]).unwrap().frame,
+        reversed.sign(&[online()]).unwrap().frame
+    );
+}
+
+/// Флот с релеями и ссылками на них подписывается при опущенном бите 2 —
+/// и это не лазейка, а требуемая форма выпуска (`01-DECISION.md` P8: данные
+/// едут раньше контрола, иначе продаётся подделка).
+///
+/// Обратный перекос проверкой каталога тоже не ловится: `validate` вообще не
+/// связывает `cap` с `re`, потому что бит описывает деплой оператора, а не
+/// содержимое кадра. Значит честность бита держит ровно один тест, и он на
+/// стороне панели, над её генератором:
+/// `the_chaining_bit_follows_the_clash_generator`
+/// (apps/caramba-panel/src/csm/catalog_store.rs). Здесь зафиксировано, что он
+/// вправе опустить бит, не теряя ни записи `re`, ни подписи.
+#[test]
+fn a_fleet_may_carry_relays_with_the_chaining_bit_clear() {
+    let mut data_without_control = chained_catalog();
+    data_without_control.cap &= !cap::RELAY_CHAINING;
+    data_without_control
+        .validate()
+        .expect("re и rl согласованы и без бита");
+    let signed = data_without_control
+        .sign(&[online()])
+        .expect("каталог без бита подписывается");
+    assert_eq!(signed.chunk_count(), 1);
+
+    // Записи и ссылка на месте: клиент видит флот, но не контрол.
+    assert_eq!(data_without_control.relays.len(), 1);
+    assert_eq!(data_without_control.exits[0].relay.as_deref(), Some("n2i1"));
+
+    // Перекос в другую сторону проверка тоже пропускает — здесь она не судья.
+    let mut control_without_data = minimal_catalog();
+    control_without_data.cap |= cap::RELAY_CHAINING;
+    control_without_data
+        .validate()
+        .expect("cap не сверяется с re: судья не тут");
+}
+
+#[test]
+fn a_selection_is_checked_against_the_catalog_that_backs_it() {
+    // Два предиката `02-SPEC.md` 7.4, которые решаются только против
+    // каталога. Клиент проверяет их после проверки каталога и не отвергает
+    // по ним директиву; подписант держит обе стороны и обязан не выпускать
+    // выбор, которого каталог не подтверждает.
+    let c = chained_catalog();
+    let ok = Selection {
+        exit: Some("n17i3".into()),
+        relay: Some("n2i1".into()),
+        preset: None,
+        variant: 0,
+        proto: None,
+        rcc: RelayResolution::Country(*b"RU"),
+        nid: 17,
+    };
+    c.check_selection(&ok).expect("выбор подтверждён каталогом");
+
+    let bad_exit = Selection {
+        exit: Some("n99i9".into()),
+        ..ok.clone()
+    };
+    assert!(c.check_selection(&bad_exit).is_err(), "exit вне ex");
+
+    let bad_relay = Selection {
+        relay: Some("n9i9".into()),
+        ..ok.clone()
+    };
+    assert!(c.check_selection(&bad_relay).is_err(), "relay вне re");
+
+    let bad_cc = Selection {
+        rcc: RelayResolution::Country(*b"NL"),
+        ..ok.clone()
+    };
+    assert!(
+        c.check_selection(&bad_cc).is_err(),
+        "страна записи re не равна rcc"
+    );
+
+    let contradiction = Selection {
+        rcc: RelayResolution::NoRelay,
+        ..ok.clone()
+    };
+    assert!(
+        c.check_selection(&contradiction).is_err(),
+        "релей назван при rcc = --"
+    );
+
+    // Выбор без релея каталогу не противоречит ничем.
+    let no_relay = Selection {
+        relay: None,
+        rcc: RelayResolution::NoRelay,
+        ..ok
+    };
+    c.check_selection(&no_relay).expect("без цепочки");
 }

@@ -511,7 +511,14 @@ async fn directive_inner(
 
     let now = chrono::Utc::now().timestamp();
     let (status, reason) = store::classify(&sub.status_facts(now));
-    let selection = store::selection_for(&catalog.model, sub.node_id, sub.relay_country.as_deref());
+    // Выбор и эхо настроек разрешаются одним шагом: `sel.rcc` и `pol[3]`
+    // связаны предикатом 7.4, и «не выбирал» отличимо от «явно без релея»
+    // только через происхождение в `pol`.
+    let resolved = store::selection_for(&catalog.model, sub.node_id, sub.relay_country.as_deref());
+    let (selection, policy) = match resolved {
+        Some(r) => (Some(r.selection), Some(r.policy)),
+        None => (None, None),
+    };
     let traffic = caramba_shared::csm::directive::Traffic {
         up: 0,
         down: sub.used_traffic.max(0) as u64,
@@ -530,6 +537,7 @@ async fn directive_inner(
         catalog: &catalog.stored,
         cap: catalog.model.cap,
         selection,
+        policy,
         ttl: catalog.model.ttl,
         locator: loc,
         traffic: Some(traffic),

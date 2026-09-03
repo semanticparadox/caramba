@@ -352,6 +352,25 @@ impl SubscriptionRepository {
         Ok(())
     }
 
+    /// Активные подписки указанных планов в том виде, в каком
+    /// `orchestration_service` впрыскивает пользователей в конфиги нод:
+    /// `(subscription_id, vless_uuid, client_identity, username)`.
+    ///
+    /// Третий элемент — идентичность клиента, а НЕ обязательно Telegram id.
+    /// `users.tg_id` в схеме nullable (проверено на проде:
+    /// `information_schema.columns` → `is_nullable = YES`), и у аккаунтов,
+    /// созданных email-регистрацией (`POST /api/v2/app/register`), он NULL.
+    /// Раньше колонка декодировалась как non-optional `i64`: первая же
+    /// подписка email-пользователя превращала весь запрос в `Err`, вызывающая
+    /// сторона глушила ошибку в пустой список и публиковала на ноды конфиг
+    /// без единого клиента — то есть отключала всех платных подписчиков
+    /// разом и без самовосстановления.
+    ///
+    /// Поэтому tg_id читается как `Option` и, когда его нет, подменяется
+    /// стабильным суррогатом — см. [`config_client_identity`]. Молча выбросить
+    /// такого пользователя из выборки нельзя: он обязан попасть в конфиг ноды,
+    /// иначе оплаченный (пусть и бесплатный) доступ просто не заработает —
+    /// это тот же баг, что мы чиним, только этажом ниже.
     pub async fn get_active_subs_by_plans(
         &self,
         plan_ids: &[i64],
@@ -360,9 +379,11 @@ impl SubscriptionRepository {
             return Ok(Vec::new());
         }
 
-        sqlx::query_as::<_, (i64, Option<String>, i64, Option<String>)>(
+        // u.id выбирается специально: он нужен как источник суррогатной
+        // идентичности, когда tg_id отсутствует.
+        let rows = sqlx::query_as::<_, (i64, Option<String>, Option<i64>, i64, Option<String>)>(
             r#"
-            SELECT s.id, s.vless_uuid, u.tg_id, u.username
+            SELECT s.id, s.vless_uuid, u.tg_id, u.id, u.username
             FROM subscriptions s
             JOIN users u ON s.user_id = u.id
             WHERE LOWER(s.status) = 'active' AND s.plan_id = ANY($1)
@@ -371,7 +392,19 @@ impl SubscriptionRepository {
         .bind(plan_ids)
         .fetch_all(&self.pool)
         .await
-        .context("Failed to fetch active subs by plans")
+        .context("Failed to fetch active subs by plans")?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(sub_id, vless_uuid, tg_id, user_id, username)| {
+                (
+                    sub_id,
+                    vless_uuid,
+                    config_client_identity(tg_id, user_id),
+                    username,
+                )
+            })
+            .collect())
     }
 
     pub async fn update_ips(&self, sub_id: i64, ips: Vec<String>) -> Result<()> {
@@ -442,6 +475,77 @@ impl SubscriptionRepository {
     }
 }
 
+/// Идентичность клиента для конфигов нод: Telegram id, если он есть, иначе
+/// стабильный суррогат `-users.id`.
+///
+/// Почему именно отрицательное пространство. Идентичность здесь используется
+/// как ключ во всех генераторах пользователей sing-box: тег `user_{id}`
+/// (`services::user_tag`), пароль Hysteria2 `{id}:{uuid}`, адрес клиента
+/// AmneziaWG и ключ дедупликации. Значение обязано быть (1) стабильным между
+/// перегенерациями конфига и (2) неспособным совпасть с чужим Telegram id,
+/// иначе трафик и разрывы соединений уедут не тому пользователю. `users.id` —
+/// положительный bigserial PK, он стабилен; Telegram id пользователей всегда
+/// положительные (на проде минимум ~9.5e7, ноль строк с `tg_id <= 0`), так что
+/// отрицательная область гарантированно свободна.
+///
+/// Плата за это осознанная: `user_tag::parse_user_tag` вернёт отрицательное
+/// число, `SELECT ... WHERE tg_id = ANY(...)` его не найдёт, и учёт трафика
+/// такого клиента уйдёт в счётчик unresolved с предупреждением в логе. Это
+/// строго лучше двух альтернатив — выкинуть клиента из конфига (доступ не
+/// работает вообще) или переиспользовать положительное пространство
+/// (трафик и kill-switch попадут в чужой аккаунт).
+pub fn config_client_identity(tg_id: Option<i64>, user_id: i64) -> i64 {
+    match tg_id {
+        Some(id) => id,
+        None => -user_id,
+    }
+}
+
+/// Читает идентичность клиента из строки `users` — ЕДИНСТВЕННЫЙ допустимый
+/// способ получить её на клиентской половине (генераторы ссылок подписки,
+/// internal-эндпоинт ключей).
+///
+/// Существует ради симметрии с [`get_active_subs_by_plans`]: серверная
+/// половина берёт `u.tg_id` уже как `Option` и прогоняет через
+/// [`config_client_identity`], а клиентская до сих пор читала колонку сама и
+/// каждый раз заново решала, что делать с NULL. Два независимых решения —
+/// это и есть расхождение, из-за которого нода ждёт `-42:uuid`, а
+/// пользователю выдаётся `0:uuid`, и аутентификация молча не проходит.
+///
+/// Отдельно про декодирование: `SELECT tg_id` в non-optional `i64` даёт не
+/// «ноль», а `Err(UnexpectedNull)` — любой `.unwrap_or(0)` после такого
+/// запроса мёртв, а вызывающая сторона получает 500 вместо ссылки.
+///
+/// Отсутствие строки `users` — не штатная ситуация, а нарушение
+/// `subscriptions_user_id_fkey` (FOREIGN KEY ... ON DELETE CASCADE), поэтому
+/// здесь честная ошибка, а не выдуманная идентичность: выдуманная означала бы
+/// клиентскую ссылку для пользователя, которого нода не знает.
+pub async fn config_client_identity_for_user(pool: &PgPool, user_id: i64) -> Result<i64> {
+    let tg_id: Option<i64> = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to read client identity from users")?
+        .ok_or_else(|| {
+            anyhow::anyhow!("User {} referenced by subscription does not exist", user_id)
+        })?;
+
+    Ok(config_client_identity(tg_id, user_id))
+}
+
+/// Строка `{идентичность}:{uuid_без_дефисов}` — ЕДИНСТВЕННЫЙ построитель
+/// пароля Hysteria2 и учётки naive.
+///
+/// Обе половины обязаны звать именно её: нода кладёт результат в
+/// `Hysteria2User::password` (`orchestration_service`), клиент получает тот же
+/// результат в ссылке подписки (`subscription_service`, `api/internal`). Пока
+/// формат собирался двумя разными `format!` по разным входам, расхождение
+/// нельзя было заметить ничем, кроме жалобы пользователя: неудачная
+/// аутентификация Hysteria2 не пишет в логи панели ничего.
+pub fn proxy_auth_password(client_identity: i64, uuid: &str) -> String {
+    format!("{}:{}", client_identity, uuid.replace('-', ""))
+}
+
 fn normalize_client_ip(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed == "0.0.0.0" || trimmed == "::" {
@@ -477,5 +581,72 @@ fn canonicalize_ip(ip: IpAddr) -> IpAddr {
     match ip {
         IpAddr::V6(v6) => v6.to_ipv4().map(IpAddr::V4).unwrap_or(IpAddr::V6(v6)),
         other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{config_client_identity, proxy_auth_password};
+
+    /// Регрессия на BLOCKER: у email-аккаунтов `users.tg_id` = NULL. Раньше
+    /// строка с NULL роняла весь `get_active_subs_by_plans` в Err, и конфиг
+    /// ноды публиковался пустым. Теперь такой пользователь обязан получить
+    /// идентичность, а не исчезнуть.
+    #[test]
+    fn user_without_telegram_id_gets_stable_surrogate_identity() {
+        assert_eq!(config_client_identity(None, 42), -42);
+        // Стабильность: тот же пользователь — тот же идентификатор при каждой
+        // перегенерации конфига (иначе клиент терял бы доступ после регена).
+        assert_eq!(
+            config_client_identity(None, 42),
+            config_client_identity(None, 42)
+        );
+        // Разные пользователи — разные идентификаторы (общий тег означал бы
+        // взаимный kill-switch и смешанный учёт трафика).
+        assert_ne!(
+            config_client_identity(None, 42),
+            config_client_identity(None, 43)
+        );
+    }
+
+    /// Telegram-пользователи (все 13 платных на проде) должны получить ровно
+    /// свой tg_id — иначе сломается совместимость с уже выданными ссылками
+    /// подписок и с разбором тегов в учёте трафика.
+    #[test]
+    fn telegram_user_identity_is_unchanged() {
+        assert_eq!(config_client_identity(Some(95_679_857), 1), 95_679_857);
+        assert_eq!(
+            config_client_identity(Some(8_986_550_680), 45),
+            8_986_550_680
+        );
+    }
+
+    /// Суррогат не может столкнуться с реальным Telegram id: те строго
+    /// положительные, суррогаты строго отрицательные.
+    #[test]
+    fn surrogate_namespace_cannot_collide_with_telegram_ids() {
+        for user_id in 1..=1000i64 {
+            let surrogate = config_client_identity(None, user_id);
+            assert!(
+                surrogate < 0,
+                "surrogate for user {user_id} must live in the negative namespace, got {surrogate}"
+            );
+            // И не совпадает ни с одним tg_id того же аккаунта.
+            assert_ne!(surrogate, config_client_identity(Some(user_id), user_id));
+        }
+    }
+
+    /// Формат пароля зафиксирован: ноды в проде уже раздают
+    /// `{идентичность}:{uuid без дефисов}`, и любое изменение здесь отключит
+    /// всех подписчиков Hysteria2 разом.
+    #[test]
+    fn proxy_password_pins_the_wire_format() {
+        assert_eq!(
+            proxy_auth_password(95_679_857, "550e8400-e29b-41d4-a716-446655440000"),
+            "95679857:550e8400e29b41d4a716446655440000"
+        );
+        // Суррогат отрицательный — минус обязан попасть в пароль, иначе
+        // -42 и 42 схлопнутся в одну строку.
+        assert_eq!(proxy_auth_password(-42, "aa-bb"), "-42:aabb");
     }
 }

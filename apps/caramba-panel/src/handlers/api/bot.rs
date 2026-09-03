@@ -443,11 +443,22 @@ pub async fn create_free_subscription(
 
     // Создаём бесплатную подписку без даты истечения:
     // expires_at = далёкое будущее (year 9999 — никогда не истечёт через check_expirations).
-    // Трафик ограничен traffic_limit_gb плана; ежедневное пополнение восстанавливает его.
+    // Суточный потолок бесплатного плана — plans.daily_traffic_mb (см.
+    // services::bonus_traffic); ежедневное пополнение восстанавливает трафик.
+    //
+    // ИНВАРИАНТ: vless_uuid обязателен в КАЖДОМ INSERT подписки. Генерация
+    // конфигов нод выбирает s.vless_uuid и молча пропускает строки с NULL, а
+    // вылечить их потом нечему — во всём коде нет ни одного UPDATE, который
+    // проставлял бы vless_uuid существующей подписке. Этот эндпоинт — вторая
+    // реализация выдачи бесплатного плана (первая — store_service::
+    // ensure_free_plan_subscription_tx); делегировать ему нельзя, потому что
+    // тот возвращает Option<plan_id> и не различает три исхода, а здесь нужен
+    // {subscription_id, already_had_free}. Значит инвариант держится в обоих
+    // местах руками.
     let sub_id: Result<i64, _> = sqlx::query_scalar(
         "INSERT INTO subscriptions
-         (user_id, plan_id, status, expires_at, subscription_uuid, used_traffic, activated_at)
-         VALUES ($1, $2, 'active', '9999-12-31 23:59:59+00', gen_random_uuid()::TEXT, 0, CURRENT_TIMESTAMP)
+         (user_id, plan_id, status, expires_at, vless_uuid, subscription_uuid, used_traffic, activated_at)
+         VALUES ($1, $2, 'active', '9999-12-31 23:59:59+00', gen_random_uuid()::TEXT, gen_random_uuid()::TEXT, 0, CURRENT_TIMESTAMP)
          RETURNING id",
     )
     .bind(user_id)
@@ -548,10 +559,12 @@ pub async fn admin_gift(
         None => return (StatusCode::NOT_FOUND, "No active plan found").into_response(),
     };
 
-    // Create subscription
+    // Тот же инвариант, что и в create_free_subscription: подписка, созданная
+    // без vless_uuid, не попадёт в конфиги нод и после одобрения — одобрение
+    // меняет только status. Подарок молча не работал бы.
     let sub_id: Result<i64, _> = sqlx::query_scalar(
-        "INSERT INTO subscriptions (user_id, plan_id, status, duration_days, expires_at, subscription_uuid) \
-         VALUES ($1, $2, 'pending', $3, CURRENT_TIMESTAMP + ($3 || ' days')::INTERVAL, gen_random_uuid()::TEXT) RETURNING id"
+        "INSERT INTO subscriptions (user_id, plan_id, status, duration_days, expires_at, vless_uuid, subscription_uuid) \
+         VALUES ($1, $2, 'pending', $3, CURRENT_TIMESTAMP + ($3 || ' days')::INTERVAL, gen_random_uuid()::TEXT, gen_random_uuid()::TEXT) RETURNING id"
     )
     .bind(user_id)
     .bind(plan_id)

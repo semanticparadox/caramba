@@ -23,6 +23,7 @@
 //! (`pn`) обязано совпадать с выпуском генератора дословно, иначе клиент не
 //! найдёт свой выбор в легаси-конфиге.
 
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -32,8 +33,9 @@ use caramba_shared::csm::catalog::{
     SignedCatalog, SsMethod, Thresholds, cap,
 };
 use caramba_shared::csm::directive::{
-    Capabilities, DeviceThumbprint, Directive, Locator, Nonce, ReasonCode, RelayResolution,
-    Selection, Status, Traffic, crockford_decode,
+    Capabilities, DeviceThumbprint, Directive, Locator, Nonce, Policy, PolicyProtocol, Provenance,
+    ReasonCode, RelayChoice, RelayResolution, Selection, Setting, Status, Traffic,
+    crockford_decode,
 };
 use caramba_shared::csm::{self, LIFETIME_CATALOG};
 use ed25519_dalek::SigningKey;
@@ -70,6 +72,16 @@ const UNKNOWN_COUNTRY: &str = "ZZ";
 /// MTU wireguard, который генератор Clash выпускает для amneziawg.
 const WIREGUARD_MTU: u64 = 1280;
 
+/// Почему `naive` не попадает в каталог, хотя он есть в словаре `pr` и на
+/// узле 1 живой инбаунд: генератор Clash не выпускает для него прокси
+/// (`generate_clash_config`, ветки match по `inbound.protocol`), а
+/// `02-SPEC.md` 4.4.1 требует, чтобы каталог описывал ТОТ ЖЕ набор прокси,
+/// что и легаси-тело. Выпустить запись значило бы предложить клиенту узел,
+/// который его рендерер не наберёт — та же ложь, что бит возможности над
+/// отсутствующей функцией. Пропуск идёт через `Err`, а не через `Ok(None)`:
+/// молчаливый пропуск оставил бы выбор протокола врущим про флот.
+const NAIVE_NOT_IN_CLASH: &str = "naive: генератор Clash не выпускает такой прокси (02-SPEC.md 4.4.1), протокол в каталог не попадает";
+
 // ---------------------------------------------------------------- модель тира
 
 /// Тир каталога это идентификатор плана: у панели нет другой сущности, которая
@@ -85,19 +97,68 @@ pub fn tier_of_plan(plan_id: i64) -> Result<u64> {
 
 /// Биты возможностей, которые панель реализует сегодня. Бит ставится только
 /// над работающей функцией (`01-DECISION.md` B1): запечатывания, записи
-/// настроек, пула зеркал, DoH, хэшей ресурсов и цепочек релэев пока нет, и
-/// клиент обязан узнать об этом из подписанного поля, а не из ошибки.
+/// настроек, пула зеркал, DoH и хэшей ресурсов пока нет, и клиент обязан
+/// узнать об этом из подписанного поля, а не из ошибки.
 /// Бит 8 стоит над бесплатным планом: это и есть onboarding-грант панели,
 /// и его подписчики получают `st = onboarding`.
-pub fn implemented_capabilities(exits: usize, free_plan: bool) -> u32 {
+///
+/// Бит 2 (цепочки через релэй) требует ДВУХ независимых условий, и форма
+/// флота это только первое из них: разрешимая ссылка `rl` → `re`
+/// ([`relay_chain_is_resolvable`]) и рендерер, который эту цепочку
+/// действительно выпускает ([`CLASH_EMITS_RELAY_CHAINS`]). Заявить бит над
+/// пустым `re` значит соврать про флот; заявить его над флотом, который
+/// некому собрать в цепочку, значит показать пользователю переключатель,
+/// не меняющий ни одного байта на проводе, — та самая подделка, ради
+/// запрета которой бит и введён (`01-DECISION.md` P8, `02-SPEC.md` 6.3).
+pub fn implemented_capabilities(exits: &[Node], relays: &[Node], free_plan: bool) -> u32 {
     let mut bits = 0;
-    if exits > 0 {
+    if !exits.is_empty() {
         bits |= cap::NODE_MATERIAL;
+    }
+    if relay_chain_is_resolvable(exits, relays) && CLASH_EMITS_RELAY_CHAINS {
+        bits |= cap::RELAY_CHAINING;
     }
     if free_plan {
         bits |= cap::ONBOARDING_GRANT;
     }
     bits
+}
+
+/// Выпускает ли `generate_clash_config` цепочку через релэй на самом деле.
+///
+/// Сегодня — нет, и это проверенный факт, а не осторожность. Генератор
+/// принимает `_relay_nodes` и ни разу к ним не обращается
+/// (`singbox/subscription_generator.rs`, `generate_clash_config`): прокси
+/// цепочки отличается от прямого только суффиксом ` ↪` в имени да группой
+/// `Auto-Relay`, а `server` у него всё тот же адрес выхода. Ни `dialer-proxy`,
+/// ни группы `type: relay` в выпуске нет. Отбор релеев по `relay_country`
+/// (`subscription.rs`) до Clash доезжает и там выбрасывается, поэтому для
+/// mihomo смена страны входа не меняет в конфиге ничего.
+///
+/// Цепочку строит только `generate_singbox_config` — через `detour` в
+/// `build_singbox_outbound`. Это путь Hiddify и v2rayNG, а бит 2 стоит над
+/// рендерером Caramba Connect, и это mihomo: клиентская сборка
+/// (`AssembleMihomoConfig`) переписывает политику в готовом YAML панели и
+/// своих прокси не строит, так что второго места, где цепочка могла бы
+/// появиться, нет.
+///
+/// Константу поднимает тот, кто научит `generate_clash_config` выпускать
+/// цепочку. Забыть не даст `the_chaining_bit_follows_the_clash_generator`:
+/// он гоняет живой генератор и падает при любом расхождении с этим значением
+/// — в обе стороны.
+const CLASH_EMITS_RELAY_CHAINS: bool = false;
+
+/// Разрешима ли в тире хотя бы одна цепочка: есть запись `re`, на которую
+/// указывает `rl` какого-то выхода.
+///
+/// Необходимое условие бита 2, но не достаточное — достаточность даёт
+/// рендерер. Вынесено отдельно, чтобы условие флота осталось под тестом,
+/// пока бит прижат константой, и было готово к моменту, когда её поднимут.
+fn relay_chain_is_resolvable(exits: &[Node], relays: &[Node]) -> bool {
+    let ids: BTreeSet<&str> = relays.iter().map(|n| n.id.as_str()).collect();
+    exits
+        .iter()
+        .any(|e| e.relay.as_deref().is_some_and(|r| ids.contains(r)))
 }
 
 /// Собирает модель тира из узлов плана. `ver` и `iat` здесь нули: их
@@ -122,11 +183,64 @@ pub async fn load_tier_model(state: &AppState, pid: [u8; 8], tier: u64) -> Resul
             .context("csm: план тира")?
             .unwrap_or(false);
 
+    let (exits, relays) = tier_entries(&infos);
+    Ok(tier_catalog(pid, tier, exits, relays, free_plan))
+}
+
+/// Записи `ex` и `re` тира из узлов плана, уже согласованные между собой.
+///
+/// Пара выпускается одним шагом намеренно: проверка каталога отвергает `rl`,
+/// который не разрешается ни в одну запись `re`, поэтому «выпустить релей» и
+/// «сослаться на него» не могут быть двумя изменениями. Здесь же снимается
+/// вырожденный случай, когда один и тот же узел попал бы и в `ex`, и в `re`:
+/// такой каталог не подписывается вовсе, а без релея тир ещё работает.
+fn tier_entries(infos: &[NodeInfo]) -> (Vec<Node>, Vec<Node>) {
+    // Релеи тира это его собственные узлы с `is_relay` плюс те, на которые
+    // ссылается `nodes.relay_id` выходов: второе множество и есть цепочки,
+    // которые панель строит сегодня, и без него `rl` некуда указывать.
+    let linked = infos.iter().filter_map(|n| n.relay_info.as_deref());
+    let mut relays: Vec<Node> = Vec::new();
+    let mut seen = BTreeSet::new();
+    for info in infos.iter().filter(|n| n.is_relay).chain(linked) {
+        let Some(node) = relay_entry(info) else {
+            continue;
+        };
+        if seen.insert(node.id.clone()) {
+            relays.push(node);
+        }
+    }
+
     let mut exits = Vec::new();
     for info in infos.iter().filter(|n| !n.is_relay) {
-        exits.extend(node_entries(info, pid, tier));
+        exits.extend(node_entries(info));
     }
-    Ok(tier_catalog(pid, tier, exits, free_plan))
+
+    let exit_ids: BTreeSet<&str> = exits.iter().map(|n| n.id.as_str()).collect();
+    relays.retain(|r| {
+        let clash = exit_ids.contains(r.id.as_str());
+        if clash {
+            tracing::warn!(
+                id = %r.id,
+                "csm: узел объявлен и выходом, и релеем; запись re снята"
+            );
+        }
+        !clash
+    });
+
+    let relay_ids: BTreeSet<&str> = relays.iter().map(|n| n.id.as_str()).collect();
+    for e in exits.iter_mut() {
+        if let Some(r) = &e.relay
+            && !relay_ids.contains(r.as_str())
+        {
+            tracing::warn!(
+                id = %e.id,
+                relay = %r,
+                "csm: релей выхода не выпущен, цепочка снята с записи"
+            );
+            e.relay = None;
+        }
+    }
+    (exits, relays)
 }
 
 /// Число действующих планов: каждый это тир, и их больше `MAX_TIERS` быть не
@@ -139,15 +253,21 @@ pub async fn count_tiers(pool: &PgPool) -> Result<i64> {
 }
 
 /// Каталог тира с полями, не зависящими от флота.
-pub fn tier_catalog(pid: [u8; 8], tier: u64, exits: Vec<Node>, free_plan: bool) -> Catalog {
-    let cap = implemented_capabilities(exits.len(), free_plan);
+pub fn tier_catalog(
+    pid: [u8; 8],
+    tier: u64,
+    exits: Vec<Node>,
+    relays: Vec<Node>,
+    free_plan: bool,
+) -> Catalog {
+    let cap = implemented_capabilities(&exits, &relays, free_plan);
     Catalog {
         pid,
         ver: 0,
         iat: 0,
         tier,
         exits,
-        relays: Vec::new(),
+        relays,
         routes: Vec::new(),
         cap,
         mirrors: Vec::new(),
@@ -168,19 +288,23 @@ pub fn tier_catalog(pid: [u8; 8], tier: u64, exits: Vec<Node>, free_plan: bool) 
 /// прокси. Запись, которую клиент отверг бы при разборе, не выпускается, а
 /// логируется: один неверно настроенный инбаунд не должен оставить тир без
 /// каталога.
-pub fn node_entries(info: &NodeInfo, pid: [u8; 8], tier: u64) -> Vec<Node> {
+pub fn node_entries(info: &NodeInfo) -> Vec<Node> {
+    let link = relay_link_id(info);
     let mut out = Vec::new();
     for inbound in info.inbounds.iter().filter(|i| i.enable) {
         match node_entry(info, inbound) {
-            Ok(Some(node)) => match entry_error(pid, tier, &node) {
-                None => out.push(node),
-                Some(e) => tracing::warn!(
-                    node = %info.name,
-                    inbound = inbound.id,
-                    error = %e,
-                    "csm: запись узла не проходит проверку и не выпускается"
-                ),
-            },
+            Ok(Some(mut node)) => {
+                node.relay = link.clone();
+                match node.validate("ex") {
+                    Ok(()) => out.push(node),
+                    Err(e) => tracing::warn!(
+                        node = %info.name,
+                        inbound = inbound.id,
+                        error = %e,
+                        "csm: запись узла не проходит проверку и не выпускается"
+                    ),
+                }
+            }
             Ok(None) => {}
             Err(reason) => tracing::warn!(
                 node = %info.name,
@@ -193,12 +317,66 @@ pub fn node_entries(info: &NodeInfo, pid: [u8; 8], tier: u64) -> Vec<Node> {
     out
 }
 
-/// Проверяет одну запись правилами 8.2.1 через одноэлементный каталог:
-/// правила живут в общем крейте и не экспортированы по одной.
-fn entry_error(pid: [u8; 8], tier: u64, node: &Node) -> Option<CatalogError> {
-    tier_catalog(pid, tier, vec![node.clone()], false)
-        .validate()
-        .err()
+/// Порядок, в котором панель выбирает транспорт релея. Он скопирован из
+/// `ensure_relay_outbound` генератора sing-box, и копия здесь не украшение:
+/// `rl` обязан называть тот самый инбаунд, через который панель и строит
+/// цепочку, иначе подписанный каталог описывает не ту цепочку, что конфиг.
+const RELAY_TRANSPORT_PRIORITY: [&str; 6] =
+    ["shadowsocks", "ss", "hysteria2", "hy2", "vless", "trojan"];
+
+/// Инбаунд релея, через который идёт цепочка: один на узел-релей.
+fn relay_inbound(info: &NodeInfo) -> Option<&caramba_db::models::network::Inbound> {
+    RELAY_TRANSPORT_PRIORITY
+        .iter()
+        .find_map(|proto| {
+            info.inbounds
+                .iter()
+                .find(|ib| ib.enable && ib.protocol.eq_ignore_ascii_case(proto))
+        })
+        .or_else(|| info.inbounds.iter().find(|ib| ib.enable))
+}
+
+/// Запись `re` для узла-релея. Одна на узел, а не одна на инбаунд: `rl` это
+/// одна ссылка, и выпускать записи, через которые панель цепочку не строит,
+/// значило бы предлагать клиенту выбор, которого у неё нет.
+pub fn relay_entry(info: &NodeInfo) -> Option<Node> {
+    let inbound = relay_inbound(info)?;
+    let mut node = match node_entry(info, inbound) {
+        Ok(Some(n)) => n,
+        Ok(None) => return None,
+        Err(reason) => {
+            tracing::warn!(
+                node = %info.name,
+                inbound = inbound.id,
+                reason,
+                "csm: инбаунд релея пропущен"
+            );
+            return None;
+        }
+    };
+    // Релей не ссылается на релей (8.2, проверка каталога): цепочка из двух
+    // звеньев это всё, что выражает эта модель.
+    node.relay = None;
+    match node.validate("re") {
+        Ok(()) => Some(node),
+        Err(e) => {
+            tracing::warn!(
+                node = %info.name,
+                inbound = inbound.id,
+                error = %e,
+                "csm: запись релея не проходит проверку и не выпускается"
+            );
+            None
+        }
+    }
+}
+
+/// `id` записи релея, через которую цепляется этот выход, если цепь задана
+/// колонкой `nodes.relay_id`. Разрешимость ссылки проверяет [`tier_entries`].
+fn relay_link_id(info: &NodeInfo) -> Option<String> {
+    let relay = info.relay_info.as_deref()?;
+    let inbound = relay_inbound(relay)?;
+    Some(format!("n{}i{}", inbound.node_id, inbound.id))
 }
 
 /// `Ok(None)` означает «генератор Clash этот инбаунд тоже не выпускает», и
@@ -221,6 +399,7 @@ fn node_entry(
         "tuic" => Protocol::Tuic,
         "shadowsocks" | "ss" => Protocol::Shadowsocks,
         "amneziawg" if crate::utils::amneziawg_client_enabled() => Protocol::Wireguard,
+        "naive" => return Err(NAIVE_NOT_IN_CLASH),
         _ => return Ok(None),
     };
     // Имя дословно как у генератора Clash, включая суффикс цепочки.
@@ -335,7 +514,10 @@ fn node_entry(
             node.public_key = Some(reality_key(&si.public_key)?);
             node.mtu = Some(WIREGUARD_MTU);
         }
-        Protocol::Naive => return Ok(None),
+        // Недостижимо: словарь протоколов выше отвергает `naive` раньше.
+        // Ветка оставлена ради исчерпывающего match и повторяет ту же причину,
+        // чтобы новое место постройки записи не начало молчать.
+        Protocol::Naive => return Err(NAIVE_NOT_IN_CLASH),
     }
     Ok(Some(node))
 }
@@ -905,19 +1087,39 @@ pub struct LocatedSubscription {
     pub expires_at: chrono::DateTime<chrono::Utc>,
     pub relay_country: Option<String>,
     pub traffic_limit_gb: i32,
+    /// Суточная норма бесплатного плана: именно она, а не `traffic_limit_gb`,
+    /// и есть его потолок (см. [`LocatedSubscription::limit_bytes`]).
+    pub daily_traffic_mb: i32,
     pub is_free: bool,
     pub bonus_traffic_mb: i64,
     pub banned: bool,
 }
 
 impl LocatedSubscription {
-    /// Потолок трафика в байтах: план плюс разовый бонус, 0 без лимита
-    /// (та же арифметика, что в `ensure_subscription_within_quota`).
+    /// Потолок трафика в байтах, 0 означает «без лимита».
+    ///
+    /// Считает [`bonus_traffic::plan_quota_limit_bytes`] — ровно тот предикат,
+    /// по которому подписку отключают (`ensure_subscription_within_quota`,
+    /// ночные свипы, `QUOTA_LIMIT_BYTES_SQL`). Своя арифметика здесь врала бы
+    /// на бесплатном плане: он продаётся суточной нормой `daily_traffic_mb`
+    /// (живое значение — 200 МБ), а его `traffic_limit_gb` = 10 ничего не
+    /// ограничивает, потому что колонка целая в гигабайтах и меньше единицы
+    /// выразить не может. Умножение одних гигабайтов дало бы `tot` = 10 ГБ
+    /// в подписанной директиве рядом с `st = quota_exceeded`, приехавшим в том
+    /// же кадре на 200 мегабайтах: подпись под противоречием.
+    ///
+    /// `None` (безлимит) складывается в 0, потому что таков контракт поля
+    /// [`StatusFacts::limit_bytes`] и `tot` директивы.
+    ///
+    /// [`bonus_traffic::plan_quota_limit_bytes`]: crate::services::bonus_traffic::plan_quota_limit_bytes
     pub fn limit_bytes(&self) -> i64 {
-        if self.traffic_limit_gb <= 0 {
-            return 0;
-        }
-        self.traffic_limit_gb as i64 * 1024 * 1024 * 1024 + self.bonus_traffic_mb * 1024 * 1024
+        crate::services::bonus_traffic::plan_quota_limit_bytes(
+            self.is_free,
+            self.traffic_limit_gb as i64,
+            self.daily_traffic_mb as i64,
+            self.bonus_traffic_mb,
+        )
+        .unwrap_or(0)
     }
 }
 
@@ -927,6 +1129,7 @@ pub async fn find_by_locator(pool: &PgPool, loc: &Locator) -> Result<Option<Loca
                 COALESCE(s.used_traffic, 0)::BIGINT AS used_traffic, \
                 s.expires_at, s.relay_country, \
                 COALESCE(p.traffic_limit_gb, 0)::INT AS traffic_limit_gb, \
+                COALESCE(p.daily_traffic_mb, 0)::INT AS daily_traffic_mb, \
                 COALESCE(p.is_free, FALSE) AS is_free, \
                 COALESCE(u.bonus_traffic_mb, 0)::BIGINT AS bonus_traffic_mb, \
                 COALESCE(u.is_banned, FALSE) AS banned \
@@ -1036,6 +1239,9 @@ pub struct DirectiveInputs<'a> {
     pub catalog: &'a StoredCatalog,
     pub cap: u32,
     pub selection: Option<Selection>,
+    /// Эхо настроек с происхождением. Именно оно отличает «пользователь не
+    /// выбирал» от «выбрал явно без релея»: по одному `sel` это неразличимо.
+    pub policy: Option<Policy>,
     pub ttl: u64,
     pub locator: Locator,
     pub traffic: Option<Traffic>,
@@ -1060,7 +1266,7 @@ pub fn assemble_directive(inp: DirectiveInputs<'_>) -> Result<Directive> {
         tier: inp.catalog.tier,
         cap,
         selection: inp.selection,
-        policy: None,
+        policy: inp.policy,
         announce: None,
         support: None,
         hints: Vec::new(),
@@ -1071,44 +1277,204 @@ pub fn assemble_directive(inp: DirectiveInputs<'_>) -> Result<Directive> {
     })
 }
 
-/// Авторитетный выбор для подписки с закреплённым узлом: первый по `id`
-/// выход этого узла в каталоге. Без закрепления `sel` не выпускается, и
-/// клиент выбирает сам.
+/// Разрешённое состояние подписки: авторитетный выбор и эхо настроек.
+/// Одно значение, потому что предикаты `02-SPEC.md` 7.4 связывают их
+/// намертво: `sel.rcc`, разошедшийся с `pol[3]`, это `E_PARSE_FIELD` у
+/// клиента, то есть отвергнутая директива, а не испорченная настройка.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resolved {
+    pub selection: Selection,
+    pub policy: Policy,
+}
+
+/// Авторитетный выбор и эхо настроек для подписки.
+///
+/// `sel` выпускается всегда, когда в тире есть хоть один выход: `rcc` и `nid`
+/// внутри него обязательны (`03-WIRE.md` 8.3), и они существуют ради того,
+/// чтобы выдача конфига перестала зависеть от GeoIP по видимому адресу
+/// запроса. Директива без `sel` молча возвращает эту зависимость.
+///
+/// Закрепление узла (`subscriptions.node_id`), которое каталог тира не
+/// подтверждает, НЕ подменяется другим узлом: `02-SPEC.md` 7.9 и
+/// `06-MIGRATION.md` 7.5 запрещают тихую подмену, потому что сервер закреплён
+/// по причине, которой панель не знает. В этом случае `sel.exit` опускается,
+/// а `nid` едет закреплённый: легаси-URL сохраняет выбор пользователя дословно.
 pub fn selection_for(
     model: &Catalog,
     node_id: Option<i64>,
     relay_country: Option<&str>,
-) -> Option<Selection> {
-    let nid = node_id.filter(|n| *n > 0)?;
-    let prefix = format!("n{nid}i");
-    let mut ids: Vec<&str> = model
-        .exits
-        .iter()
-        .map(|n| n.id.as_str())
-        .filter(|id| id.starts_with(&prefix))
-        .collect();
-    ids.sort_unstable();
-    let exit = ids.first()?;
-    Some(Selection {
-        exit: Some((*exit).to_string()),
-        relay: None,
+) -> Option<Resolved> {
+    let pinned = node_id.filter(|n| *n > 0).map(|n| n as u64);
+    let (exit, nid) = match pinned {
+        Some(nid) => match pinned_exit(model, nid) {
+            Some(e) => (Some(e), nid),
+            None => {
+                tracing::warn!(
+                    node_id = nid,
+                    tier = model.tier,
+                    "csm: закреплённый узел вне каталога тира; sel.exit опущен, подмены нет"
+                );
+                (None, nid)
+            }
+        },
+        // Умолчание оператора это первая запись каталога в его собственном
+        // порядке (8.2, сортировка по `id` как сырым байтам): клиент видит
+        // массив именно в нём, так что «первый» у обеих сторон один и тот же.
+        None => {
+            let e = model
+                .exits
+                .iter()
+                .min_by(|a, b| a.id.as_bytes().cmp(b.id.as_bytes()))?;
+            match node_id_of(&e.id) {
+                Some(nid) => (Some(e), nid),
+                None => {
+                    tracing::error!(
+                        id = %e.id,
+                        tier = model.tier,
+                        "csm: id записи не разбирается в node_id; sel не выпущен"
+                    );
+                    return None;
+                }
+            }
+        }
+    };
+
+    let choice = relay_choice(relay_country);
+    let (relay, rcc, relay_src) = relay_resolution(model, exit, choice);
+    let selection = Selection {
+        exit: exit.map(|e| e.id.clone()),
+        relay: relay.map(|r| r.id.clone()),
         preset: None,
         variant: 0,
+        // Хранилища выбора протокола у подписки нет, значит выбор это `auto`,
+        // а `auto` в `sel.proto` не выпускается (0 означает «нет»).
         proto: None,
-        rcc: relay_resolution(relay_country),
-        nid: nid as u64,
-    })
+        rcc,
+        nid,
+    };
+    let policy = Policy {
+        protocol: Some(Setting::new(PolicyProtocol::Auto, Provenance::Default)),
+        relay: Some(Setting::new(
+            match choice {
+                // Не выбирал остаётся не выбравшим при любом разрешении:
+                // схлопнуть его на `--` значит отнять цепочку у всех, кто не
+                // трогал переключатель, а на конкретную страну — выдать
+                // решение оператора за выбор пользователя.
+                RelayChoice::Unset => RelayChoice::Unset,
+                _ => match rcc {
+                    RelayResolution::Country(cc) => RelayChoice::Country(cc),
+                    RelayResolution::NoRelay => RelayChoice::NoRelay,
+                },
+            },
+            relay_src,
+        )),
+        ..Policy::default()
+    };
+
+    let resolved = Resolved { selection, policy };
+    // Самопроверка против того самого каталога, который называет директива:
+    // предикаты 7.4 клиент проверит после проверки каталога, и невыполнимый
+    // выбор стоит ему отката на умолчание оператора.
+    if let Err(e) = model.check_selection(&resolved.selection) {
+        tracing::error!(tier = model.tier, error = %e, "csm: выбор несогласован с каталогом");
+    }
+    Some(resolved)
 }
 
-/// Сохранённый выбор релея подписки. Цепочки релэев панель пока не выпускает,
-/// поэтому всё, что не двухбуквенный код, разрешается в «без релея».
-pub fn relay_resolution(relay_country: Option<&str>) -> RelayResolution {
-    let cc = relay_country.unwrap_or("").trim().to_ascii_uppercase();
-    if cc.len() == 2 && cc.bytes().all(|b| b.is_ascii_uppercase()) {
-        let b = cc.as_bytes();
-        RelayResolution::Country([b[0], b[1]])
+/// Выход закреплённого узла: первый его инбаунд в порядке каталога. Префикс
+/// заканчивается на `i`, иначе `n17i` поймал бы `n170i1`.
+fn pinned_exit(model: &Catalog, nid: u64) -> Option<&Node> {
+    let prefix = format!("n{nid}i");
+    model
+        .exits
+        .iter()
+        .filter(|n| n.id.starts_with(&prefix))
+        .min_by(|a, b| a.id.as_bytes().cmp(b.id.as_bytes()))
+}
+
+/// Числовой `node_id` из `id` записи. Это обратный ход собственной постройки
+/// панели в [`node_entry`], и он разрешён только ей: `02-SPEC.md` 7.3 прямо
+/// запрещает КЛИЕНТУ разбирать `sel.exit`, потому что формат `id` это
+/// документация, а не контракт разбора.
+fn node_id_of(id: &str) -> Option<u64> {
+    let rest = id.strip_prefix('n')?;
+    let digits = &rest[..rest.find('i')?];
+    digits.parse().ok().filter(|n| *n > 0)
+}
+
+/// Сохранённый выбор релея как `pol[3]`: три состояния, а не два. NULL и
+/// мусор это «не выбирал», а не «без релея» (`02-SPEC.md` 7.3).
+fn relay_choice(relay_country: Option<&str>) -> RelayChoice {
+    let raw = relay_country.unwrap_or("").trim();
+    // Легаси-путь принимает `none`/`NONE` как явный отказ от цепочки
+    // (`subscription.rs:754`), провод несёт для того же `--`.
+    if raw.eq_ignore_ascii_case("none") || raw == "--" {
+        return RelayChoice::NoRelay;
+    }
+    let cc = raw.to_ascii_uppercase();
+    let b = cc.as_bytes();
+    if b.len() == 2 && b.iter().all(u8::is_ascii_uppercase) {
+        RelayChoice::Country([b[0], b[1]])
     } else {
-        RelayResolution::NoRelay
+        RelayChoice::Unset
+    }
+}
+
+/// Разрешает выбор релея против модели тира: запись `re`, страна и
+/// происхождение значения для `pol[3]`.
+///
+/// Три случая, и ни один из них не разрешается вслепую:
+///
+/// * **Не выбирал.** Цепочка берётся та, которую панель для этого выхода и
+///   строит, — `rl` его записи. Легаси-путь на NULL тоже НЕ выключает
+///   цепочку: он падает на `client_cc`, а без геолокации подмешивает все
+///   релеи (`subscription.rs:744-758`). Отдать здесь `--` значило бы
+///   подписанно сказать «цепочки нет» тому, кому легаси-конфиг её строит.
+///   Разрешать через видимый адрес запроса нельзя (`03-WIRE.md` 8.3): на
+///   ступенях лестницы это адрес выхода или зеркала.
+/// * **Явное `none`.** Цепочки нет, и это выбор пользователя.
+/// * **Страна.** Берётся только если в `re` есть релей с этой страной.
+///   Иначе выбор невыполним: у живого тенанта в `relay_country` лежит `US`,
+///   а узла в US нет, и `rcc = US` над списком релеев без US это директива,
+///   которую клиент ОБЯЗАН отвергнуть. Тогда решает оператор, и `src = 2`
+///   говорит об этом прямо — клиент покажет карточку Keep-or-Revert вместо
+///   того, чтобы считать чужое решение выбором пользователя.
+fn relay_resolution<'a>(
+    model: &'a Catalog,
+    exit: Option<&'a Node>,
+    choice: RelayChoice,
+) -> (Option<&'a Node>, RelayResolution, Provenance) {
+    let linked = exit
+        .and_then(|e| e.relay.as_deref())
+        .and_then(|id| model.relays.iter().find(|r| r.id == id));
+    let found = match choice {
+        RelayChoice::NoRelay => None,
+        RelayChoice::Unset => linked,
+        RelayChoice::Country(cc) => {
+            let want = std::str::from_utf8(&cc).unwrap_or_default();
+            linked.filter(|r| r.cc == want).or_else(|| {
+                model
+                    .relays
+                    .iter()
+                    .filter(|r| r.cc == want)
+                    .min_by(|a, b| a.id.as_bytes().cmp(b.id.as_bytes()))
+            })
+        }
+    };
+    let src = match (choice, found) {
+        (RelayChoice::Unset, _) => Provenance::Default,
+        (RelayChoice::NoRelay, _) => Provenance::User,
+        (RelayChoice::Country(_), Some(_)) => Provenance::User,
+        // Просьбу, которую флот выполнить не может, панель не принимала;
+        // по правилу старшинства 7.6 побеждает настройка оператора.
+        (RelayChoice::Country(_), None) => Provenance::Operator,
+    };
+    // Страна записи проверена при её выпуске (`Node::validate`), но брать её
+    // по индексу значило бы поставить панику на путь подписи.
+    let cc: Option<[u8; 2]> = found.and_then(|r| r.cc.as_bytes().try_into().ok());
+    match cc {
+        Some(cc) => (found, RelayResolution::Country(cc), src),
+        None => (None, RelayResolution::NoRelay, src),
     }
 }
 
@@ -1195,6 +1561,7 @@ mod tests {
             pid(),
             1,
             vec![node_vless_reality("n17i3", "de1.exa-nodes.net", "6ba85179")],
+            Vec::new(),
             false,
         );
         c.cap = cap::NODE_MATERIAL | cap::SEALED_DIRECTIVES;
@@ -1502,6 +1869,7 @@ mod tests {
             catalog,
             cap: cap::NODE_MATERIAL | cap::SEALED_DIRECTIVES,
             selection: None,
+            policy: None,
             ttl: TIER_TTL,
             locator: Locator::derive(&secret, SUB_UUID, 1),
             traffic: None,
@@ -1660,10 +2028,75 @@ mod tests {
             expires_at: chrono::DateTime::from_timestamp(FIX_IAT as i64 + expires_in, 0).unwrap(),
             relay_country: None,
             traffic_limit_gb: 10,
+            daily_traffic_mb: 0,
             is_free: false,
             bonus_traffic_mb: 0,
             banned: false,
         }
+    }
+
+    /// Потолок подписанного каталога это потолок enforcement, а не гигабайты
+    /// плана: на живом бесплатном плане (`traffic_limit_gb` = 10,
+    /// `daily_traffic_mb` = 200) это разные числа в 51 раз.
+    #[test]
+    fn a_free_plan_ceiling_is_its_daily_allowance_not_its_gigabytes() {
+        const MB: i64 = 1024 * 1024;
+        const GB: i64 = 1024 * MB;
+        let now = FIX_IAT as i64;
+
+        let mut free = located("active", 3600);
+        free.is_free = true;
+        free.traffic_limit_gb = 10;
+        free.daily_traffic_mb = 200;
+        assert_eq!(
+            free.limit_bytes(),
+            200 * MB,
+            "бесплатный план меряется суточной нормой"
+        );
+        assert_eq!(
+            free.limit_bytes(),
+            crate::services::bonus_traffic::plan_quota_limit_bytes(true, 10, 200, 0).unwrap(),
+            "каталог и enforcement считают один и тот же потолок"
+        );
+
+        // Бонус ложится сверху суточной нормы, а не сверху гигабайтов плана.
+        free.bonus_traffic_mb = 50;
+        assert_eq!(free.limit_bytes(), 250 * MB);
+        free.bonus_traffic_mb = 0;
+
+        // 200 МБ израсходовано — грант исчерпан, и `tot` директивы называет
+        // ту же границу, на которой это произошло.
+        let mut spent = free.clone();
+        spent.used_traffic = 200 * MB;
+        assert_eq!(
+            classify(&spent.status_facts(now)),
+            (
+                Status::QuotaExceeded,
+                ReasonCode::ONBOARDING_GRANT_EXHAUSTED
+            )
+        );
+        assert!(!spent.may_read_chunks(now));
+
+        // Платный план не задет: он по-прежнему меряется гигабайтами.
+        let mut paid = located("active", 3600);
+        paid.traffic_limit_gb = 10;
+        paid.daily_traffic_mb = 200; // колонка плана заполнена, но план платный
+        assert_eq!(paid.limit_bytes(), 10 * GB);
+
+        // Gold живого тенанта: `traffic_limit_gb` = 0 это безлимит, и 0 здесь
+        // означает «без лимита», а не «нулевой потолок».
+        let mut gold = located("active", 3600);
+        gold.traffic_limit_gb = 0;
+        gold.bonus_traffic_mb = 500;
+        assert_eq!(gold.limit_bytes(), 0);
+        assert!(gold.may_read_chunks(now));
+
+        // Бесплатный план без суточного пополнения — тоже безлимит: свипы его
+        // не троттлят, потому что из 'throttled' не было бы выхода, и потолок,
+        // на который никто не действует, каталог называть не вправе.
+        let mut free_no_topup = free.clone();
+        free_no_topup.daily_traffic_mb = 0;
+        assert_eq!(free_no_topup.limit_bytes(), 0);
     }
 
     #[test]
@@ -1685,8 +2118,24 @@ mod tests {
         assert!(free.may_read_chunks(now), "onboarding подключается");
     }
 
+    /// Узел-релей для фикстуры: RU, один инбаунд shadowsocks-2022.
+    fn relay_node(id: &str, cc: &str) -> Node {
+        let mut n = Node::new(
+            id,
+            "\u{1F1F7}\u{1F1FA} Relay",
+            cc,
+            "ru-r1.exa-nodes.net",
+            8388,
+            Protocol::Shadowsocks,
+            Network::Tcp,
+            Security::None,
+        );
+        n.ss_method = Some(SsMethod::Blake3Aes256Gcm);
+        n
+    }
+
     #[test]
-    fn selection_names_the_pinned_exit_only() {
+    fn selection_resolves_the_exit_the_relay_and_the_policy() {
         let mut model = minimal_model();
         model
             .exits
@@ -1696,18 +2145,118 @@ mod tests {
             "de3.exa-nodes.net",
             "1f2e3d4c",
         ));
-        assert!(selection_for(&model, None, None).is_none());
-        assert!(selection_for(&model, Some(99), None).is_none());
-        let sel = selection_for(&model, Some(17), Some("ru")).unwrap();
-        assert_eq!(
-            sel.exit.as_deref(),
-            Some("n17i1"),
-            "префикс n17i не ловит n170i"
+        model.relays.push(relay_node("n2i1", "RU"));
+        for e in model.exits.iter_mut() {
+            e.relay = Some("n2i1".into());
+        }
+        model.validate().expect("фикстура согласована");
+
+        // Закрепление: первый инбаунд именно этого узла, префикс не ловит n170i.
+        let r = selection_for(&model, Some(17), Some("ru")).unwrap();
+        assert_eq!(r.selection.exit.as_deref(), Some("n17i1"));
+        assert_eq!(r.selection.nid, 17);
+        assert_eq!(r.selection.rcc, RelayResolution::Country(*b"RU"));
+        assert_eq!(r.selection.relay.as_deref(), Some("n2i1"));
+        let relay = r.policy.relay.clone().unwrap();
+        assert_eq!(relay.value, RelayChoice::Country(*b"RU"));
+        assert_eq!(relay.src, Provenance::User);
+
+        // NULL это «не выбирал»: цепочка та, которую панель и строит, а
+        // происхождение говорит, что решил оператор.
+        let r = selection_for(&model, Some(17), None).unwrap();
+        assert_eq!(r.selection.rcc, RelayResolution::Country(*b"RU"));
+        assert_eq!(r.selection.relay.as_deref(), Some("n2i1"));
+        let relay = r.policy.relay.clone().unwrap();
+        assert_eq!(relay.value, RelayChoice::Unset);
+        assert_eq!(relay.src, Provenance::Default);
+
+        // Явный отказ от цепочки это выбор пользователя.
+        for none in ["none", "NONE", "--"] {
+            let r = selection_for(&model, Some(17), Some(none)).unwrap();
+            assert_eq!(r.selection.rcc, RelayResolution::NoRelay);
+            assert!(r.selection.relay.is_none());
+            let relay = r.policy.relay.clone().unwrap();
+            assert_eq!(relay.value, RelayChoice::NoRelay);
+            assert_eq!(relay.src, Provenance::User);
+        }
+
+        // Страна без релея во флоте: `rcc = US` над списком без US это
+        // директива, которую клиент обязан отвергнуть. Решает оператор.
+        let r = selection_for(&model, Some(17), Some("US")).unwrap();
+        assert_eq!(r.selection.rcc, RelayResolution::NoRelay);
+        assert!(r.selection.relay.is_none());
+        let relay = r.policy.relay.clone().unwrap();
+        assert_eq!(relay.value, RelayChoice::NoRelay);
+        assert_eq!(relay.src, Provenance::Operator);
+
+        // Без закрепления `sel` всё равно выпускается: умолчание оператора это
+        // первая запись в порядке каталога, и `nid` едет вместе с ней.
+        let r = selection_for(&model, None, None).unwrap();
+        assert_eq!(r.selection.exit.as_deref(), Some("n170i1"));
+        assert_eq!(r.selection.nid, 170);
+
+        // Закрепление, которого нет в каталоге: подмены нет, `sel.exit`
+        // опущен, а `nid` едет закреплённый и сохраняет легаси-URL.
+        let r = selection_for(&model, Some(99), None).unwrap();
+        assert!(r.selection.exit.is_none());
+        assert_eq!(r.selection.nid, 99);
+
+        // Пустой тир: называть нечего.
+        let mut empty = model.clone();
+        empty.exits.clear();
+        assert!(selection_for(&empty, None, None).is_none());
+
+        // Каждый разрешённый выбор согласован и с каталогом, и с `pol`.
+        for (nid, rc) in [
+            (Some(17), Some("ru")),
+            (Some(17), None),
+            (Some(17), Some("none")),
+            (Some(17), Some("US")),
+            (None, None),
+        ] {
+            let r = selection_for(&model, nid, rc).unwrap();
+            model.check_selection(&r.selection).unwrap();
+            let (row, _) = stored(&model, 7, FIX_IAT);
+            let mut d = fixture_directive(&row, Nonce([0x11; 16]), 1);
+            d.selection = Some(r.selection);
+            d.policy = Some(r.policy);
+            d.encode().expect("sel и pol согласованы (02-SPEC.md 7.4)");
+        }
+    }
+
+    #[test]
+    fn a_selection_the_catalog_cannot_back_is_refused() {
+        let mut model = minimal_model();
+        model.relays.push(relay_node("n2i1", "RU"));
+        model.exits[0].relay = Some("n2i1".into());
+        model.validate().unwrap();
+        let base = selection_for(&model, Some(17), Some("ru"))
+            .unwrap()
+            .selection;
+        model.check_selection(&base).unwrap();
+
+        let mut dangling = base.clone();
+        dangling.exit = Some("n99i9".into());
+        assert!(model.check_selection(&dangling).is_err(), "exit вне ex");
+
+        let mut wrong_relay = base.clone();
+        wrong_relay.relay = Some("n9i9".into());
+        assert!(model.check_selection(&wrong_relay).is_err(), "relay вне re");
+
+        let mut wrong_cc = base.clone();
+        wrong_cc.rcc = RelayResolution::Country(*b"NL");
+        assert!(
+            model.check_selection(&wrong_cc).is_err(),
+            "страна записи не равна rcc"
         );
-        assert_eq!(sel.nid, 17);
-        assert_eq!(sel.rcc, RelayResolution::Country(*b"RU"));
-        assert_eq!(relay_resolution(Some("none")), RelayResolution::NoRelay);
-        assert_eq!(relay_resolution(None), RelayResolution::NoRelay);
+
+        // `--` при названном релее решается по одним байтам директивы.
+        let mut contradiction = base;
+        contradiction.rcc = RelayResolution::NoRelay;
+        let (row, _) = stored(&model, 7, FIX_IAT);
+        let mut d = fixture_directive(&row, Nonce([0x11; 16]), 1);
+        d.selection = Some(contradiction);
+        assert!(d.encode().is_err(), "релей назван при rcc = --");
     }
 
     #[test]
@@ -1717,19 +2266,71 @@ mod tests {
         assert!(tier_of_plan(0).is_err());
         assert!(tier_of_plan(1024).is_err());
         assert!(tier_of_plan(-3).is_err());
-        assert_eq!(implemented_capabilities(0, false), 0);
-        assert_eq!(implemented_capabilities(3, false), cap::NODE_MATERIAL);
+        let exit = node_vless_reality("n17i3", "de1.exa-nodes.net", "6ba85179");
+        let relay = relay_node("n2i1", "RU");
+        let mut chained = exit.clone();
+        chained.relay = Some(relay.id.clone());
+
+        assert_eq!(implemented_capabilities(&[], &[], false), 0);
         assert_eq!(
-            implemented_capabilities(3, false) & cap::SEALED_DIRECTIVES,
+            implemented_capabilities(std::slice::from_ref(&exit), &[], false),
+            cap::NODE_MATERIAL
+        );
+        assert_eq!(
+            implemented_capabilities(std::slice::from_ref(&exit), &[], false)
+                & cap::SEALED_DIRECTIVES,
             0
         );
         assert_eq!(
-            implemented_capabilities(3, true),
+            implemented_capabilities(std::slice::from_ref(&exit), &[], true),
             cap::NODE_MATERIAL | cap::ONBOARDING_GRANT
         );
         assert_eq!(
-            tier_catalog(pid(), 1, Vec::new(), true).cap,
+            tier_catalog(pid(), 1, Vec::new(), Vec::new(), true).cap,
             cap::ONBOARDING_GRANT
+        );
+
+        // Форма флота: разрешимая цепочка это `rl`, попадающий в выпущенную
+        // запись `re`. Ни пустое `re`, ни `rl` в никуда, ни выход без `rl`.
+        assert!(relay_chain_is_resolvable(
+            std::slice::from_ref(&chained),
+            std::slice::from_ref(&relay)
+        ));
+        assert!(
+            !relay_chain_is_resolvable(std::slice::from_ref(&chained), &[]),
+            "rl без записи re это не цепочка"
+        );
+        assert!(
+            !relay_chain_is_resolvable(std::slice::from_ref(&exit), std::slice::from_ref(&relay)),
+            "релей, на который никто не ссылается, цепочки не даёт"
+        );
+
+        // Но форма флота бит не поднимает: его поднимает рендерер, и пока он
+        // цепочку не выпускает, разрешимая ссылка остаётся данными без
+        // контрола. Ср. `the_chaining_bit_follows_the_clash_generator`.
+        assert_eq!(
+            implemented_capabilities(
+                std::slice::from_ref(&chained),
+                std::slice::from_ref(&relay),
+                false
+            ) & cap::RELAY_CHAINING
+                != 0,
+            CLASH_EMITS_RELAY_CHAINS,
+            "бит 2 обязан идти за генератором, а не за формой флота"
+        );
+        assert_eq!(
+            implemented_capabilities(std::slice::from_ref(&chained), &[], false),
+            cap::NODE_MATERIAL,
+            "rl без записи re это не возможность"
+        );
+        assert_eq!(
+            implemented_capabilities(
+                std::slice::from_ref(&exit),
+                std::slice::from_ref(&relay),
+                false
+            ),
+            cap::NODE_MATERIAL,
+            "релей, на который никто не ссылается, цепочки не даёт"
         );
         for _ in 0..64 {
             let b = draw_bucket(PAD_BUCKETS);
@@ -1805,7 +2406,7 @@ mod tests {
                 r#"{"network":"ws","security":"tls","wsSettings":{"path":"/t"}}"#,
             ),
         ]);
-        let entries = node_entries(&info, pid(), 1);
+        let entries = node_entries(&info);
         let ids: Vec<&str> = entries.iter().map(|n| n.id.as_str()).collect();
         assert_eq!(
             ids,
@@ -1860,7 +2461,7 @@ mod tests {
         assert_eq!(trojan.path.as_deref(), Some("/t"));
 
         // Каталог из этих записей проходит проверку и подписывается.
-        let signed = tier_catalog(pid(), 1, entries, false)
+        let signed = tier_catalog(pid(), 1, entries, Vec::new(), false)
             .sign(&[online()])
             .unwrap();
         assert_eq!(signed.chunk_count(), 1);
@@ -1868,6 +2469,242 @@ mod tests {
         // Узел без страны получает ZZ, а не падает.
         let mut nameless = node_info(vec![inbound(3, "vless", 443, "{}")]);
         nameless.country_code = None;
-        assert_eq!(node_entries(&nameless, pid(), 1)[0].cc, "ZZ");
+        assert_eq!(node_entries(&nameless)[0].cc, "ZZ");
+    }
+
+    /// Инбаунд на другом узле: `node_id` попадает в `id` записи.
+    fn inbound_on(
+        node_id: i64,
+        id: i64,
+        protocol: &str,
+        port: i64,
+        stream: &str,
+    ) -> caramba_db::models::network::Inbound {
+        caramba_db::models::network::Inbound {
+            node_id,
+            ..inbound(id, protocol, port, stream)
+        }
+    }
+
+    /// Узел-релей RU, как узел 2 живого тенанта: один инбаунд hysteria2.
+    fn ru_relay() -> NodeInfo {
+        let mut info = node_info(vec![inbound_on(
+            2,
+            1,
+            "hysteria2",
+            8443,
+            r#"{"network":"udp"}"#,
+        )]);
+        info.name = "ru-relay".into();
+        info.address = "203.0.113.9".into();
+        info.frontend_url = None;
+        info.country_code = Some("ru".into());
+        info.is_relay = true;
+        info
+    }
+
+    #[test]
+    fn a_de_exit_chained_through_an_ru_relay_gives_one_resolvable_link() {
+        let relay = ru_relay();
+        let mut exit = node_info(vec![
+            inbound(3, "vless", 443, r#"{"network":"tcp","security":"reality"}"#),
+            inbound(4, "hysteria2", 8443, r#"{"network":"udp"}"#),
+        ]);
+        exit.relay_info = Some(Box::new(relay.clone()));
+
+        let (exits, relays) = tier_entries(&[exit, relay]);
+
+        // Ровно одна запись релея: одна на узел, а не одна на инбаунд.
+        assert_eq!(relays.len(), 1);
+        assert_eq!(relays[0].id, "n2i1");
+        assert_eq!(relays[0].cc, "RU");
+        assert!(relays[0].relay.is_none(), "релей не ссылается на релей");
+
+        // Оба выхода узла называют её, и суффикс имени прокси сохранён.
+        assert_eq!(exits.len(), 2);
+        for e in &exits {
+            assert_eq!(e.relay.as_deref(), Some("n2i1"));
+            assert!(
+                e.pn.ends_with(" \u{21AA}"),
+                "суффикс цепочки у Clash: {}",
+                e.pn
+            );
+        }
+
+        // Множества не пересекаются.
+        let exit_ids: BTreeSet<&str> = exits.iter().map(|n| n.id.as_str()).collect();
+        assert!(relays.iter().all(|r| !exit_ids.contains(r.id.as_str())));
+
+        // Ссылка разрешима, и каталог с ней проходит проверку и подписывается
+        // — с битом 2 или без него: проверка каталога `cap` и `re` не связывает
+        // (см. `a_fleet_may_carry_relays_with_the_chaining_bit_clear` в
+        // libs/caramba-shared/tests/csm_catalog.rs). Данные едут раньше
+        // контрола, и это решение, а не недоделка (`01-DECISION.md` P8).
+        let model = tier_catalog(pid(), 1, exits, relays, false);
+        assert!(relay_chain_is_resolvable(&model.exits, &model.relays));
+        assert_eq!(
+            model.cap & cap::RELAY_CHAINING != 0,
+            CLASH_EMITS_RELAY_CHAINS
+        );
+        model.validate().expect("каталог с цепочкой согласован");
+        assert_eq!(model.sign(&[online()]).unwrap().chunk_count(), 1);
+
+        // Флот это содержимое: снять релей и ссылки на него значит сменить
+        // дайджест, то есть одна переподпись.
+        let mut without = model.clone();
+        without.relays.clear();
+        for e in without.exits.iter_mut() {
+            e.relay = None;
+        }
+        without.cap = implemented_capabilities(&without.exits, &[], false);
+        assert_ne!(model.content_digest(), without.content_digest());
+    }
+
+    /// Проба генератора: бит 2 честен ровно настолько, насколько честен
+    /// рендерер, над которым он стоит.
+    ///
+    /// Этот тест существует потому, что предыдущая редакция ставила бит по
+    /// форме флота — и над живым тенантом (узел 1 DE, `relay_id` = 2 на
+    /// RU-релей) он встал бы, открыв в приложении переключатель страны входа,
+    /// не меняющий ни одного байта на проводе.
+    ///
+    /// Признак цепочки взят структурный, а не синтаксический: чтобы завернуть
+    /// выход во вход, конфиг обязан ГДЕ-ТО назвать адрес релея — mihomo делает
+    /// это отдельным прокси релея плюс `dialer-proxy` на выходе. Нет адреса и
+    /// нет `dialer-proxy` — цепочки нет, чем бы её ни называли имена прокси.
+    /// Ложная тревога возможна в безопасную сторону: если адрес релея появится
+    /// без реальной цепочки, тест упадёт и заставит посмотреть.
+    #[test]
+    fn the_chaining_bit_follows_the_clash_generator() {
+        use crate::singbox::subscription_generator::{UserKeys, generate_clash_config};
+
+        let relay = ru_relay();
+        let mut exit = node_info(vec![inbound(
+            3,
+            "vless",
+            443,
+            r#"{"network":"tcp","security":"reality"}"#,
+        )]);
+        exit.relay_info = Some(Box::new(relay.clone()));
+
+        let keys = UserKeys {
+            user_uuid: "0e7a6c11-b3f8-4a17-9d44-9f3c1d025b8e".into(),
+            hy2_password: "hy2-secret".into(),
+            _awg_private_key: None,
+        };
+        // `_sub` генератором не читается; поля берутся минимально обязательные.
+        let sub: caramba_db::models::store::Subscription =
+            serde_json::from_value(serde_json::json!({
+                "id": 1,
+                "user_id": 1,
+                "plan_id": 1,
+                "status": "active",
+                "used_traffic": 0,
+                "subscription_uuid": SUB_UUID,
+                "created_at": "2026-09-02T00:00:00Z",
+                "expires_at": "2026-12-02T00:00:00Z",
+            }))
+            .expect("подписка-заглушка");
+
+        let yaml = generate_clash_config(
+            &sub,
+            std::slice::from_ref(&exit),
+            &keys,
+            std::slice::from_ref(&relay),
+        )
+        .expect("генератор Clash выпускает конфиг");
+
+        // Фикстура действительно цепочечная — генератор сам её так пометил.
+        assert!(
+            yaml.contains('\u{21AA}'),
+            "фикстура не помечена как цепочка, проба смотрит не туда:\n{yaml}"
+        );
+
+        let chains = yaml.contains(relay.address.as_str()) || yaml.contains("dialer-proxy");
+        assert_eq!(
+            chains, CLASH_EMITS_RELAY_CHAINS,
+            "генератор Clash и CLASH_EMITS_RELAY_CHAINS разошлись. \
+             Если цепочка теперь выпускается — поднимите константу, бит 2 \
+             станет честным сам. Если нет — уберите то, что подделало признак. \
+             Выпуск:\n{yaml}"
+        );
+
+        // И бит идёт за этим ответом, хотя флот цепочку разрешает.
+        let (exits, relays) = tier_entries(&[exit, relay]);
+        assert!(relay_chain_is_resolvable(&exits, &relays));
+        assert_eq!(
+            implemented_capabilities(&exits, &relays, false) & cap::RELAY_CHAINING != 0,
+            chains,
+            "подписанный бит 2 обязан совпадать с тем, что выпускает генератор"
+        );
+    }
+
+    #[test]
+    fn a_relay_without_a_catalog_entry_takes_the_link_with_it() {
+        // У релея нет ни одного включённого инбаунда: записи `re` не будет,
+        // и `rl` обязан исчезнуть вместе с ней, иначе каталог не подпишется.
+        let mut relay = ru_relay();
+        relay.inbounds.clear();
+        let mut exit = node_info(vec![inbound(
+            3,
+            "vless",
+            443,
+            r#"{"network":"tcp","security":"reality"}"#,
+        )]);
+        exit.relay_info = Some(Box::new(relay.clone()));
+
+        let (exits, relays) = tier_entries(&[exit, relay]);
+        assert!(relays.is_empty());
+        assert_eq!(exits.len(), 1);
+        assert!(exits[0].relay.is_none());
+        let model = tier_catalog(pid(), 1, exits, relays, false);
+        assert_eq!(model.cap & cap::RELAY_CHAINING, 0);
+        model.validate().expect("висячего rl не осталось");
+    }
+
+    #[test]
+    fn the_relay_transport_follows_the_generators_priority() {
+        // Порядок ss > hysteria2 > vless, а не порядок строк в базе.
+        let mut relay = ru_relay();
+        relay.inbounds = vec![
+            inbound_on(
+                2,
+                7,
+                "vless",
+                443,
+                r#"{"network":"tcp","security":"reality"}"#,
+            ),
+            inbound_on(2, 5, "shadowsocks", 8388, "{}"),
+            inbound_on(2, 6, "hysteria2", 8443, r#"{"network":"udp"}"#),
+        ];
+        assert_eq!(relay_entry(&relay).unwrap().id, "n2i5");
+
+        relay.inbounds.retain(|ib| ib.protocol != "shadowsocks");
+        assert_eq!(relay_entry(&relay).unwrap().id, "n2i6");
+
+        // Выключенный инбаунд не выбирается даже с высшим приоритетом.
+        relay.inbounds.push(caramba_db::models::network::Inbound {
+            enable: false,
+            ..inbound_on(2, 4, "shadowsocks", 8388, "{}")
+        });
+        assert_eq!(relay_entry(&relay).unwrap().id, "n2i6");
+    }
+
+    #[test]
+    fn naive_is_dropped_loudly_and_never_reaches_the_catalog() {
+        // Узел 1 живого тенанта отдаёт инбаунд `naive`. Генератор Clash для
+        // него прокси не выпускает, значит и каталог не вправе — но пропуск
+        // обязан быть назван, иначе выбор протокола врёт про флот.
+        let info = node_info(vec![
+            inbound(3, "vless", 443, r#"{"network":"tcp","security":"reality"}"#),
+            inbound(9, "naive", 8080, r#"{"network":"tcp","security":"tls"}"#),
+        ]);
+        let err = node_entry(&info, &info.inbounds[1]).unwrap_err();
+        assert_eq!(err, NAIVE_NOT_IN_CLASH);
+        assert!(err.contains("naive"), "причина называет протокол");
+
+        let entries = node_entries(&info);
+        let ids: Vec<&str> = entries.iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(ids, ["n17i3"]);
     }
 }
