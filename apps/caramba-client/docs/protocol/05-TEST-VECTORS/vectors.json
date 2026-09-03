@@ -1,0 +1,2565 @@
+{
+  "corpus": "CSM/1 test vectors",
+  "corpus_version": 1,
+  "generator": "05-TEST-VECTORS/gen (Go, standard library only, hand-written strict CBOR encoder)",
+  "determinism": "No entropy source is used. crypto/rand is not seedable in Go, so bytes that must look random are drawn from a SHA-256 counter stream over a fixed label (gen/frame.go detReader). Re-running the generator reproduces every byte.",
+  "source_documents": {
+    "decision": "../01-DECISION.md",
+    "spec": "../02-SPEC.md",
+    "threat_model": "../04-THREAT-MODEL.md",
+    "wire": "../03-WIRE.md"
+  },
+  "fixture_keys": {
+    "device_agreement_pk": "0477fcca701fd063eed7a1a41619872a76c5fc5b3adf67ce3b8edf99fcbc8a71a53655f25a0fea378a0007f5942586bb617dfb4245129a5e0cb2f83cba9382b9eb",
+    "device_agreement_pk_other": "041ffe1e7b3861bd49d9bf7b42eebafd1697e883ab5a25f610e3ff90edc7a1b4431808c07541477fd12417541fe3dac33769cb518a331bb42ee7b1e02a2582e8b6",
+    "device_agreement_sk": "a801c3a8f0bbc69e012c248320808ccf24e4928065cedfbcfd22032e9c954138",
+    "device_agreement_sk_other": "a3ad342bf784735c7d33e112bdacbad1602bde3211433c5b0a727beed2b52fb3",
+    "dtp": "4f0f22569564aab09a2d1a75c132d955",
+    "dtp_other_device": "933d2a9954645f57564228b36586f931",
+    "enrollment_code": "49Q8-M87P-KQZ3-WFDG-ZTJX",
+    "enrollment_code_unhyphenated": "49Q8M87PKQZ3WFDGZTJX",
+    "hpke_ephemeral_sk": "e8e187831a2523ffba5c6c63394cc89913b012b191f13f3d45d226d42fbfa0d3",
+    "link_pin": "49Q8M87PK6WP9QXG3T30",
+    "loc": "EA3B8SKCY6VBWASE7AM1X48Y",
+    "loc_hmac_secret": "15bc4454d394e20a38fd6a2c29b898e48eee36ab5cf46e7d7f8286f45427d756",
+    "nonce": "a3f10c94b27e5d6188ff20419c73ae05",
+    "online2_kid": "0e5bf8cd0d4092cc15738f05",
+    "online2_public": "e17f09d9e3566a19073f22a90cb3934ba75db4f1a254e0bdc14227ed362ff524",
+    "online2_seed": "233d916f0143ab038753bac41717bb00d7489c1cd4b01d6ea55effecda7c5724",
+    "online_kid": "21e3e2cc0a3ba777e69ce14c",
+    "online_public": "75f350b3eb21344a96de195d82079e45f0a56fecdc736c16b61d56619afd5653",
+    "online_seed": "3e395bd70b7b39edf135a4610ed77446cf6b964e13daa8a9eae29402de45ff57",
+    "panel_hpke_pk": "0436da7e787ba49e8dc915d33553fe1942712410f9c8a94782f0ed17be8df400a1c0a7b1a4d0e2bc0489ef710d37de4c92fc3070c942491432ea15e022f091fe08",
+    "panel_hpke_sk": "a03671c7bf0b4144f4c1854083011db26695283da2f42a5444e0f51ab7e00d31",
+    "pid": "226e8a20f699b964",
+    "rootB_kid": "129ae3bb2c724c51a1b40f9d",
+    "rootB_public": "95688b33409377066cdb43cb8e0e47fc11a7f8f7a018b69fb4634ce30e36f6fe",
+    "rootB_seed": "5562aed09dca02f3996a8c4327acf5427444bb324129408365439d1e240db355",
+    "rootC_kid": "47aa7d3ffaa2396463c3c3ef",
+    "rootC_public": "55b49578094e518de581a2c260e11ec827f58517b724647fe21cff14bdc88681",
+    "rootC_seed": "af90e1d1cbb07327c7a7d5ed5d0509fa78fa9018c87a905bad0576d480e9eb68",
+    "root_kid": "226e8a20f699b964dfb01e86",
+    "root_public": "8b160c71c61008321cae0d0dc9a980b6e59cb26d0f4d1fa8dfc030c3675e2b7c",
+    "root_seed": "9aa4b46c96a0ed2aabe0391f899737224ad96032e8ca6bd53fd9daf5614d05ed",
+    "stranger_kid": "899dcfa402c30c8fbb1da970",
+    "stranger_public": "9a864c7b4b7758449a9c8389520589030c9b16bf6ad34d55e98271f0b4114503",
+    "stranger_seed": "26cb2e1101bb2c1cb83a4fa067d6e04f9b29c8dc22fcc66f9fe525e52278c864",
+    "subscription_uuid_for_loc": "9f3c1d02-5b8e-4a17-9d44-0e7a6c11b3f8"
+  },
+  "contexts": {
+    "default": {
+      "anchor": "bin/positive/k1_min.bin",
+      "pinned_pid": "226e8a20f699b964",
+      "link_pin": "49Q8M87PK6WP9QXG3T30",
+      "now": 1788307500,
+      "time_floor": 1788307200,
+      "expected_nonce": "a3f10c94b27e5d6188ff20419c73ae05",
+      "device_dtp": "4f0f22569564aab09a2d1a75c132d955",
+      "device_agreement_sk": "a801c3a8f0bbc69e012c248320808ccf24e4928065cedfbcfd22032e9c954138",
+      "hwm": {
+        "1": 1,
+        "2": 6,
+        "3": 411,
+        "4": 6,
+        "5": 0,
+        "8": 0
+      },
+      "note": "The trust anchor is k1_min. hwm is per (pid, doc_type, scope); a vector that needs a different high-water mark carries a context_override."
+    },
+    "first_trust": {
+      "pinned_pid": "226e8a20f699b964",
+      "link_pin": "49Q8M87PK6WP9QXG3T30",
+      "now": 1788307500,
+      "time_floor": 1788307200,
+      "expected_nonce": "a3f10c94b27e5d6188ff20419c73ae05",
+      "device_dtp": "4f0f22569564aab09a2d1a75c132d955",
+      "device_agreement_sk": "a801c3a8f0bbc69e012c248320808ccf24e4928065cedfbcfd22032e9c954138",
+      "hwm": {
+        "1": 0
+      },
+      "note": "First trust. There is no previously trusted key document; the anchor is link_pin (03-WIRE.md 7.2)."
+    },
+    "online_thr2": {
+      "anchor": "bin/anchors/k1_online_thr2.bin",
+      "pinned_pid": "226e8a20f699b964",
+      "link_pin": "49Q8M87PK6WP9QXG3T30",
+      "now": 1788307500,
+      "time_floor": 1788307200,
+      "expected_nonce": "a3f10c94b27e5d6188ff20419c73ae05",
+      "device_dtp": "4f0f22569564aab09a2d1a75c132d955",
+      "device_agreement_sk": "a801c3a8f0bbc69e012c248320808ccf24e4928065cedfbcfd22032e9c954138",
+      "hwm": {
+        "1": 1,
+        "2": 6,
+        "3": 411,
+        "4": 6,
+        "5": 0,
+        "8": 0
+      },
+      "note": "Trust anchor sets roles[2] to {ks:[online,online2], thr:2}. One online signature is below threshold."
+    },
+    "rev_online": {
+      "anchor": "bin/anchors/k1_rev_online.bin",
+      "pinned_pid": "226e8a20f699b964",
+      "link_pin": "49Q8M87PK6WP9QXG3T30",
+      "now": 1788307500,
+      "time_floor": 1788307200,
+      "expected_nonce": "a3f10c94b27e5d6188ff20419c73ae05",
+      "device_dtp": "4f0f22569564aab09a2d1a75c132d955",
+      "device_agreement_sk": "a801c3a8f0bbc69e012c248320808ccf24e4928065cedfbcfd22032e9c954138",
+      "hwm": {
+        "1": 1,
+        "2": 6,
+        "3": 411,
+        "4": 6,
+        "5": 0,
+        "8": 0
+      },
+      "note": "Trust anchor revokes the online kid. Every document that kid signed MUST be rejected, cached copies included."
+    },
+    "root_only": {
+      "anchor": "bin/anchors/k1_root_only.bin",
+      "pinned_pid": "226e8a20f699b964",
+      "link_pin": "49Q8M87PK6WP9QXG3T30",
+      "now": 1788307500,
+      "time_floor": 1788307200,
+      "expected_nonce": "a3f10c94b27e5d6188ff20419c73ae05",
+      "device_dtp": "4f0f22569564aab09a2d1a75c132d955",
+      "device_agreement_sk": "a801c3a8f0bbc69e012c248320808ccf24e4928065cedfbcfd22032e9c954138",
+      "hwm": {
+        "1": 1,
+        "2": 6,
+        "3": 411,
+        "4": 6,
+        "5": 0,
+        "8": 0
+      },
+      "note": "Trust anchor publishes a root role and no online role. Legal, and the only shape in which V3 cannot resolve a key set."
+    },
+    "rotation_v1": {
+      "anchor": "bin/positive/k1_rot_v1.bin",
+      "pinned_pid": "226e8a20f699b964",
+      "link_pin": "49Q8M87PK6WP9QXG3T30",
+      "now": 1788307500,
+      "time_floor": 1788307200,
+      "expected_nonce": "a3f10c94b27e5d6188ff20419c73ae05",
+      "device_dtp": "4f0f22569564aab09a2d1a75c132d955",
+      "device_agreement_sk": "a801c3a8f0bbc69e012c248320808ccf24e4928065cedfbcfd22032e9c954138",
+      "hwm": {
+        "1": 1
+      },
+      "note": "Trust anchor is version 1 of the rotation chain. Only version 2 may be accepted next (03-WIRE.md 7.3)."
+    },
+    "rotation_v2": {
+      "anchor": "bin/positive/k1_rot_v2.bin",
+      "pinned_pid": "226e8a20f699b964",
+      "link_pin": "49Q8M87PK6WP9QXG3T30",
+      "now": 1788307500,
+      "time_floor": 1788307200,
+      "expected_nonce": "a3f10c94b27e5d6188ff20419c73ae05",
+      "device_dtp": "4f0f22569564aab09a2d1a75c132d955",
+      "device_agreement_sk": "a801c3a8f0bbc69e012c248320808ccf24e4928065cedfbcfd22032e9c954138",
+      "hwm": {
+        "1": 2
+      },
+      "note": "Trust anchor is version 2 of the rotation chain, whose root role holds rootB only."
+    }
+  },
+  "published_digest_check": [
+    {
+      "document": "key document",
+      "file": "bin/positive/k1_min.bin",
+      "bytes": 257,
+      "expected_by_wire_15": "671eaaaf6729274419faefe0cb44430126d6421e2f0f628bc4f1fab376bdad35",
+      "actual": "671eaaaf6729274419faefe0cb44430126d6421e2f0f628bc4f1fab376bdad35",
+      "match": true
+    },
+    {
+      "document": "catalog",
+      "file": "bin/positive/c1_min.bin",
+      "bytes": 272,
+      "expected_by_wire_15": "eb5c33321940d11813848b8b8b03417e75fb36a82c8aa9c9567e1686f9df535d",
+      "actual": "eb5c33321940d11813848b8b8b03417e75fb36a82c8aa9c9567e1686f9df535d",
+      "match": true
+    },
+    {
+      "document": "catalog chunk 0/1",
+      "file": "bin/positive/c1c_min_0.bin",
+      "bytes": 407,
+      "expected_by_wire_15": "68d613af7e4f616464ad281a92739822361fa66600948cda6ede452b46237168",
+      "actual": "68d613af7e4f616464ad281a92739822361fa66600948cda6ede452b46237168",
+      "match": true
+    },
+    {
+      "document": "directive",
+      "file": "bin/positive/m1_min.bin",
+      "bytes": 228,
+      "expected_by_wire_15": "b1956c4ed3877c424c1f11b903ae75be4f9a24a1537f760bb43a618da74be600",
+      "actual": "b1956c4ed3877c424c1f11b903ae75be4f9a24a1537f760bb43a618da74be600",
+      "match": true
+    },
+    {
+      "document": "bootstrap blob",
+      "file": "bin/positive/b1_wire_8_5.bin",
+      "bytes": 374,
+      "expected_by_wire_15": "c78332c555152fd2572e7d5ec0f8bc2c1d48e2aedeccc99e3d4516eb05fc5247",
+      "actual": "c78332c555152fd2572e7d5ec0f8bc2c1d48e2aedeccc99e3d4516eb05fc5247",
+      "match": true
+    }
+  ],
+  "published_armor_check": {
+    "actual": "CARCAP1.RY1K5HAN.1/1.8D9MTC8504HAP08109424VMA43V9KEB40C0G86KAJXKG018TDAZF800AF0CPGX3ME1SKMBSFE1GPWSBC5SJQGRBDE1P6ABKECNT0PVJB6X8NEB9K9MS50B9SB195832R425HC33HRR80GCGWNR6GVJD9G2VEB75JDM7MT7X8VZ031GV7BRNQR3C1MM0Q4V9H5SJQGRBDE1P6ABB3CHQ2WVK5EG174V9H5SJQGRBDE1P6ABB3CHQ2WVK5EG1R2P1040GJ48S44MK2EA1958NJRB9E5WR32CHK6GTKCDSR74X3PF1X7RZG86B1DG2P4H251T0T80BFCHQPGBK5F1GPTW3CCMQ6WSBM09N2YS3EECPQ2XB5E9WG70BC64WKGBHN64Q32C1G5RVG90AR41042GJ38H2MCHT89554PK2D9S7N0MAJADA5ANJQB1CNMPTWBNF5Y3VC8NW6282ECNT7EVVJDDSG28KEH8GFD6DSCKFV07M6Z9PT16QFCHYCXX17ZHYQ1M8FGNKX4812T98XH9KPF5BV1SQ3T5HY7BKVKEFKXEV1CT395E3F34G2DV6A6D8VSM7SX14BF66R15X1R3R",
+    "expected": "CARCAP1.RY1K5HAN.1/1.8D9MTC8504HAP08109424VMA43V9KEB40C0G86KAJXKG018TDAZF800AF0CPGX3ME1SKMBSFE1GPWSBC5SJQGRBDE1P6ABKECNT0PVJB6X8NEB9K9MS50B9SB195832R425HC33HRR80GCGWNR6GVJD9G2VEB75JDM7MT7X8VZ031GV7BRNQR3C1MM0Q4V9H5SJQGRBDE1P6ABB3CHQ2WVK5EG174V9H5SJQGRBDE1P6ABB3CHQ2WVK5EG1R2P1040GJ48S44MK2EA1958NJRB9E5WR32CHK6GTKCDSR74X3PF1X7RZG86B1DG2P4H251T0T80BFCHQPGBK5F1GPTW3CCMQ6WSBM09N2YS3EECPQ2XB5E9WG70BC64WKGBHN64Q32C1G5RVG90AR41042GJ38H2MCHT89554PK2D9S7N0MAJADA5ANJQB1CNMPTWBNF5Y3VC8NW6282ECNT7EVVJDDSG28KEH8GFD6DSCKFV07M6Z9PT16QFCHYCXX17ZHYQ1M8FGNKX4812T98XH9KPF5BV1SQ3T5HY7BKVKEFKXEV1CT395E3F34G2DV6A6D8VSM7SX14BF66R15X1R3R",
+    "match": true,
+    "note": "The armored form of the 374-byte bootstrap blob of 03-WIRE.md 8.5, including its bid. The generator refuses to finish on a mismatch.",
+    "source": "03-WIRE.md section 10.5, the worked armored example"
+  },
+  "vectors": [
+    {
+      "id": "neg-cbor-bstr-3073",
+      "group": "negative",
+      "file": "bin/negative/cbor_bstr_3073.bin",
+      "doc_type": 3,
+      "bytes": 3165,
+      "sha256": "a9d72010440f5235d9c83a481d77b01237e02273b8e34aea207e5960240b5bc1",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "A 3073-byte byte string. MAX_BSTR_BYTES is 3072, sized to admit a full catalog chunk payload of 2816 bytes and the padding field, and nothing larger."
+    },
+    {
+      "id": "neg-cbor-depth-7",
+      "group": "negative",
+      "file": "bin/negative/cbor_depth_7.bin",
+      "doc_type": 3,
+      "bytes": 96,
+      "sha256": "4e8cfcb4d300e580daeff1891a70d32663c7b0851312706b40e4bcf5ab1ce04c",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "Six arrays nested inside the top-level map, which is depth 7. Rule C12 caps depth at 6 with the top-level map counted as depth 1. The envelope is also incomplete, but P9 runs before P10 so the expected code is the CBOR one."
+    },
+    {
+      "id": "neg-cbor-duplicate-key",
+      "group": "negative",
+      "file": "bin/negative/cbor_duplicate_key.bin",
+      "doc_type": 3,
+      "bytes": 230,
+      "sha256": "5a84e797c558b11a17bbde846de3f088229ec99e78c605c9c8f3497b345c6d9a",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "Key 1 appears twice, the second occurrence appended after key 25. Rule C10 catches it as an ordering violation, which is why duplicate detection cannot be forgotten independently."
+    },
+    {
+      "id": "neg-cbor-float",
+      "group": "negative",
+      "file": "bin/negative/cbor_float.bin",
+      "doc_type": 3,
+      "bytes": 230,
+      "sha256": "762b6f9d7717d941013bd1ec4d335fee6c98d2611559b50bdcec1a16f428be3c",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "st carries the half-precision float 3.0. Rule C6."
+    },
+    {
+      "id": "neg-cbor-indefinite-bstr",
+      "group": "negative",
+      "file": "bin/negative/cbor_indefinite_bstr.bin",
+      "doc_type": 3,
+      "bytes": 230,
+      "sha256": "ee8464dbb28717eb75ac3d56dff8f04727805749eee9a631673f6cef9e62c8cd",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "The nonce byte string re-encoded as an indefinite-length chunked bstr. Rule C3 applies to strings, not only to containers."
+    },
+    {
+      "id": "neg-cbor-indefinite-map",
+      "group": "negative",
+      "file": "bin/negative/cbor_indefinite_map.bin",
+      "doc_type": 3,
+      "bytes": 229,
+      "sha256": "6d6659f6487681dfa508e2d9c6c7b934541a17662ff9c6b6bca708d42821b452",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "Top-level map opened with 0xbf and closed with 0xff. Rule C3: definite lengths only."
+    },
+    {
+      "id": "neg-cbor-invalid-utf8",
+      "group": "negative",
+      "file": "bin/negative/cbor_invalid_utf8.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "27db17e2c7aab42fc17cddfd184b66b8e5b1063ff0b579b76753f437f6e03735",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "The first byte of the loc text string replaced by 0xff, which is not a legal UTF-8 lead byte. Rule C11 requires validation and forbids substituting replacement characters, because a substituting decoder makes two different byte strings compare equal."
+    },
+    {
+      "id": "neg-cbor-key-1024",
+      "group": "negative",
+      "file": "bin/negative/cbor_key_1024.bin",
+      "doc_type": 3,
+      "bytes": 232,
+      "sha256": "851c2d244a6e2bcd3ae80539868f10274f20a73b13c9ddc8dafc9fa14ece52f0",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "Map key 1024, above the non-critical range. 03-WIRE.md 3.3."
+    },
+    {
+      "id": "neg-cbor-key-zero",
+      "group": "negative",
+      "file": "bin/negative/cbor_key_zero.bin",
+      "doc_type": 3,
+      "bytes": 230,
+      "sha256": "c0c67b9c4c362ce77831f2844bea0b0ed3af94108cd69747951ce169d608006d",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "Map key 0, in ascending position. 03-WIRE.md 3.3: key 0 MUST be rejected. A decoder can decide this without knowing the doc_type, which is why the code is the CBOR one and not the field one."
+    },
+    {
+      "id": "neg-cbor-map-65-pairs",
+      "group": "negative",
+      "file": "bin/negative/cbor_map_65_pairs.bin",
+      "doc_type": 3,
+      "bytes": 258,
+      "sha256": "5bb04f8689aab0e21a2d7e31887bded74ac5a2b2a6226be3b9185a1051493a7e",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "A 65-pair map. MAX_MAP_PAIRS is 64."
+    },
+    {
+      "id": "neg-cbor-negative-int",
+      "group": "negative",
+      "file": "bin/negative/cbor_negative_int.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "b7cc1dd7b9bbee0dfc04d8f1022466b7cb810db9f2ae77ba0b1cf1c96d2ac5a1",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "st carries the negative integer -1. Rule C8: major type 1 is rejected in v1, in any position."
+    },
+    {
+      "id": "neg-cbor-nonminimal-len",
+      "group": "negative",
+      "file": "bin/negative/cbor_nonminimal_len.bin",
+      "doc_type": 3,
+      "bytes": 229,
+      "sha256": "b8195f355d0f24e6700139866f4fb07bb2df0884d0377d14d4f9386305b61dd1",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "The 8-byte pid string headed 0x58 0x08 instead of 0x48. Rule C4 governs length arguments as well as values, and this is the counterexample 03-WIRE.md 3.4 names."
+    },
+    {
+      "id": "neg-cbor-nonminimal-uint",
+      "group": "negative",
+      "file": "bin/negative/cbor_nonminimal_uint.bin",
+      "doc_type": 3,
+      "bytes": 229,
+      "sha256": "bb2bb2bf0919fb7b2c2717ccb26ac58dd5a5afe02c7bc30c75341f2c37aa6711",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "v = 1 encoded as 0x18 0x01 instead of 0x01. Rule C4: values 0..23 MUST be inline."
+    },
+    {
+      "id": "neg-cbor-null",
+      "group": "negative",
+      "file": "bin/negative/cbor_null.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "c21223eaa90b65983498ddc2a22be9a3376c734be323b085bff59b51e65e31b2",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "st carries CBOR null. Rule C7 permits only 0xf4 and 0xf5, which is why the reset-to-default state is the text sentinel \"default\" and not a null (03-WIRE.md 8.3)."
+    },
+    {
+      "id": "neg-cbor-simple-other",
+      "group": "negative",
+      "file": "bin/negative/cbor_simple_other.bin",
+      "doc_type": 3,
+      "bytes": 229,
+      "sha256": "5c73c1f6ead0606958d6acc3fdd3d76aefc65df9c035857dce8a70fa02aed38c",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "st carries simple value 32. Rule C7."
+    },
+    {
+      "id": "neg-cbor-tag",
+      "group": "negative",
+      "file": "bin/negative/cbor_tag.bin",
+      "doc_type": 3,
+      "bytes": 229,
+      "sha256": "551be612cee9b38ee2998e75b41c2be289c12692f9c22f4851bf2ff3e5e96a2d",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "ver wrapped in tag 2, the bignum tag. Rule C5 rejects tags in any position, tag 2 and tag 3 included, so a decoder cannot be steered into arbitrary-precision arithmetic."
+    },
+    {
+      "id": "neg-cbor-text-key",
+      "group": "negative",
+      "file": "bin/negative/cbor_text_key.bin",
+      "doc_type": 3,
+      "bytes": 230,
+      "sha256": "22fa0e30b6a1c8c8f823399054c7af49c2ae59d5cadfbd97545d113187ba6ec7",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "The status pair rewritten with the text key \"st\". Rule C9: map keys MUST be unsigned integers."
+    },
+    {
+      "id": "neg-cbor-toplevel-array",
+      "group": "negative",
+      "file": "bin/negative/cbor_toplevel_array.bin",
+      "doc_type": 3,
+      "bytes": 86,
+      "sha256": "eaa819c7710b6455cce1b64fd58189896efa1cc090d6709ca7a0225a6f93e25b",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "Payload is an array, not a map. Rule C1."
+    },
+    {
+      "id": "neg-cbor-trailing-in-payload",
+      "group": "negative",
+      "file": "bin/negative/cbor_trailing_in_payload.bin",
+      "doc_type": 3,
+      "bytes": 229,
+      "sha256": "973c0be20ae351b781efe5f277de253b7c3a68aee39cd03055eb025d56761650",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "One 0x00 inside payload_len, after the top-level map ends. Rule C2: the item MUST consume exactly payload_len bytes. This is distinct from neg-parse-framing-trailing, which appends after the signature slots."
+    },
+    {
+      "id": "neg-cbor-tstr-257",
+      "group": "negative",
+      "file": "bin/negative/cbor_tstr_257.bin",
+      "doc_type": 3,
+      "bytes": 349,
+      "sha256": "975dc585ed33aad11b5250c985b8b0863abdb5c27292fcb9a9efbfb197044ee7",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "A 257-byte text string in non-critical key 64. MAX_TSTR_BYTES is 256, and the limit applies everywhere, including in a key a v1 decoder would otherwise ignore."
+    },
+    {
+      "id": "neg-cbor-uint-over-max",
+      "group": "negative",
+      "file": "bin/negative/cbor_uint_over_max.bin",
+      "doc_type": 3,
+      "bytes": 232,
+      "sha256": "6366f51be99b4bfe256beff9546c93d570e4b760ee76956316325c56847fcd48",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "iat set to 2^53. MAX_UINT is 2^53 - 1 so that a Dart or JavaScript-hosted decoder never silently loses precision."
+    },
+    {
+      "id": "neg-cbor-unsorted-keys",
+      "group": "negative",
+      "file": "bin/negative/cbor_unsorted_keys.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "8a94aa0ae90f7f0f179190fabdd07193585021ff02f469960ddcd15e078de335",
+      "verdict": "reject",
+      "code": "E_PARSE_CBOR",
+      "step": "P9",
+      "context": "default",
+      "note": "Keys 1 and 2 transposed, so the map opens with key 2. Rule C10 requires strictly ascending order and forbids satisfying it by sorting after decode."
+    },
+    {
+      "id": "neg-env-missing-exp",
+      "group": "negative",
+      "file": "bin/negative/env_missing_exp.bin",
+      "doc_type": 3,
+      "bytes": 222,
+      "sha256": "ca4bc88ae13ec55c3ee35d187c6f069f16b4f21df123e0802017b387e6622c6b",
+      "verdict": "reject",
+      "code": "E_PARSE_ENVELOPE",
+      "step": "P10",
+      "context": "default",
+      "note": "exp removed and the map head reduced to 13 pairs. Envelope keys 1..5 are mandatory in every document of every type."
+    },
+    {
+      "id": "neg-env-pid-7-bytes",
+      "group": "negative",
+      "file": "bin/negative/env_pid_7_bytes.bin",
+      "doc_type": 3,
+      "bytes": 227,
+      "sha256": "85acf4f643af8b9d6ffd00467ec5370bec7aaa69865c149caad348570a27bf38",
+      "verdict": "reject",
+      "code": "E_PARSE_ENVELOPE",
+      "step": "P10",
+      "context": "default",
+      "note": "pid encoded as a 7-byte string. The cap is exactly 8; a length-tolerant verifier would let a prefix of one tenant's pid match another's."
+    },
+    {
+      "id": "neg-env-v2",
+      "group": "negative",
+      "file": "bin/negative/env_v2.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "435ae8dfcbe0fc458feb3749a4515a9f04d7e8ff1d2410a99ece051a7960fa32",
+      "verdict": "reject",
+      "code": "E_PARSE_ENVELOPE",
+      "step": "P10",
+      "context": "default",
+      "note": "v = 2. A v1 verifier MUST reject rather than attempt a best-effort parse; a spec_version bump is a re-review, not a patch (01-DECISION.md section 6)."
+    },
+    {
+      "id": "neg-field-cap-wrong-length",
+      "group": "negative",
+      "file": "bin/negative/field_cap_wrong_length.bin",
+      "doc_type": 3,
+      "bytes": 227,
+      "sha256": "1c5f1781561eafd1bd7d8535c37a85249d16dbc922b8652d99ac73801c7b699e",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "cap encoded as a 3-byte string. The cap is exactly 4, and a short bitfield would silently clear the high capability bits rather than fail."
+    },
+    {
+      "id": "neg-field-chunk-short-nonfinal",
+      "group": "negative",
+      "file": "bin/negative/field_chunk_short_nonfinal.bin",
+      "doc_type": 4,
+      "bytes": 2135,
+      "sha256": "bb77c727f5dc1c141c1c03986e4335810eb90216b05b749d251d221a124698a5",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "Chunk 0 of 2 carrying 2000 bytes where every chunk but the last MUST carry exactly 2816. Accepting it would let a mirror choose the reassembly offsets."
+    },
+    {
+      "id": "neg-field-fl-zero-emitted",
+      "group": "negative",
+      "file": "bin/negative/field_fl_zero_emitted.bin",
+      "doc_type": 2,
+      "bytes": 272,
+      "sha256": "82897168dbb087577bf07ca8164700ba5b628532bdb6bf0e46881f043fd85b4c",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "A node carrying fl = 0 explicitly. Value 0 of the fl enum means \"absent; the renderer MUST omit the key entirely, not emit an empty string\", so emitting the key at all is the error. The panel comment at subscription_generator.rs:230-232 records that an empty flow breaks Happ, and the Go renderer must reproduce the omission."
+    },
+    {
+      "id": "neg-field-host-uppercase",
+      "group": "negative",
+      "file": "bin/negative/field_host_uppercase.bin",
+      "doc_type": 2,
+      "bytes": 359,
+      "sha256": "bcec0c809595ea95d378d3178883047246e0204b6935efb516013b27286e26f9",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "A mirror hostname with uppercase letters. A verifier MUST reject rather than lowercase it, so two spellings of one host cannot produce two chash values for one catalog (03-WIRE.md 14.1)."
+    },
+    {
+      "id": "neg-field-key-unreferenced",
+      "group": "negative",
+      "file": "bin/negative/field_key_unreferenced.bin",
+      "doc_type": 1,
+      "bytes": 309,
+      "sha256": "98916b9e3990119ca0a56c4ef31959b6b92ce9ce71a751d2bbdf5bdeed530281",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "A key present in keys but named by no role. Role lives only in roles, so an unreferenced key is a key with no role, and 01-DECISION.md 5.1.3 forbids any path that yields a key without one."
+    },
+    {
+      "id": "neg-field-kid-mismatch",
+      "group": "negative",
+      "file": "bin/negative/field_kid_mismatch.bin",
+      "doc_type": 1,
+      "bytes": 257,
+      "sha256": "671ee165be67cacf8a3e55f2f6cf8ee1a6c550fbd53eade15579a656b158aa92",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "A key entry whose kid is not sha256(pk)[0..12]. A verifier MUST recompute and MUST reject; carrying kid unchecked would buy an attacker a free alias for a key the role table authorizes."
+    },
+    {
+      "id": "neg-field-missing-loc",
+      "group": "negative",
+      "file": "bin/negative/field_missing_loc.bin",
+      "doc_type": 3,
+      "bytes": 200,
+      "sha256": "d81eab2b2b75ce997c90304ee2ce79c52c543eb5f3140295594194950a47c5f2",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "The mandatory loc field removed. Without it the client cannot re-fetch, and a document that omits a mandatory field MUST be rejected rather than defaulted."
+    },
+    {
+      "id": "neg-field-node-id-charset",
+      "group": "negative",
+      "file": "bin/negative/field_node_id_charset.bin",
+      "doc_type": 2,
+      "bytes": 272,
+      "sha256": "b2bd91866ed529046eb6d8bec2f90a6d92a71022006ff10dbdf9c0e70e1df80c",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "A node id containing a space. The charset is [0-9A-Za-z_-] and the field is a closed vocabulary the client persists and echoes; invariant 11 forbids persisting an operator-supplied value that is not validated against one."
+    },
+    {
+      "id": "neg-field-path-dotdot",
+      "group": "negative",
+      "file": "bin/negative/field_path_dotdot.bin",
+      "doc_type": 2,
+      "bytes": 450,
+      "sha256": "81118ff048362e4adf80e3620775c548e41f22cf1070d95439c0ea520b4b910c",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "A DoH path field of \"/a/../dns-query\": a complete .. segment escapes the path the operator published. 03-WIRE.md 14.2."
+    },
+    {
+      "id": "neg-field-path-double-slash",
+      "group": "negative",
+      "file": "bin/negative/field_path_double_slash.bin",
+      "doc_type": 2,
+      "bytes": 457,
+      "sha256": "0da5fe7768a8ead9295ed763926fc171f0028ea1d89db0bfc5b4599babc881e2",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "A DoH path field of \"//evil.example.net/dns\": a second leading slash makes it a scheme-relative URL pointing at an authority the pool never authorized. 03-WIRE.md 14.2."
+    },
+    {
+      "id": "neg-field-path-pct2f",
+      "group": "negative",
+      "file": "bin/negative/field_path_pct2f.bin",
+      "doc_type": 2,
+      "bytes": 447,
+      "sha256": "174dfb61e9ec6aa9a778e512d0d65597d1a26544cd7506a61865a007e10e1dd4",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "A DoH path field of \"/dns%2fquery\": a percent-encoded slash can be decoded into a segment separator after validation. 03-WIRE.md 14.2."
+    },
+    {
+      "id": "neg-field-pd-nonzero",
+      "group": "negative",
+      "file": "bin/negative/field_pd_nonzero.bin",
+      "doc_type": 3,
+      "bytes": 246,
+      "sha256": "67cb5d761d45f13fae3c283a13bbac77106defece4a6b3f38eadd0366d6f99f2",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "pd contains a non-zero byte. A decoder MUST ignore pd's contents but MUST reject a non-zero one, so a hostile signer cannot use the padding field as a covert channel (03-WIRE.md 12.1)."
+    },
+    {
+      "id": "neg-field-st-out-of-vocabulary",
+      "group": "negative",
+      "file": "bin/negative/field_st_out_of_vocabulary.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "fb7124e302ac9f67a709e0a8bd1bbd0bb8d463528a95b484fd10594c89219fed",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "st = 9, outside the closed vocabulary of eight values. Unlike rc, which is deliberately open-ended extension space, st is a critical-range closed vocabulary and a value outside it is a parse failure (03-WIRE.md section 5)."
+    },
+    {
+      "id": "neg-field-thr-exceeds-ks",
+      "group": "negative",
+      "file": "bin/negative/field_thr_exceeds_ks.bin",
+      "doc_type": 1,
+      "bytes": 257,
+      "sha256": "9e6768a07bef8f0adf735c2d8cc56291f777f88fe73d67c05c4d0f51f6cdda07",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "roles[1] has thr = 2 over a one-key set. The cap is thr \u003c= len(ks); a threshold that can never be met bricks the profile at the next rotation."
+    },
+    {
+      "id": "neg-field-unknown-critical-key",
+      "group": "negative",
+      "file": "bin/negative/field_unknown_critical_key.bin",
+      "doc_type": 3,
+      "bytes": 230,
+      "sha256": "e00b21f15fe200c9e8074b9578d15d23e863650fb42df0d00eb3abd6f50000a5",
+      "verdict": "reject",
+      "code": "E_PARSE_FIELD",
+      "step": "P11",
+      "context": "default",
+      "note": "Key 8, which 03-WIRE.md 8.0 reserves in the critical range and forbids in v1. Critical-range keys fail closed: an old client refuses rather than ignores, which is what lets a future security-relevant field be added safely. See correction cor-3 on which error code this is."
+    },
+    {
+      "id": "neg-parse-doctype-00",
+      "group": "negative",
+      "file": "bin/negative/parse_doctype_00.bin",
+      "doc_type": 0,
+      "bytes": 228,
+      "sha256": "b08a52f027ab1d31a8c2a0ea141e4167ab709aac5fdbfe595488461c88cdad8f",
+      "verdict": "reject",
+      "code": "E_PARSE_DOCTYPE",
+      "step": "P3",
+      "context": "default",
+      "note": "doc_type 0x00 is the invalid value. An unknown doc_type is a parse failure, not a verification failure: the verifier cannot resolve which role should have signed it and guessing is the confusion the domain separator exists to prevent."
+    },
+    {
+      "id": "neg-parse-doctype-07",
+      "group": "negative",
+      "file": "bin/negative/parse_doctype_07.bin",
+      "doc_type": 7,
+      "bytes": 228,
+      "sha256": "672dab575675c799720a1538e54ba6fa975cb6ef0935e6c2dedd70c9877f901b",
+      "verdict": "reject",
+      "code": "E_PARSE_DOCTYPE",
+      "step": "P3",
+      "context": "default",
+      "note": "doc_type 0x07 is the reserved timestamp role of 01-DECISION.md A2 and is not emitted in v1. An unknown doc_type is a parse failure, not a verification failure: the verifier cannot resolve which role should have signed it and guessing is the confusion the domain separator exists to prevent."
+    },
+    {
+      "id": "neg-parse-doctype-f0",
+      "group": "negative",
+      "file": "bin/negative/parse_doctype_f0.bin",
+      "doc_type": 240,
+      "bytes": 228,
+      "sha256": "2a0b3a1ec60d741fd184c251d2afdc0fe2f29fd7bfbcfdb8929c76449f980b6f",
+      "verdict": "reject",
+      "code": "E_PARSE_DOCTYPE",
+      "step": "P3",
+      "context": "default",
+      "note": "doc_type 0xF0 is private experimentation space and MUST NOT be emitted. An unknown doc_type is a parse failure, not a verification failure: the verifier cannot resolve which role should have signed it and guessing is the confusion the domain separator exists to prevent."
+    },
+    {
+      "id": "neg-parse-framing-trailing",
+      "group": "negative",
+      "file": "bin/negative/parse_framing_trailing.bin",
+      "doc_type": 3,
+      "bytes": 229,
+      "sha256": "ce67c85e4a58943801af501acf16185affcf09a24c677cf44b3ddcbeee175295",
+      "verdict": "reject",
+      "code": "E_PARSE_FRAMING",
+      "step": "P7",
+      "context": "default",
+      "note": "One 0x00 appended after the last signature slot. Trailing bytes are a rejection, never an ignored suffix, and this is checked before any signature work. 01-DECISION.md invariant 2 and graft C4."
+    },
+    {
+      "id": "neg-parse-framing-truncated",
+      "group": "negative",
+      "file": "bin/negative/parse_framing_truncated.bin",
+      "doc_type": 3,
+      "bytes": 227,
+      "sha256": "cdd3a9641427a4cdb6c97ca244fad6f95ff9e37d07ccc321d09cafa517bd9422",
+      "verdict": "reject",
+      "code": "E_PARSE_FRAMING",
+      "step": "P7",
+      "context": "default",
+      "note": "One byte removed from the end. total_len is 227 where 7 + 144 + 1 + 76 = 228."
+    },
+    {
+      "id": "neg-parse-len-over",
+      "group": "negative",
+      "file": "bin/negative/parse_len_over.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "5321f5a11d2eef094aeab1785869503fda4266d95c3faa2d4e1f690af50b3961",
+      "verdict": "reject",
+      "code": "E_PARSE_LEN",
+      "step": "P4",
+      "context": "default",
+      "note": "payload_len declared 49153, one above the cap. A reader MUST reject on the header, before allocating a buffer of the declared size."
+    },
+    {
+      "id": "neg-parse-len-zero",
+      "group": "negative",
+      "file": "bin/negative/parse_len_zero.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "8d9748cacbebb7e83d05b0eb1815086384072670fc9f30ab39b552169a77fd35",
+      "verdict": "reject",
+      "code": "E_PARSE_LEN",
+      "step": "P4",
+      "context": "default",
+      "note": "payload_len declared 0. The legal range is 1..49152 inclusive."
+    },
+    {
+      "id": "neg-parse-magic",
+      "group": "negative",
+      "file": "bin/negative/parse_magic.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "7225ee1daee5cfe8013c564a17253ce2b71b333939c098b61a7eb1f6be1c6d47",
+      "verdict": "reject",
+      "code": "E_PARSE_MAGIC",
+      "step": "P2",
+      "context": "default",
+      "note": "Magic changed to CSM2. The magic is inside the signing pre-image, so a future version can never have its signatures replayed under this one."
+    },
+    {
+      "id": "neg-parse-nsigs-five",
+      "group": "negative",
+      "file": "bin/negative/parse_nsigs_five.bin",
+      "doc_type": 3,
+      "bytes": 532,
+      "sha256": "2029d75ec15f147204f3f8926c74d52b131ff2dc2a032160e309b50ce81abdc4",
+      "verdict": "reject",
+      "code": "E_PARSE_NSIGS",
+      "step": "P6",
+      "context": "default",
+      "note": "Five signature slots present and nsigs = 5, so the framing arithmetic is exact and only the 1..4 range check catches it. The cap exists so a hostile frame cannot force 255 Ed25519 verifications."
+    },
+    {
+      "id": "neg-parse-nsigs-inflated",
+      "group": "negative",
+      "file": "bin/negative/parse_nsigs_inflated.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "5767a522aaa1393a05a5fe49b6af39f04709c14505487e4f6db6780e741cfbde",
+      "verdict": "reject",
+      "code": "E_PARSE_FRAMING",
+      "step": "P7",
+      "context": "default",
+      "note": "nsigs claims 2 with one slot present. This is the attack the exact-length rule exists to stop, and it is why nsigs can safely be left outside the signing pre-image: it cannot be raised without changing total_len."
+    },
+    {
+      "id": "neg-parse-nsigs-zero",
+      "group": "negative",
+      "file": "bin/negative/parse_nsigs_zero.bin",
+      "doc_type": 3,
+      "bytes": 152,
+      "sha256": "cf534da5b8cc947d082053d0718a3512a9185699ae37cb7eae1913d46c4c09fa",
+      "verdict": "reject",
+      "code": "E_PARSE_NSIGS",
+      "step": "P6",
+      "context": "default",
+      "note": "nsigs is 0. The legal range is 1..4."
+    },
+    {
+      "id": "neg-parse-short",
+      "group": "negative",
+      "file": "bin/negative/parse_short.bin",
+      "doc_type": 3,
+      "bytes": 7,
+      "sha256": "0bb7d82732470778ca0363e7a1a84e0a622ee571057c0daf628e70e64721a9e4",
+      "verdict": "reject",
+      "code": "E_PARSE_SHORT",
+      "step": "P1",
+      "context": "default",
+      "note": "Seven bytes. total_len \u003e= 8 fails before anything is read out of the header."
+    },
+    {
+      "id": "neg-parse-short-body",
+      "group": "negative",
+      "file": "bin/negative/parse_short_body.bin",
+      "doc_type": 3,
+      "bytes": 100,
+      "sha256": "bcb8d368aa836a73b60296c0043d21b74c37896c247a33849885d2c706399706",
+      "verdict": "reject",
+      "code": "E_PARSE_SHORT",
+      "step": "P5",
+      "context": "default",
+      "note": "Header declares payload_len 144 but only 93 payload bytes follow. This is the truncated-response case a captive portal produces, and it MUST advance the ladder rather than raise a tampering claim."
+    },
+    {
+      "id": "neg-parse-slotorder-desc",
+      "group": "negative",
+      "file": "bin/negative/parse_slotorder_desc.bin",
+      "doc_type": 2,
+      "bytes": 348,
+      "sha256": "9fd2ec0bbdb3e2892a2d315e5d8cf80c19b14464f15b587c293519f9e0b7c992",
+      "verdict": "reject",
+      "code": "E_PARSE_SLOTORDER",
+      "step": "P8",
+      "context": "online_thr2",
+      "note": "Two valid signatures, slots in descending keyid_trunc order. A verifier MUST reject rather than sort: ordering is what makes a frame with a given signer set byte-unique, which is what allows a catalog to be content-addressed."
+    },
+    {
+      "id": "neg-parse-slotorder-dup",
+      "group": "negative",
+      "file": "bin/negative/parse_slotorder_dup.bin",
+      "doc_type": 2,
+      "bytes": 348,
+      "sha256": "6e4b8aef18e3d5a04767e45a70a731b0e751708ea3fca2a0fe2754d8541a54ce",
+      "verdict": "reject",
+      "code": "E_PARSE_SLOTORDER",
+      "step": "P8",
+      "context": "online_thr2",
+      "note": "The same slot twice. A verifier MUST reject rather than count it twice toward the threshold; counting it twice turns a two-of-two role into a one-of-two role."
+    },
+    {
+      "id": "neg-seal-aad-version",
+      "group": "negative",
+      "file": "bin/negative/seal_aad_version.bin",
+      "doc_type": 6,
+      "bytes": 454,
+      "sha256": "ea633cf81e128f6dd5fe0921534c242fd761841b6e1eb859deef0e1068dc519f",
+      "verdict": "reject",
+      "code": "E_SEAL_OPEN",
+      "step": "seal step 6",
+      "context": "default",
+      "note": "The ciphertext was sealed with ver 452 in its aad and the outer payload says 453. A recipient MUST recompute aad from the outer payload's own pid, dtp and ver and MUST NOT accept an aad supplied on the wire, which is what makes this a rejection rather than a silent version downgrade."
+    },
+    {
+      "id": "neg-seal-ct-tampered",
+      "group": "negative",
+      "file": "bin/negative/seal_ct_tampered.bin",
+      "doc_type": 6,
+      "bytes": 454,
+      "sha256": "2348c304b70543f761d07075f98cba6803996ea4f10f876fd29f7a703858632a",
+      "verdict": "reject",
+      "code": "E_SEAL_OPEN",
+      "step": "seal step 6",
+      "context": "default",
+      "note": "One bit flipped inside ct. The outer Ed25519 signature is valid over the tampered outer payload, so this is caught by the AEAD tag and nothing else. It is a security event and MUST be surfaced."
+    },
+    {
+      "id": "neg-seal-hybrid-enc",
+      "group": "negative",
+      "file": "bin/negative/seal_hybrid_enc.bin",
+      "doc_type": 6,
+      "bytes": 454,
+      "sha256": "e85d67a883f75af096f6432453d8d958ccf02a22279d3378872db8b92c1c5311",
+      "verdict": "reject",
+      "code": "E_SEAL_SUITE",
+      "step": "seal step 4",
+      "context": "default",
+      "note": "enc is 65 bytes but its leading byte is 0x06, a hybrid point encoding. A sender MUST emit the uncompressed form 0x04 || X || Y; a recipient MUST reject compressed and hybrid encodings and any point not on the curve."
+    },
+    {
+      "id": "neg-seal-inner-nonce",
+      "group": "negative",
+      "file": "bin/negative/seal_inner_nonce.bin",
+      "doc_type": 6,
+      "bytes": 454,
+      "sha256": "1b3c090f314ff839968cdc9747d3816346eb6971ff3b9d43bf2c31ee4a92bc5c",
+      "verdict": "reject",
+      "code": "E_VERIFY_NONCE",
+      "step": "seal step 7, inner V13",
+      "context": "default",
+      "note": "The seal opens correctly and the recovered inner 0x03 frame carries the wrong nonce. The outer verification shortcuts no inner check: the inner frame is parsed and verified in full from P1 through V14, and this fixture is the one that proves a harness actually does that rather than trusting the envelope."
+    },
+    {
+      "id": "neg-seal-unknown-rkv",
+      "group": "negative",
+      "file": "bin/negative/seal_unknown_rkv.bin",
+      "doc_type": 6,
+      "bytes": 454,
+      "sha256": "d9777be7eeddede2ec54623b3e126675dbdcdbf717d8f4122a7ed2ac24b31186",
+      "verdict": "reject",
+      "code": "E_SEAL_RECIPIENT",
+      "step": "seal step 5",
+      "context": "default",
+      "note": "rkv names generation 9, which this device does not hold. The client MUST respond by rekeying its agreement key and re-requesting, per 02-SPEC.md 10.3, not by failing the fetch permanently."
+    },
+    {
+      "id": "neg-seal-wrong-kem",
+      "group": "negative",
+      "file": "bin/negative/seal_wrong_kem.bin",
+      "doc_type": 6,
+      "bytes": 455,
+      "sha256": "0625639f1ed4e54f1ce0cd2f10f106afa6576fe5ada71336a9fb3c9d7d0d92be",
+      "verdict": "reject",
+      "code": "E_SEAL_SUITE",
+      "step": "seal step 4",
+      "context": "default",
+      "note": "kem = 32, which is DHKEM(X25519, HKDF-SHA256), the suite 00-DESIGN-BRIEF.md 4.7 proposed. It MUST be rejected: the device key is P-256 because it has to live in Secure Enclave or StrongBox, and neither holds an X25519 key (03-WIRE.md Correction 4)."
+    },
+    {
+      "id": "neg-seal-wrong-recipient",
+      "group": "negative",
+      "file": "bin/negative/seal_wrong_recipient.bin",
+      "doc_type": 6,
+      "bytes": 454,
+      "sha256": "86f92d431f4571f4505b14adab4d0b73ae3ddf5cf6dafcde2f1de6d405a254ff",
+      "verdict": "reject",
+      "code": "E_SEAL_RECIPIENT",
+      "step": "seal step 3",
+      "context": "default",
+      "note": "Sealed to another device's agreement key and addressed to that device's dtp. The recipient check fires before any asymmetric work. This is a correctness failure, not a security event, and MUST NOT be reported as tampering: it is what a client sees when a mirror serves a cached response for a different device."
+    },
+    {
+      "id": "neg-verify-below-threshold",
+      "group": "negative",
+      "file": "bin/negative/verify_below_threshold.bin",
+      "doc_type": 2,
+      "bytes": 272,
+      "sha256": "2b6c4e4bf6d7e0098f35469e77fabd5362a430705b20b229fdd2bdddc5183c4a",
+      "verdict": "reject",
+      "code": "E_VERIFY_THRESHOLD",
+      "step": "V7",
+      "context": "online_thr2",
+      "note": "One valid online signature against a role whose thr is 2. The signature verifies, the signer is authorized and not revoked, and the document is still rejected."
+    },
+    {
+      "id": "neg-verify-blob-pin-mismatch",
+      "group": "negative",
+      "file": "bin/negative/verify_blob_pin_mismatch.bin",
+      "doc_type": 5,
+      "bytes": 385,
+      "sha256": "3ce644e940b1fbb394d42cc2c9087d1ec4fd7482ed6bb1af1929484800a128d6",
+      "verdict": "reject",
+      "code": "E_VERIFY_UNAUTHORIZED",
+      "step": "V4",
+      "context": "first_trust",
+      "note": "A self-consistent bootstrap blob: rk is rootB and the frame is signed by rootB, so every internal check passes. It is rejected because sha256(rootB)[0..12] is not the link_pin the user was dictated. A blob whose rk does not match the dictated pin MUST be rejected with a hard error and there MUST NOT be a continue-anyway path; this fixture is the one that proves a client is checking the pin rather than checking the blob against itself."
+    },
+    {
+      "id": "neg-verify-catalog-signed-by-root",
+      "group": "negative",
+      "file": "bin/negative/verify_catalog_signed_by_root.bin",
+      "doc_type": 2,
+      "bytes": 272,
+      "sha256": "652ec6a08930454cad9bbb8e5e58e3213e36f25bf1e87c9656096051376e0634",
+      "verdict": "reject",
+      "code": "E_VERIFY_UNAUTHORIZED",
+      "step": "V4",
+      "context": "default",
+      "note": "A catalog signed by the ROOT key. The wrong-role pair in the other direction: root is a real, trusted, non-revoked key of this tenant, and it is still not authorized for doc_type 0x02."
+    },
+    {
+      "id": "neg-verify-cathash-mismatch",
+      "group": "negative",
+      "file": "bin/negative/verify_cathash_mismatch.bin",
+      "doc_type": 2,
+      "bytes": 272,
+      "sha256": "9a3eff8e82a7e199534aeb170ffee975d46c38795009d97287854f316c0533fa",
+      "verdict": "reject",
+      "code": "E_VERIFY_CATHASH",
+      "step": "V14",
+      "context": "default",
+      "context_override": {
+        "hwm": {
+          "2": 6
+        },
+        "note": "The trusted directive names cat = sha256(c1_min.bin). This catalog is a different document with a different frame digest."
+      },
+      "note": "A validly signed catalog whose sha256 is not the cat the trusted directive named. The directive binds the catalog by hash, so a compromised mirror cannot substitute a different but validly signed catalog; per 01-DECISION.md A1, a compromised ONLINE KEY still can, and that is an accepted risk rather than a defect."
+    },
+    {
+      "id": "neg-verify-device-mismatch",
+      "group": "negative",
+      "file": "bin/negative/verify_device_mismatch.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "3c76a7813801710e32c7ac28dd9f0ba9a1026cf7107cb8397f2a5801e8db2d78",
+      "verdict": "reject",
+      "code": "E_VERIFY_DEVICE",
+      "step": "V13",
+      "context": "default",
+      "note": "dtp names another device. Accepting it would apply another device's selection and status to this one."
+    },
+    {
+      "id": "neg-verify-directive-signed-by-root",
+      "group": "negative",
+      "file": "bin/negative/verify_directive_signed_by_root.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "9f96b9c0ce9555fedf9cf2ffb079d6a52325a4b9d5553ad9c39cf9fbce28f1f4",
+      "verdict": "reject",
+      "code": "E_VERIFY_UNAUTHORIZED",
+      "step": "V4",
+      "context": "default",
+      "note": "A directive signed by the root key."
+    },
+    {
+      "id": "neg-verify-expired",
+      "group": "negative",
+      "file": "bin/negative/verify_expired.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "eb54666108856f003fb966fdb81262712c8196472937965051e15442c5e43276",
+      "verdict": "reject",
+      "code": "E_VERIFY_EXPIRED",
+      "step": "V12",
+      "context": "default",
+      "note": "exp is 3300 seconds before now, past the 300 second skew. The rejection means the document is refused for NEW instructions and NEW status only. Invariant 16 is absolute: an expired document MUST NOT disconnect a user, tear down a tunnel or clear a cached configuration, and a harness that treats this fixture as a disconnect trigger has implemented the wrong thing."
+    },
+    {
+      "id": "neg-verify-iat-below-floor",
+      "group": "negative",
+      "file": "bin/negative/verify_iat_below_floor.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "ec04abd40d7a413f6c0a4310c1d0682a8980f39b7debcfd03e0a19e8d762aade",
+      "verdict": "reject",
+      "code": "E_VERIFY_IAT",
+      "step": "V11",
+      "context": "default",
+      "note": "iat one day below time_floor. This document had already expired when the profile last heard from the panel, so it is refused under the literal V11 of 03-WIRE.md and under the amended V11 of 02-SPEC.md Correction 2 alike. Contrast pos-c1-stale-but-live, where the two forms disagree."
+    },
+    {
+      "id": "neg-verify-iat-future",
+      "group": "negative",
+      "file": "bin/negative/verify_iat_future.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "750e754eed5f2624ac1274c08d9e925399ee38f069b2eea4065a72fdf01c7953",
+      "verdict": "reject",
+      "code": "E_VERIFY_IAT",
+      "step": "V11",
+      "context": "default",
+      "note": "iat one day in the future against now = iat_fixture + 300. Skew tolerance is 300 seconds in both directions."
+    },
+    {
+      "id": "neg-verify-keydoc-signed-by-online",
+      "group": "negative",
+      "file": "bin/negative/verify_keydoc_signed_by_online.bin",
+      "doc_type": 1,
+      "bytes": 257,
+      "sha256": "faf707b61781894d5e52594e0febacf6fd7b222dce2110e21a8733ffdf4f65d4",
+      "verdict": "reject",
+      "code": "E_VERIFY_UNAUTHORIZED",
+      "step": "V4",
+      "context": "default",
+      "note": "A key document signed by the ONLINE key. This is the attack the role table exists to stop: an attacker holding the online key mints a key document at N+1 naming only their own key under role root, the high-water mark advances, and the operator can never recover. The role is resolved from doc_type and the key set is read from the PREVIOUSLY TRUSTED document, so the online kid is simply not in roles[1].ks."
+    },
+    {
+      "id": "neg-verify-no-anchor",
+      "group": "negative",
+      "file": "bin/negative/verify_no_anchor.bin",
+      "doc_type": 2,
+      "bytes": 272,
+      "sha256": "33ee064343ece6bc4cb1d91ccf2d34ed61a18bb957e9c86ee5ae7a3f18ecada1",
+      "verdict": "reject",
+      "code": "E_VERIFY_NOANCHOR",
+      "step": "V2",
+      "context": "first_trust",
+      "note": "A catalog offered before any key document has been trusted. link_pin anchors doc_type 0x01 and 0x05 only; there is nothing a catalog can be verified against, and a client MUST NOT bootstrap trust from a catalog. This is what a mirror serving a plausible catalog to a fresh install looks like."
+    },
+    {
+      "id": "neg-verify-noncanonical-s",
+      "group": "negative",
+      "file": "bin/negative/verify_noncanonical_s.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "bddca15f40d6829b02b20b7da0eb6aa070d2e292f177e4f331f0dc197a7b2577",
+      "verdict": "reject",
+      "code": "E_VERIFY_SIG",
+      "step": "V6",
+      "context": "default",
+      "note": "S replaced by S + L, which is the classic malleability case. A verifier that reduces S mod L instead of rejecting turns one signature into several, and a catalog is content-addressed by sha256 of the whole frame, so several spellings of one signature are several catalogs."
+    },
+    {
+      "id": "neg-verify-nonce-mismatch",
+      "group": "negative",
+      "file": "bin/negative/verify_nonce_mismatch.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "aeee520bdac260596e175b409065c8b62f726dd6dd338685c45c43c6bdd59d64",
+      "verdict": "reject",
+      "code": "E_VERIFY_NONCE",
+      "step": "V13",
+      "context": "default",
+      "note": "The echoed nonce is not the one this device just sent. The nonce is the only freshness mechanism that survives a wrong clock, which is the normal case after a factory reset and common when DNS blocking prevents NTP."
+    },
+    {
+      "id": "neg-verify-pid-mismatch",
+      "group": "negative",
+      "file": "bin/negative/verify_pid_mismatch.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "fd9448d5a125ddbebd141ab1c57c4caa71c1c240930fce4d91b45c3c40f2d645",
+      "verdict": "reject",
+      "code": "E_VERIFY_PID",
+      "step": "V8",
+      "context": "default",
+      "note": "A validly signed directive carrying another tenant's pid. Two profiles for two operators can and do live on one device, so the pinned-pid equality check is what stops operator A's directive being applied to operator B's profile."
+    },
+    {
+      "id": "neg-verify-revoked-signer",
+      "group": "negative",
+      "file": "bin/negative/verify_revoked_signer.bin",
+      "doc_type": 2,
+      "bytes": 272,
+      "sha256": "fd24438394bbf734b989a4c113261e41624917e1228b045b1d2c1b1d7a283133",
+      "verdict": "reject",
+      "code": "E_VERIFY_REVOKED",
+      "step": "V5",
+      "context": "rev_online",
+      "note": "A validly signed catalog whose signer appears in the anchor's rev.kids. A client that sees a kid in rev MUST reject that key and every document it signed, cached copies on disk included, immediately."
+    },
+    {
+      "id": "neg-verify-role-unresolvable",
+      "group": "negative",
+      "file": "bin/negative/verify_role_unresolvable.bin",
+      "doc_type": 2,
+      "bytes": 272,
+      "sha256": "e9fb2a2561c4efdab77337eb5a1c5791498e92d18e3b70706c2d10137cdde7fc",
+      "verdict": "reject",
+      "code": "E_VERIFY_ROLE",
+      "step": "V3",
+      "context": "root_only",
+      "note": "A catalog verified against a trusted key document that publishes no online role. doc_type 0x02 resolves to role online at V1 and the trusted document has no roles[2] to read a key set and a threshold from, so V3 fails. This is the only shape in which E_VERIFY_ROLE is reachable: every defined doc_type has a role in the table, so V1 itself cannot fail, and an unknown doc_type is a parse failure at P3."
+    },
+    {
+      "id": "neg-verify-rotation-new-key-only",
+      "group": "negative",
+      "file": "bin/negative/verify_rotation_new_key_only.bin",
+      "doc_type": 1,
+      "bytes": 257,
+      "sha256": "41888b8bc49515ef540aa297e79b78346041ca4d5a10336233d80bf596123a66",
+      "verdict": "reject",
+      "code": "E_VERIFY_ROTATION",
+      "step": "V10",
+      "context": "rotation_v1",
+      "note": "A rotation to rootB signed only by rootB. It satisfies the key set of the document under verification and not the key set of the currently trusted one. Both MUST pass. Accepting this is exactly the takeover the rotation rule prevents: anyone who can serve bytes could otherwise install their own root."
+    },
+    {
+      "id": "neg-verify-rotation-skip",
+      "group": "negative",
+      "file": "bin/negative/verify_rotation_skip.bin",
+      "doc_type": 1,
+      "bytes": 257,
+      "sha256": "62d7ea90568df2992b72759bec215a3579c44c0d0448cdce5a164741aa1463f6",
+      "verdict": "reject",
+      "code": "E_VERIFY_ROTATION",
+      "step": "V10",
+      "context": "default",
+      "note": "A key document at version 3 against a trusted version 1. Clients MUST refuse to skip a version, and the code is E_VERIFY_ROTATION rather than E_VERIFY_VERSION so that a skip is distinguishable from a rollback in the attempt history."
+    },
+    {
+      "id": "neg-verify-signature-payload-bitflip",
+      "group": "negative",
+      "file": "bin/negative/verify_signature_payload_bitflip.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "4efba470423ead8ddbedc86a64b1daf50d67c7f17b9e9c5a579d69b6259d013f",
+      "verdict": "reject",
+      "code": "E_VERIFY_SIG",
+      "step": "V6",
+      "context": "default",
+      "note": "One bit flipped inside the payload after signing. The frame parses cleanly, so this exercises the signature check and nothing else."
+    },
+    {
+      "id": "neg-verify-signed-by-stranger",
+      "group": "negative",
+      "file": "bin/negative/verify_signed_by_stranger.bin",
+      "doc_type": 2,
+      "bytes": 272,
+      "sha256": "b78a29a547779763ab8586465c5bdb6da36dd6099ca9282cac35a9b3e8da3115",
+      "verdict": "reject",
+      "code": "E_VERIFY_UNAUTHORIZED",
+      "step": "V4",
+      "context": "default",
+      "note": "Signed by a well-formed key that is in no role of the trusted document. The frame MUST be rejected whole; an unauthorized slot is never skipped, because a frame carrying one is a frame someone tried to launder."
+    },
+    {
+      "id": "neg-verify-version-equal-different-bytes",
+      "group": "negative",
+      "file": "bin/negative/verify_version_equal_different_bytes.bin",
+      "doc_type": 2,
+      "bytes": 273,
+      "sha256": "4fec82d85bfa6b01ae20dfd25221013efe1356c5744d54d9a338042f35583038",
+      "verdict": "reject",
+      "code": "E_VERIFY_VERSION",
+      "step": "V9",
+      "context": "default",
+      "context_override": {
+        "hwm": {
+          "2": 7
+        },
+        "stored_frame": "bin/positive/c1_min.bin",
+        "note": "The stored frame at this version is c1_min.bin. This document carries the same ver with a different tier and therefore different bytes."
+      },
+      "note": "Same ver as the stored document, different bytes. 03-WIRE.md Correction 7 makes the equality case explicit: equal is accepted ONLY when the frame is byte-identical to the stored frame, which is what lets a client re-read its own cache without weakening the monotonic rule."
+    },
+    {
+      "id": "neg-verify-version-regression",
+      "group": "negative",
+      "file": "bin/negative/verify_version_regression.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "64f006d51de8b970f2db18d3fe995681210d9f9c4d099ddb83a4b1e918d1f801",
+      "verdict": "reject",
+      "code": "E_VERIFY_VERSION",
+      "step": "V9",
+      "context": "default",
+      "note": "ver = 410 against a stored high-water mark of 411. Below the mark is refused outright."
+    },
+    {
+      "id": "pos-b1-max",
+      "group": "positive",
+      "file": "bin/positive/b1_max.bin",
+      "doc_type": 5,
+      "bytes": 3836,
+      "sha256": "d59379f0d8082328dbf93e4c63b206af58b55372ffebab8e46c8e5e80b419397",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Maximum bootstrap blob: 32 mirrors and 8 DoH endpoints, 3836 bytes. Above thr.resp_max, which is correct and not a defect: the blob is the out-of-band rung and travels as a QR set, a file or a paste, never as a GET /sub/b1 response at this size."
+    },
+    {
+      "id": "pos-b1-min",
+      "group": "positive",
+      "file": "bin/positive/b1_min.bin",
+      "doc_type": 5,
+      "bytes": 385,
+      "sha256": "addfd952bd9c2ddeb1de0f9ef7599c6740ec57f445226509d081f14dfb143409",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Minimum bootstrap blob with a conforming 20-character enrollment code (49Q8-M87P-KQZ3-WFDG-ZTJX), whose first eight characters are link_pin[0..8]. This is the normative blob fixture; 02-SPEC.md Correction 5 requires it."
+    },
+    {
+      "id": "pos-b1-wire85",
+      "group": "reference",
+      "file": "bin/positive/b1_wire_8_5.bin",
+      "doc_type": 5,
+      "bytes": 374,
+      "sha256": "c78332c555152fd2572e7d5ec0f8bc2c1d48e2aedeccc99e3d4516eb05fc5247",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Reproduction of the exact bytes printed in 03-WIRE.md 8.5, kept only so an implementer can diff against the document. Its code field does NOT fold in the pin, so 02-SPEC.md Correction 5 supersedes it; use pos-b1-min for conformance."
+    },
+    {
+      "id": "pos-c1-dual-sig",
+      "group": "positive",
+      "file": "bin/positive/c1_dual_sig.bin",
+      "doc_type": 2,
+      "bytes": 348,
+      "sha256": "22b40d51bb3e9dfd835ae7c1b755da46b68df2283a81c7be56af4d88be4381e7",
+      "verdict": "accept",
+      "context": "online_thr2",
+      "note": "Catalog with two signature slots, verified against an anchor whose online role is {ks:[online,online2], thr:2}. nsigs = 2 and total = 7 + payload_len + 1 + 152. Slots are ordered by ascending keyid_trunc, which for this pair is 0e5bf8cd0d4092cc15738f05 (online2) then 21e3e2cc0a3ba777e69ce14c (online)."
+    },
+    {
+      "id": "pos-c1-max",
+      "group": "positive",
+      "file": "bin/positive/c1_max.bin",
+      "doc_type": 2,
+      "bytes": 48589,
+      "sha256": "2291478050b36c903e63b530d1c889bf70553ae4c46539c80ca05b66dfadf31f",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Maximum catalog: 448 exits, payload 48505 bytes, the largest that stays under the PANEL_REFUSE threshold of 49152. Serves in 18 chunks."
+    },
+    {
+      "id": "pos-c1-min",
+      "group": "positive",
+      "file": "bin/positive/c1_min.bin",
+      "doc_type": 2,
+      "bytes": 272,
+      "sha256": "eb5c33321940d11813848b8b8b03417e75fb36a82c8aa9c9567e1686f9df535d",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Minimum catalog, one exit, no relays and no mirrors. Byte-for-byte the fixture of 03-WIRE.md 8.2; cat_id is XDE36CGS838HG4W4."
+    },
+    {
+      "id": "pos-c1-stale-but-live",
+      "group": "positive",
+      "file": "bin/positive/c1_stale_but_live.bin",
+      "doc_type": 2,
+      "bytes": 272,
+      "sha256": "bc9c2ee9cc96b7e41f5884d2dcb0ac6903e66be1dbb67ecd57eb7cca1ad0a609",
+      "verdict": "accept",
+      "context": "default",
+      "context_override": {
+        "hwm": {
+          "2": 0
+        }
+      },
+      "note": "iat is 20 days before time_floor and exp is 10 days after now, so the catalog is stale but not expired. 03-WIRE.md 6.2 V11 read literally (iat \u003e= time_floor) REJECTS this; 02-SPEC.md Correction 2 amends V11 to iat + LIFETIME_MAX[doc_type] + 300 \u003e= time_floor, which ACCEPTS it. This vector is the one that distinguishes the two forms, and the expected verdict is accept."
+    },
+    {
+      "id": "pos-c1-typical",
+      "group": "positive",
+      "file": "bin/positive/c1_typical.bin",
+      "doc_type": 2,
+      "bytes": 5589,
+      "sha256": "8eae371583a6173c8f54fc616dfed053f6b1c3d171962be86c65af411afc51f5",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Typical catalog: 40 exits across the five node shapes, 3 relays, 4 mirrors over 4 ASNs and 4 countries, 1 DoH endpoint, 2 rule-sets and 1 geo file with sha256, TLS SPKI pins, ladder defaults and a panel HPKE key. Serves in 2 chunks."
+    },
+    {
+      "id": "pos-c1c-max-0",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_0.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "e2699d61ee0b19fa15834b938be93d7e28f01e741f7edc55303d8ec86880a233",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 0 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-1",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_1.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "ed5e6d5e437129a83c062acc20b2479d224db0db20481e5c4a9e3df779a85e9f",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 1 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-10",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_10.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "dffccc2d4f88e92aad048f9e81bf4436d4bd612688adadf8ed9cd41ab9df95c1",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 10 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-11",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_11.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "7dd9eb207cc29ab0624a23c86da38b7d38d5ce73af1db31e6407d4ee2767f267",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 11 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-12",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_12.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "1654fac11d75895b56d15e69ef2dd5c7fe7d5ee0df936103c46dcbf3a5865942",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 12 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-13",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_13.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "6b7b33db2cdd13bb55ecb54edf6c1f9ed9998e65888ee6d5a3b88c2d4457c00a",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 13 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-14",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_14.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "2a84f5048113816913cf93eb5bc5466c684a241f0b34a53106214a4c92468a8a",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 14 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-15",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_15.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "1abff34203cc87c5495850d76011d21e6bc049aa208237c89356108309cbaa54",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 15 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-16",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_16.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "f2a99ab1af8f44b10e3de41c1104c55f1c6307731107970d7daab6a89b12b4da",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 16 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-17",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_17.bin",
+      "doc_type": 4,
+      "bytes": 852,
+      "sha256": "661489889e777e1062646bb45cc8b6ec38453a252008fe8a784950183648decb",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 17 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-2",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_2.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "efaa27502b0f786994ab72ae2877afb67b0110a02bb0002503f9286cc220b9d4",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 2 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-3",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_3.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "3456535e77f472096e0d88290330da02800bbcf34bb9f2921c5e920510136b2a",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 3 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-4",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_4.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "b187618762781bb97d194c92f13e9ac032424c3aa1f5d7bb47c62ad2327416a8",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 4 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-5",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_5.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "ca904403300303384923c96a87e9c684197773c560d1ca790ea57db20f912eab",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 5 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-6",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_6.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "e2a2d69accd6c284f40b20e835f4d5c8a5b9e65ebb20d936b74e68be7908cf94",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 6 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-7",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_7.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "78cab78dde8f20f30f55c7f5b40a073a79692bb505489aeb2ea6bfd4165f249c",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 7 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-8",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_8.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "d3de184cb3824ba2e348004ee4099bd400f043e50c01b113ec1676018a07edf2",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 8 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-max-9",
+      "group": "positive",
+      "file": "bin/positive/c1c_max_9.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "b9efd9926aaaa5e3db61cbec6f38f94c44427441392b8313c524bc4d23ae95e9",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 9 of 18 of the maximum catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-min-0",
+      "group": "positive",
+      "file": "bin/positive/c1c_min_0.bin",
+      "doc_type": 4,
+      "bytes": 407,
+      "sha256": "68d613af7e4f616464ad281a92739822361fa66600948cda6ede452b46237168",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 0 of 1 carrying the minimum catalog frame. Byte-for-byte the fixture of 03-WIRE.md 8.4. Every catalog is chunked, including a one-chunk catalog."
+    },
+    {
+      "id": "pos-c1c-typ-0",
+      "group": "positive",
+      "file": "bin/positive/c1c_typ_0.bin",
+      "doc_type": 4,
+      "bytes": 2951,
+      "sha256": "c77d0d3fbb2e7dfac2a90c991597226e8e7ceb25a00bffd80a1a8cb5aff9309c",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 0 of 2 of the typical catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-c1c-typ-1",
+      "group": "positive",
+      "file": "bin/positive/c1c_typ_1.bin",
+      "doc_type": 4,
+      "bytes": 2908,
+      "sha256": "f858713ea67cdd9443f5d0d45a823fbf96e4c7b0373378d15624b68f99dce57b",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Chunk 1 of 2 of the typical catalog. Carries a slice of the catalog FRAME, not of its payload; every chunk but the last carries exactly 2816 bytes and the reassembled bytes are verified again in full as a 0x02 frame."
+    },
+    {
+      "id": "pos-k1-max-caps",
+      "group": "reference",
+      "file": "bin/positive/k1_max_caps.bin",
+      "doc_type": 1,
+      "bytes": 5118,
+      "sha256": "d2e3c91dda22b0cf0b958c453abe0effd30fa95a0153b4c7b9e3ec07df5ac614",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Every field of 03-WIRE.md 8.1 at its stated cap: 16 keys, 64 revoked kids, 256 revoked node ids, 16 tier hashes, 16 deprecations. 5118 bytes, which is 1022 bytes above thr.resp_max. A parser MUST accept it; a panel MUST NOT emit it over HTTP. Reference only."
+    },
+    {
+      "id": "pos-k1-max-deliverable",
+      "group": "positive",
+      "file": "bin/positive/k1_max_deliverable.bin",
+      "doc_type": 1,
+      "bytes": 4089,
+      "sha256": "627c607a5b90f67ac714ff1f038fc1c428d1b87c966b87ec01d8ed47e2a61f67",
+      "verdict": "accept",
+      "context": "default",
+      "note": "The largest key document that fits under thr.resp_max of 4096 bytes: 4089 bytes. See correction cor-4: the field caps of 03-WIRE.md 8.1 admit a document far larger than the response ceiling permits, so the panel must enforce an emission bound the field table does not state."
+    },
+    {
+      "id": "pos-k1-min",
+      "group": "positive",
+      "file": "bin/positive/k1_min.bin",
+      "doc_type": 1,
+      "bytes": 257,
+      "sha256": "671eaaaf6729274419faefe0cb44430126d6421e2f0f628bc4f1fab376bdad35",
+      "verdict": "accept",
+      "context": "first_trust",
+      "note": "Minimum key document, one root key and one online key, threshold 1 each. Byte-for-byte the fixture of 03-WIRE.md 8.1 and the trust anchor for the default context."
+    },
+    {
+      "id": "pos-k1-rot-v1",
+      "group": "positive",
+      "file": "bin/positive/k1_rot_v1.bin",
+      "doc_type": 1,
+      "bytes": 257,
+      "sha256": "671eaaaf6729274419faefe0cb44430126d6421e2f0f628bc4f1fab376bdad35",
+      "verdict": "accept",
+      "context": "first_trust",
+      "note": "Version 1 of the rotation chain. Accepted at first trust because it holds exactly one key under role root whose sha256[0..12] matches link_pin 49Q8M87PK6WP9QXG3T30."
+    },
+    {
+      "id": "pos-k1-rot-v2",
+      "group": "positive",
+      "file": "bin/positive/k1_rot_v2.bin",
+      "doc_type": 1,
+      "bytes": 333,
+      "sha256": "5af93ec696f1667beda38dcd5e1944ff8a250f45cdc44252c8611ea1c4aa6f88",
+      "verdict": "accept",
+      "context": "rotation_v1",
+      "note": "Version 2 rotates root from rootA to rootB. Dual-signed and verified twice over the same pre-image: once against roles[1] of the trusted v1, once against roles[1] of this document. Both MUST pass (03-WIRE.md 7.3). Note that pid does not change: pid is sha256 of the ORIGINAL root key and stays pinned across rotation."
+    },
+    {
+      "id": "pos-k1-rot-v3",
+      "group": "positive",
+      "file": "bin/positive/k1_rot_v3.bin",
+      "doc_type": 1,
+      "bytes": 333,
+      "sha256": "3a02675010124d9429052d8a4a627df45c733e1ca3b34e7af2a4f03d4e9b48b5",
+      "verdict": "accept",
+      "context": "rotation_v2",
+      "note": "Version 3 rotates rootB to rootC, signed by both. Walking v1 to v3 in one GET /sub/k1?since=1 response is the armored stream arm-rotation-chain."
+    },
+    {
+      "id": "pos-k1-typical",
+      "group": "positive",
+      "file": "bin/positive/k1_typical.bin",
+      "doc_type": 1,
+      "bytes": 456,
+      "sha256": "9bfba588dde956d706c3a3b60efff9999641bf56ad384e5b98592529d57d5730",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Typical key document: two online keys during an overlap window, a revoked stranger key, two revoked node ids, per-tier catalog hashes, one dated deprecation at exactly the 180 day minimum, and ttlk. The tier hashes are what make per-user catalog equivocation detectable (01-DECISION.md 5.2.4)."
+    },
+    {
+      "id": "pos-m1-max",
+      "group": "positive",
+      "file": "bin/positive/m1_max.bin",
+      "doc_type": 3,
+      "bytes": 3840,
+      "sha256": "a9e07bfa4e37999917d6309f2c0770d4e7252d79799e5b912d136a3be84ba0aa",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Maximum directive: every optional field present, every capped text field at 80 bytes, all eleven policy keys, then padded to 3840 bytes, the largest 256-byte grid value that fits under thr.resp_max of 4096. Unpadded it is 1019 bytes."
+    },
+    {
+      "id": "pos-m1-min",
+      "group": "positive",
+      "file": "bin/positive/m1_min.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "b1956c4ed3877c424c1f11b903ae75be4f9a24a1537f760bb43a618da74be600",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Minimum directive, status active, no selection and no policy echo. Byte-for-byte the fixture of 03-WIRE.md 8.3."
+    },
+    {
+      "id": "pos-m1-noncritical-key",
+      "group": "positive",
+      "file": "bin/positive/m1_noncritical_key.bin",
+      "doc_type": 3,
+      "bytes": 301,
+      "sha256": "63f9e8688a9653eba7127e8618fab7221ce2ee249ed7d4d4c998467d1b89aeed",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Carries non-critical key 64, the agreement-key rekey slot of 02-SPEC.md 10.3. A v1 verifier MUST ignore it and MUST still accept the document. This is the extension mechanism of 03-WIRE.md 3.3 and the only vector that proves a verifier is not simply rejecting everything it does not recognize."
+    },
+    {
+      "id": "pos-m1-norelay",
+      "group": "positive",
+      "file": "bin/positive/m1_norelay.bin",
+      "doc_type": 3,
+      "bytes": 243,
+      "sha256": "ce7641f6f02a8e1f4701a1d6f8d42cda6314bfae8cdeaeb6e83a7ff29628b7eb",
+      "verdict": "accept",
+      "context": "default",
+      "note": "sel.rcc carries the no-relay sentinel \"--\". 03-WIRE.md 8.3 specifies \"NO\", which is Norway; 02-SPEC.md Correction 4 replaces it with \"--\" and the renderer maps it to the URL literal none. A verifier MUST accept \"--\" and MUST NOT treat it as a country."
+    },
+    {
+      "id": "pos-m1-padded-r0",
+      "group": "positive",
+      "file": "bin/positive/m1_padded_r0.bin",
+      "doc_type": 3,
+      "bytes": 256,
+      "sha256": "c37256172c7d50b0b3e8508ae9bf5867dda89f71e3783f85a0a7edef32c33185",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Directive padded onto the 256-byte grid with r = 0: 256 bytes exactly. pd is inside the signed payload, all bytes zero; padding after the last signature slot is impossible under the exact-length rule."
+    },
+    {
+      "id": "pos-m1-padded-r3",
+      "group": "positive",
+      "file": "bin/positive/m1_padded_r3.bin",
+      "doc_type": 3,
+      "bytes": 1024,
+      "sha256": "e45b6ba95f297bb0120674206fb3efbbf25e16843bd234065195537c4bad5466",
+      "verdict": "accept",
+      "context": "default",
+      "note": "The same directive drawn at the top of the default pb range [0,3]: 1024 bytes. The four reachable sizes for this document are the bucket set an observer sees."
+    },
+    {
+      "id": "pos-m1-st1",
+      "group": "positive",
+      "file": "bin/positive/m1_st1.bin",
+      "doc_type": 3,
+      "bytes": 232,
+      "sha256": "7197c45f3815eba45b96025ae4dfa0ea7f07d22248e96564374ed1982cc642be",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Directive with st = 1. All eight status values are positive vectors: an expired or revoked status is a signed, accepted document, and invariant 16 forbids disconnecting on it."
+    },
+    {
+      "id": "pos-m1-st2",
+      "group": "positive",
+      "file": "bin/positive/m1_st2.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "7f2617fb902cec85d3c4863e817e6d113855b8299e6da2ed9ba97cb95bec8d77",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Directive with st = 2. All eight status values are positive vectors: an expired or revoked status is a signed, accepted document, and invariant 16 forbids disconnecting on it."
+    },
+    {
+      "id": "pos-m1-st3",
+      "group": "positive",
+      "file": "bin/positive/m1_st3.bin",
+      "doc_type": 3,
+      "bytes": 228,
+      "sha256": "f4745e5d9bc65a7f9b8d212ecda74b8c227b99459d9c8aa07800b05723f73b49",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Directive with st = 3. All eight status values are positive vectors: an expired or revoked status is a signed, accepted document, and invariant 16 forbids disconnecting on it."
+    },
+    {
+      "id": "pos-m1-st4",
+      "group": "positive",
+      "file": "bin/positive/m1_st4.bin",
+      "doc_type": 3,
+      "bytes": 232,
+      "sha256": "ab9d60d5f7ecc4ac1951fca1d50a1d08755d526dc0ee21af3421b64a4c84083c",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Directive with st = 4. All eight status values are positive vectors: an expired or revoked status is a signed, accepted document, and invariant 16 forbids disconnecting on it."
+    },
+    {
+      "id": "pos-m1-st5",
+      "group": "positive",
+      "file": "bin/positive/m1_st5.bin",
+      "doc_type": 3,
+      "bytes": 232,
+      "sha256": "e26a2235cb2d6598f587f477a61d3092e072b9226530ebce397d9cf56f002596",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Directive with st = 5. All eight status values are positive vectors: an expired or revoked status is a signed, accepted document, and invariant 16 forbids disconnecting on it."
+    },
+    {
+      "id": "pos-m1-st6",
+      "group": "positive",
+      "file": "bin/positive/m1_st6.bin",
+      "doc_type": 3,
+      "bytes": 232,
+      "sha256": "6306b03e450ae557db6910615d543e3716f744cc3fff2194cf761ec1e47459d6",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Directive with st = 6. All eight status values are positive vectors: an expired or revoked status is a signed, accepted document, and invariant 16 forbids disconnecting on it."
+    },
+    {
+      "id": "pos-m1-st7",
+      "group": "positive",
+      "file": "bin/positive/m1_st7.bin",
+      "doc_type": 3,
+      "bytes": 232,
+      "sha256": "1f1a3c5d8b80b0fb028e446b191c1e3b18fca4297a58ad94d8e222a4dddb7c7f",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Directive with st = 7. All eight status values are positive vectors: an expired or revoked status is a signed, accepted document, and invariant 16 forbids disconnecting on it."
+    },
+    {
+      "id": "pos-m1-st8",
+      "group": "positive",
+      "file": "bin/positive/m1_st8.bin",
+      "doc_type": 3,
+      "bytes": 232,
+      "sha256": "cbbc8981914c7f73435c1d9e07796989d0e53533133ba93fbba40ad814d96ed2",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Directive with st = 8. All eight status values are positive vectors: an expired or revoked status is a signed, accepted document, and invariant 16 forbids disconnecting on it."
+    },
+    {
+      "id": "pos-m1-typical",
+      "group": "positive",
+      "file": "bin/positive/m1_typical.bin",
+      "doc_type": 3,
+      "bytes": 444,
+      "sha256": "e4276f2bf47ae582700f9757f36fe7e5e3203f3dd26c2e91a6a179f6e2f139f9",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Typical directive: selection, four policy echoes with provenance, announce and support text at their caps' shape, one UI hint, an offline grace window and signed traffic counters. sel.rcc carries a real country here; see pos-m1-norelay for the no-relay sentinel."
+    },
+    {
+      "id": "pos-m1s-min",
+      "group": "positive",
+      "file": "bin/positive/m1s_min.bin",
+      "doc_type": 6,
+      "bytes": 454,
+      "sha256": "8eea8716ed04ca2ec931f9d9898db02f9d6845ef0f6cd7262d91b57862f0d5eb",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Sealed directive, unpadded, 454 bytes. The plaintext of ct is the COMPLETE 0x03 frame of pos-m1-min, magic and signature slots included; a recipient that recovers a plaintext not beginning 43 53 4d 31 03 MUST treat it as E_SEAL_OPEN and MUST NOT attempt a partial parse. See correction cor-2: 03-WIRE.md 9.6 gives 455 for this frame."
+    },
+    {
+      "id": "pos-m1s-padded",
+      "group": "positive",
+      "file": "bin/positive/m1s_padded.bin",
+      "doc_type": 6,
+      "bytes": 512,
+      "sha256": "9acd1053b3a50a2aa8abd059df724c97ad4fce48008884c99d2189a2498ad5de",
+      "verdict": "accept",
+      "context": "default",
+      "note": "The same sealed directive padded onto the 256-byte grid at r = 0: 512 bytes. With the default pb of [0,3] the response is drawn per request from a four-value set, and the range itself is per tenant, which is what stops 512 becoming the cross-tenant constant 01-DECISION.md D3 objects to."
+    },
+    {
+      "id": "pos-r1-min",
+      "group": "positive",
+      "file": "bin/positive/r1_min.bin",
+      "doc_type": 8,
+      "bytes": 479,
+      "sha256": "fb6d65eb38b1c787dd85f8988bbeeed9ac829d26a24e3ed6343d5c9150bd1668",
+      "verdict": "accept",
+      "context": "default",
+      "note": "Reserve pool, root-signed and locator-scoped. Three mirrors across three ASNs and three countries, cohort 4. Correction 6 of 03-WIRE.md 16 is why this is a separate document type rather than a key document field."
+    }
+  ],
+  "armor": [
+    {
+      "id": "arm-b1-single",
+      "file": "armor/b1_min.carcap",
+      "frames": 1,
+      "stream_bytes": 385,
+      "chunks": 1,
+      "bid": "NQFXJMNX",
+      "verdict": "accept",
+      "carries": [
+        "pos-b1-min"
+      ],
+      "note": "The bootstrap blob as one armored chunk: 637 characters of line for 385 bytes of frame. Every character of the format is inside the QR alphanumeric set, so it encodes in alphanumeric mode rather than byte mode, which is roughly 45 percent fewer modules."
+    },
+    {
+      "id": "arm-offline-snapshot",
+      "file": "armor/offline_snapshot.carcap",
+      "frames": 4,
+      "stream_bytes": 1247,
+      "chunks": 3,
+      "bid": "EYYZRBYX",
+      "verdict": "accept",
+      "carries": [
+        "pos-k1-min",
+        "pos-c1-min",
+        "pos-b1-min",
+        "pos-k1-rot-v2"
+      ],
+      "note": "An offline snapshot: key document, catalog, bootstrap blob and the version 2 key document as one frame stream. A reader walks it using each frame's own payload_len and nsigs and starts the next frame at the byte immediately after; bytes left over after the last complete frame, and a truncated final frame, are both E_PARSE_FRAMING."
+    },
+    {
+      "id": "arm-rotation-chain",
+      "file": "armor/rotation_chain.carcap",
+      "frames": 2,
+      "stream_bytes": 666,
+      "chunks": 2,
+      "bid": "30160NCN",
+      "verdict": "accept",
+      "carries": [
+        "pos-k1-rot-v2",
+        "pos-k1-rot-v3"
+      ],
+      "note": "The root rotation chain versions 2 and 3, which is what GET /sub/k1?since=1 returns and what lets the out-of-band rung survive a rotation. A client MUST walk the intermediates in order and MUST NOT skip either."
+    },
+    {
+      "id": "arm-b1-wire85",
+      "file": "armor/b1_wire_8_5.carcap",
+      "frames": 1,
+      "stream_bytes": 374,
+      "chunks": 1,
+      "bid": "RY1K5HAN",
+      "verdict": "accept",
+      "carries": [
+        "pos-b1-wire85"
+      ],
+      "note": "The armored form of the exact 374-byte blob printed in 03-WIRE.md 8.5, kept so an implementer can diff against the worked example in 03-WIRE.md 10.5. Its bid and its single line are the published ones; see published_digest_check for the comparison."
+    },
+    {
+      "id": "arm-b1-max",
+      "file": "armor/b1_max.carcap",
+      "frames": 1,
+      "stream_bytes": 3836,
+      "chunks": 7,
+      "bid": "TP9QKW6R",
+      "verdict": "accept",
+      "carries": [
+        "pos-b1-max"
+      ],
+      "note": "The maximum bootstrap blob across 7 chunks. Every chunk but the last carries exactly 620 bytes, which is 4960 bits and therefore exactly 992 base32 characters with no pad bits."
+    },
+    {
+      "id": "arm-neg-mixed-bid",
+      "file": "armor/neg_mixed_bid.carcap",
+      "frames": 0,
+      "stream_bytes": 0,
+      "chunks": 3,
+      "bid": "",
+      "verdict": "reject",
+      "code": "E_PARSE_FRAMING",
+      "note": "Chunk 2 carries the bid of a different bundle. A reader MUST reject a set in which any two lines disagree on bid or n. This is the realistic failure: an operator prints a new sheet and the old one is still on the table. The bid is the extension 03-WIRE.md Correction 8 adds to 01-DECISION.md C1, which had no bundle identifier at all."
+    },
+    {
+      "id": "arm-neg-missing-ordinal",
+      "file": "armor/neg_missing_ordinal.carcap",
+      "frames": 0,
+      "stream_bytes": 0,
+      "chunks": 2,
+      "bid": "",
+      "verdict": "reject",
+      "code": "E_PARSE_FRAMING",
+      "note": "Ordinal 2 of 3 is absent. A reader MUST detect the missing ordinal rather than concatenating what it has, and MUST accept the remaining chunks in any order."
+    },
+    {
+      "id": "arm-neg-count-disagree",
+      "file": "armor/neg_count_disagree.carcap",
+      "frames": 0,
+      "stream_bytes": 0,
+      "chunks": 3,
+      "bid": "",
+      "verdict": "reject",
+      "code": "E_PARSE_FRAMING",
+      "note": "The last line claims a different total than the others."
+    },
+    {
+      "id": "arm-neg-short-nonfinal",
+      "file": "armor/neg_short_nonfinal.carcap",
+      "frames": 0,
+      "stream_bytes": 0,
+      "chunks": 3,
+      "bid": "",
+      "verdict": "reject",
+      "code": "E_PARSE_FRAMING",
+      "note": "A non-final chunk that decodes to fewer than 620 bytes. Every chunk except the one with i == n MUST decode to exactly 620."
+    },
+    {
+      "id": "arm-neg-illegal-character",
+      "file": "armor/neg_illegal_character.carcap",
+      "frames": 0,
+      "stream_bytes": 0,
+      "chunks": 1,
+      "bid": "",
+      "verdict": "reject",
+      "code": "E_PARSE_FRAMING",
+      "note": "The letter U, which the Crockford alphabet excludes by construction along with I, L and O. A decoder MUST map I, i, L and l to 1 and O and o to 0, MUST ignore hyphens anywhere, and MUST reject every other character."
+    },
+    {
+      "id": "arm-neg-nonzero-pad-bits",
+      "file": "armor/neg_nonzero_pad_bits.carcap",
+      "frames": 0,
+      "stream_bytes": 0,
+      "chunks": 1,
+      "bid": "",
+      "verdict": "reject",
+      "code": "E_PARSE_FRAMING",
+      "note": "The final character carries non-zero trailing pad bits. A decoder MUST reject it, so that each byte string has exactly one accepted spelling and a QR set cannot be re-spelled into a different bid."
+    }
+  ],
+  "ed25519_public_key_ingest": [
+    {
+      "id": "ed-key-valid-root",
+      "public_key": "8b160c71c61008321cae0d0dc9a980b6e59cb26d0f4d1fa8dfc030c3675e2b7c",
+      "verdict": "accept",
+      "note": "The fixture root key. Accepted by all three clauses."
+    },
+    {
+      "id": "ed-key-valid-online",
+      "public_key": "75f350b3eb21344a96de195d82079e45f0a56fecdc736c16b61d56619afd5653",
+      "verdict": "accept",
+      "note": "The fixture online key."
+    },
+    {
+      "id": "ed-key-small-order-0",
+      "public_key": "0100000000000000000000000000000000000000000000000000000000000000",
+      "verdict": "reject",
+      "clause": "2.1 clause 3 ([8]A is not the identity)",
+      "note": "Canonical encoding of a point of order dividing 8, computed as [L]P for an off-subgroup P. 03-WIRE.md 2.1 clause 3 requires the [8]A identity test, not a transcribed blacklist."
+    },
+    {
+      "id": "ed-key-small-order-1",
+      "public_key": "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+      "verdict": "reject",
+      "clause": "2.1 clause 3 ([8]A is not the identity)",
+      "note": "Canonical encoding of a point of order dividing 8, computed as [L]P for an off-subgroup P. 03-WIRE.md 2.1 clause 3 requires the [8]A identity test, not a transcribed blacklist."
+    },
+    {
+      "id": "ed-key-small-order-2",
+      "public_key": "0000000000000000000000000000000000000000000000000000000000000080",
+      "verdict": "reject",
+      "clause": "2.1 clause 3 ([8]A is not the identity)",
+      "note": "Canonical encoding of a point of order dividing 8, computed as [L]P for an off-subgroup P. 03-WIRE.md 2.1 clause 3 requires the [8]A identity test, not a transcribed blacklist."
+    },
+    {
+      "id": "ed-key-small-order-3",
+      "public_key": "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+      "verdict": "reject",
+      "clause": "2.1 clause 3 ([8]A is not the identity)",
+      "note": "Canonical encoding of a point of order dividing 8, computed as [L]P for an off-subgroup P. 03-WIRE.md 2.1 clause 3 requires the [8]A identity test, not a transcribed blacklist."
+    },
+    {
+      "id": "ed-key-small-order-4",
+      "public_key": "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+      "verdict": "reject",
+      "clause": "2.1 clause 3 ([8]A is not the identity)",
+      "note": "Canonical encoding of a point of order dividing 8, computed as [L]P for an off-subgroup P. 03-WIRE.md 2.1 clause 3 requires the [8]A identity test, not a transcribed blacklist."
+    },
+    {
+      "id": "ed-key-small-order-5",
+      "public_key": "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+      "verdict": "reject",
+      "clause": "2.1 clause 3 ([8]A is not the identity)",
+      "note": "Canonical encoding of a point of order dividing 8, computed as [L]P for an off-subgroup P. 03-WIRE.md 2.1 clause 3 requires the [8]A identity test, not a transcribed blacklist."
+    },
+    {
+      "id": "ed-key-small-order-6",
+      "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+      "verdict": "reject",
+      "clause": "2.1 clause 3 ([8]A is not the identity)",
+      "note": "Canonical encoding of a point of order dividing 8, computed as [L]P for an off-subgroup P. 03-WIRE.md 2.1 clause 3 requires the [8]A identity test, not a transcribed blacklist."
+    },
+    {
+      "id": "ed-key-small-order-7",
+      "public_key": "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+      "verdict": "reject",
+      "clause": "2.1 clause 3 ([8]A is not the identity)",
+      "note": "Canonical encoding of a point of order dividing 8, computed as [L]P for an off-subgroup P. 03-WIRE.md 2.1 clause 3 requires the [8]A identity test, not a transcribed blacklist."
+    },
+    {
+      "id": "ed-key-noncanonical-y-0",
+      "public_key": "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+      "verdict": "reject",
+      "clause": "2.1 clause 1 (canonical encoding, y \u003c p)",
+      "note": "Non-canonical spelling of small-order point 0: y + p re-encoded. Clause 1 rejects it before clause 3 is reached."
+    },
+    {
+      "id": "ed-key-noncanonical-y-2",
+      "public_key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "verdict": "reject",
+      "clause": "2.1 clause 1 (canonical encoding, y \u003c p)",
+      "note": "Non-canonical spelling of small-order point 2: y + p re-encoded. Clause 1 rejects it before clause 3 is reached."
+    },
+    {
+      "id": "ed-key-noncanonical-y-6",
+      "public_key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+      "verdict": "reject",
+      "clause": "2.1 clause 1 (canonical encoding, y \u003c p)",
+      "note": "Non-canonical spelling of small-order point 6: y + p re-encoded. Clause 1 rejects it before clause 3 is reached."
+    },
+    {
+      "id": "ed-key-y-equals-p",
+      "public_key": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+      "verdict": "reject",
+      "clause": "2.1 clause 1 (canonical encoding, y \u003c p)",
+      "note": "y = p exactly. Clause 1 requires y strictly less than p."
+    },
+    {
+      "id": "ed-key-y-all-ones",
+      "public_key": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "verdict": "reject",
+      "clause": "2.1 clause 1 (canonical encoding, y \u003c p)",
+      "note": "All bits set. With the sign bit masked this is y = 2^255 - 1, which exceeds p."
+    },
+    {
+      "id": "ed-key-basepoint",
+      "public_key": "5866666666666666666666666666666666666666666666666666666666666666",
+      "verdict": "accept",
+      "note": "The Ed25519 basepoint. Canonical, on curve, order L, so ingest accepts it. Ingest is not an authorization check; authorization is the role table of 03-WIRE.md 7.1."
+    },
+    {
+      "id": "ed-key-not-on-curve",
+      "public_key": "5965666666666666666666666666666666666666666666666666666666666666",
+      "verdict": "reject",
+      "clause": "2.1 clause 2 (decompresses to a curve point)",
+      "note": "Basepoint encoding with one bit flipped in y; decompression fails."
+    }
+  ],
+  "ed25519_signature": [
+    {
+      "id": "ed-sig-valid",
+      "public_key": "75f350b3eb21344a96de195d82079e45f0a56fecdc736c16b61d56619afd5653",
+      "message_hex": "43534d31207465737420766563746f72206d657373616765",
+      "signature": "c5437c4010add3333f6063024cb7419839faffbe5304072cec1e3be79878e17436c7a7a1bc0fb7d535e85cd55b66109b609185e283594795a60674c801e3ee0c",
+      "verdict": "accept",
+      "note": "Deterministic RFC 8032 pure Ed25519 signature. 03-WIRE.md 1.5 forbids Ed25519ph, Ed25519ctx and randomized nonces."
+    },
+    {
+      "id": "ed-sig-noncanonical-S",
+      "public_key": "75f350b3eb21344a96de195d82079e45f0a56fecdc736c16b61d56619afd5653",
+      "message_hex": "43534d31207465737420766563746f72206d657373616765",
+      "signature": "c5437c4010add3333f6063024cb7419839faffbe5304072cec1e3be79878e174239b9dfed672c92d0c8554783a60efaf609185e283594795a60674c801e3ee1c",
+      "verdict": "reject",
+      "clause": "2.2 clause 1 (S \u003c L)",
+      "note": "S replaced by S + L. A verifier MUST reject rather than reduce; a reducing verifier turns one signature into many."
+    },
+    {
+      "id": "ed-sig-S-equals-L",
+      "public_key": "75f350b3eb21344a96de195d82079e45f0a56fecdc736c16b61d56619afd5653",
+      "message_hex": "43534d31207465737420766563746f72206d657373616765",
+      "signature": "c5437c4010add3333f6063024cb7419839faffbe5304072cec1e3be79878e174edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010",
+      "verdict": "reject",
+      "clause": "2.2 clause 1 (S \u003c L, strictly)",
+      "note": "S = L exactly. The bound is strict, so this is a rejection."
+    },
+    {
+      "id": "ed-sig-S-high-bit",
+      "public_key": "75f350b3eb21344a96de195d82079e45f0a56fecdc736c16b61d56619afd5653",
+      "message_hex": "43534d31207465737420766563746f72206d657373616765",
+      "signature": "c5437c4010add3333f6063024cb7419839faffbe5304072cec1e3be79878e17436c7a7a1bc0fb7d535e85cd55b66109b609185e283594795a60674c801e3ee8c",
+      "verdict": "reject",
+      "clause": "2.2 clause 1",
+      "note": "High bit of the last S byte set, which puts S far above L."
+    },
+    {
+      "id": "ed-sig-R-small-order",
+      "public_key": "75f350b3eb21344a96de195d82079e45f0a56fecdc736c16b61d56619afd5653",
+      "message_hex": "43534d31207465737420766563746f72206d657373616765",
+      "signature": "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a36c7a7a1bc0fb7d535e85cd55b66109b609185e283594795a60674c801e3ee0c",
+      "verdict": "reject",
+      "clause": "2.2 clause 3 (the cofactorless equation fails)",
+      "note": "R replaced by a small-order point. 03-WIRE.md 2.2 clause 2 permits small-order R structurally, so the rejection must come from the verification equation, not from a shape check."
+    },
+    {
+      "id": "ed-sig-bitflip",
+      "public_key": "75f350b3eb21344a96de195d82079e45f0a56fecdc736c16b61d56619afd5653",
+      "message_hex": "43534d31207465737420766563746f72206d657373616765",
+      "signature": "c5437c4010add3333f6023024cb7419839faffbe5304072cec1e3be79878e17436c7a7a1bc0fb7d535e85cd55b66109b609185e283594795a60674c801e3ee0c",
+      "verdict": "reject",
+      "clause": "2.2 clause 3",
+      "note": "One bit flipped inside R."
+    },
+    {
+      "id": "ed-sig-cofactored-only",
+      "public_key": "b7ccc76a742bb0b12dd3ee29b2aa2683505ff8b8be139933926a5c501df27abb",
+      "message_hex": "43534d31207465737420766563746f72206d657373616765",
+      "signature": "e8f031cf7b10a51aa50876149260665cd53568fa6b51846d3810bbac481656a44c1544ef82740c0c0096ec89b346da629ed9ad0d6c115d175dc62801dae81d0d",
+      "verdict": "reject",
+      "clause": "2.2 clause 3 (cofactorless [S]B == R + [h]A)",
+      "note": "Constructed so that a COFACTORED verifier accepts and a COFACTORLESS verifier rejects. The public key carries an order-8 torsion component, so it passes ingest clause 3, and S was solved for the cofactored equation. This is the single vector that catches the divergence 03-WIRE.md 2.2 clause 3 forbids; an implementation that accepts it has the wrong verification equation even though every other vector in this corpus passes."
+    }
+  ],
+  "hpke": {
+    "aad_fixture": "43534d3106226e8a20f699b9644f0f22569564aab09a2d1a75c132d9550000019c",
+    "aad_rule": "aad = \"CSM1\" || 0x06 || pid(8) || dtp(16) || u32be(ver), 33 bytes, recomputed by the recipient from the outer payload and never accepted from the wire (03-WIRE.md 9.2).",
+    "info": "43534d312d7365616c2d7631",
+    "info_ascii": "CSM1-seal-v1",
+    "recipient_pk": "0477fcca701fd063eed7a1a41619872a76c5fc5b3adf67ce3b8edf99fcbc8a71a53655f25a0fea378a0007f5942586bb617dfb4245129a5e0cb2f83cba9382b9eb",
+    "recipient_sk": "a801c3a8f0bbc69e012c248320808ccf24e4928065cedfbcfd22032e9c954138",
+    "rfc9180_key_schedule_vector": {
+      "source": "https://www.rfc-editor.org/rfc/rfc9180.txt",
+      "section": "Appendix A.5.1 / A.5.1.1 / A.5.1.2",
+      "status": "imported verbatim from RFC 9180; not computed by this generator",
+      "mode": 0,
+      "kem_id": 16,
+      "kdf_id": 1,
+      "aead_id": 3,
+      "info": "4f6465206f6e2061204772656369616e2055726e",
+      "skEm": "7550253e1147aae48839c1f8af80d2770fb7a4c763afe7d0afa7e0f42a5b3689",
+      "pkEm": "04c07836a0206e04e31d8ae99bfd549380b072a1b1b82e563c935c095827824fc1559eac6fb9e3c70cd3193968994e7fe9781aa103f5b50e934b5b2f387e381291",
+      "skRm": "a4d1c55836aa30f9b3fbb6ac98d338c877c2867dd3a77396d13f68d3ab150d3b",
+      "pkRm": "04a697bffde9405c992883c5c439d6cc358170b51af72812333b015621dc0f40bad9bb726f68a5c013806a790ec716ab8669f84f6b694596c2987cf35baba2a006",
+      "enc": "04c07836a0206e04e31d8ae99bfd549380b072a1b1b82e563c935c095827824fc1559eac6fb9e3c70cd3193968994e7fe9781aa103f5b50e934b5b2f387e381291",
+      "shared_secret": "806520f82ef0b03c823b7fc524b6b55a088f566b9751b89551c170f4113bd850",
+      "key_schedule_context": "00b738cd703db7b4106e93b4621e9a19c89c838e55964240e5d3f331aaf8b0d58b2e986ea1c671b61cf45eec134dac0bae58ec6f63e790b1400b47c33038b0269c",
+      "secret": "fe891101629aa355aad68eff3cc5170d057eca0c7573f6575e91f9783e1d4506",
+      "key": "a8f45490a92a3b04d1dbf6cf2c3939ad8bfc9bfcb97c04bffe116730c9dfe3fc",
+      "base_nonce": "726b4390ed2209809f58c693",
+      "exporter_secret": "4f9bd9b3a8db7d7c3a5b9d44fdc1f6e37d5d77689ade5ec44a7242016e6aa205",
+      "seq0_pt": "4265617574792069732074727574682c20747275746820626561757479",
+      "seq0_aad": "436f756e742d30",
+      "seq0_nonce": "726b4390ed2209809f58c693",
+      "seq0_ct": "6469c41c5c81d3aa85432531ecf6460ec945bde1eb428cb2fedf7a29f5a685b4ccb0d057f03ea2952a27bb458b",
+      "seq1_aad": "436f756e742d31",
+      "seq1_nonce": "726b4390ed2209809f58c692",
+      "seq1_ct": "f1564199f7e0e110ec9c1bcdde332177fc35c1adf6e57f8d1df24022227ffa8716862dbda2b1dc546c9d114374",
+      "export_L32_empty_context": "9b13c510416ac977b553bf1741018809c246a695f45eff6d3b0356dbefe1e660",
+      "export_L32_context_00": "6c8b7be3a20a5684edecb4253619d9051ce8583baf850e0cb53c402bdcaf8ebb",
+      "export_L32_context_TestContext": "477a50d804c7c51941f69b8e32fe8288386ee1a84905fe4938d58972f24ac938"
+    },
+    "rfc9180_note": "Imported verbatim from RFC 9180 Appendix A.5 (the CSM/1 suite). The generator re-derives every field of it on each run as a self-test and refuses to emit a corpus if any field disagrees; the values themselves are the RFC's, not this generator's.",
+    "rkv": 1,
+    "suite": {
+      "aead_id": 3,
+      "kdf_id": 1,
+      "kem_id": 16,
+      "mode": 0,
+      "name": "mode_base, DHKEM(P-256, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305",
+      "rule": "03-WIRE.md 9.1, and its Correction 4 to 00-DESIGN-BRIEF.md 4.7: the KEM is P-256, not X25519, because the device key must live in Secure Enclave or StrongBox."
+    }
+  },
+  "derivations": [
+    {
+      "name": "pid",
+      "input": "sha256(root_public_key)",
+      "output": "226e8a20f699b964",
+      "rule": "03-WIRE.md 4: sha256(root_ed25519_public_key)[0..8]"
+    },
+    {
+      "name": "kid_root",
+      "input": "sha256(root_public_key)",
+      "output": "226e8a20f699b964dfb01e86",
+      "rule": "03-WIRE.md 4: sha256(pk)[0..12]"
+    },
+    {
+      "name": "kid_online",
+      "input": "sha256(online_public_key)",
+      "output": "21e3e2cc0a3ba777e69ce14c",
+      "rule": "03-WIRE.md 4"
+    },
+    {
+      "name": "link_pin",
+      "input": "sha256(root_public_key)[0..12]",
+      "output": "49Q8M87PK6WP9QXG3T30",
+      "rule": "03-WIRE.md 4: base32_crockford, 20 characters, 4 pad bits"
+    },
+    {
+      "name": "loc",
+      "input": "HMAC-SHA256(secret, \"csm1-loc\" || 0x00 || \"9f3c1d02-5b8e-4a17-9d44-0e7a6c11b3f8\" || u32be(1))[0..15]",
+      "output": "EA3B8SKCY6VBWASE7AM1X48Y",
+      "rule": "03-WIRE.md 4: uuid is the 36-byte lowercase ASCII text, not 16 raw bytes"
+    },
+    {
+      "name": "dtp",
+      "input": "sha256(\"csm1-doc-example-device-spki\")[0..16]",
+      "output": "4f0f22569564aab09a2d1a75c132d955",
+      "rule": "03-WIRE.md 4: sha256(device_signing_SPKI_DER)[0..16]; the fixture label stands in for a real SPKI"
+    },
+    {
+      "name": "enrollment_code",
+      "input": "link_pin[0..8] || base32_crockford(sha256(\"csm1-doc-example-enroll-secret\")[0..8])[0..12]",
+      "output": "49Q8-M87P-KQZ3-WFDG-ZTJX",
+      "rule": "02-SPEC.md 9.2, and Correction 5 to 03-WIRE.md 8.5"
+    },
+    {
+      "name": "device_agreement_pk",
+      "input": "P-256 public of the fixture device agreement key",
+      "output": "0477fcca701fd063eed7a1a41619872a76c5fc5b3adf67ce3b8edf99fcbc8a71a53655f25a0fea378a0007f5942586bb617dfb4245129a5e0cb2f83cba9382b9eb",
+      "rule": "02-SPEC.md 9.4: signing and agreement are separate keys"
+    },
+    {
+      "name": "crockford_roundtrip",
+      "input": "base32_crockford(0x00..0x0f)",
+      "output": "000G40R40M30E209185GR38E1W",
+      "rule": "03-WIRE.md 4.1: 16 bytes give 26 characters with 2 pad bits"
+    }
+  ],
+  "transport": [
+    {
+      "id": "tr-content-encoding",
+      "subject": "a CSM response carrying Content-Encoding: gzip",
+      "verdict": "reject",
+      "rule": "03-WIRE.md 12.4: a CSM response MUST NOT carry a Content-Encoding. Compression makes the on-wire size a function of the plaintext and defeats the padding. The client MUST refuse the response rather than decompress it, so there is no decompression bound to get wrong."
+    },
+    {
+      "id": "tr-body-over-resp-max",
+      "subject": "a response body of 4097 bytes for /sub/m1 or /sub/k1",
+      "verdict": "reject",
+      "rule": "03-WIRE.md 11.3 and 01-DECISION.md invariant 5: thr.resp_max is 4096 and is a signed catalog field. The reader MUST use io.LimitReader at resp_max + 1 and reject at overflow rather than buffering."
+    },
+    {
+      "id": "tr-chunk-body-over-cap",
+      "subject": "a response body of 3585 bytes for /sub/c1/{cat_id}/{i}",
+      "verdict": "reject",
+      "rule": "03-WIRE.md 11.3: CHUNK_RESP_MAX is 3584."
+    },
+    {
+      "id": "tr-payload-len-over-cap",
+      "subject": "a frame header declaring payload_len 49153",
+      "verdict": "reject",
+      "code": "E_PARSE_LEN",
+      "rule": "03-WIRE.md 6.1 P4: 1 \u003c= payload_len \u003c= 49152. The reader MUST reject on the header before allocating."
+    },
+    {
+      "id": "tr-armor-stream-over-cap",
+      "subject": "an armored frame stream of 65537 bytes",
+      "verdict": "reject",
+      "code": "E_PARSE_FRAMING",
+      "rule": "03-WIRE.md 10.1: a frame stream MUST contain at most 16 frames and MUST NOT exceed 65536 bytes."
+    },
+    {
+      "id": "tr-armor-chunk-count",
+      "subject": "an armored set claiming n = 107",
+      "verdict": "reject",
+      "rule": "03-WIRE.md 10.2: the 106-chunk cap follows from ceil(65536 / 620)."
+    },
+    {
+      "id": "tr-redirect-cross-origin",
+      "subject": "a 302 from the enrolled origin to another host",
+      "verdict": "reject",
+      "rule": "01-DECISION.md 5.1.8: fetchSubscriptionBody gets followRedirects: false with per-hop scheme and origin validation. One hop MAY be followed only when the target host equals the tenant's configured subscription_domain."
+    },
+    {
+      "id": "tr-http-scheme",
+      "subject": "any manifest, config, rule-set or geo URL with scheme http",
+      "verdict": "reject",
+      "rule": "03-WIRE.md 14.4 and invariant 8. The only non-TLS exception is .onion."
+    }
+  ],
+  "node_entry_shapes": [
+    {
+      "shape": "Shadowsocks-2022 relay (no TLS, no SNI)",
+      "bytes": 62
+    },
+    {
+      "shape": "Hysteria2 + salamander obfs + port hopping",
+      "bytes": 103
+    },
+    {
+      "shape": "VLESS + Reality + TCP (the dominant exit)",
+      "bytes": 130
+    },
+    {
+      "shape": "Trojan + gRPC + Reality",
+      "bytes": 135
+    },
+    {
+      "shape": "VLESS + WS + TLS behind a CDN with a Host override",
+      "bytes": 111
+    },
+    {
+      "shape": "mean of the five shapes",
+      "bytes": 108
+    }
+  ],
+  "counts": {
+    "armor": 11,
+    "derivations": 9,
+    "ed25519_public_key_ingest": 17,
+    "ed25519_signature": 7,
+    "files": 152,
+    "negative": 84,
+    "positive": 52,
+    "reference": 2,
+    "transport": 8,
+    "vectors": 138
+  },
+  "error_code_registry": {
+    "parse": [
+      "E_PARSE_SHORT",
+      "E_PARSE_MAGIC",
+      "E_PARSE_DOCTYPE",
+      "E_PARSE_LEN",
+      "E_PARSE_NSIGS",
+      "E_PARSE_FRAMING",
+      "E_PARSE_SLOTORDER",
+      "E_PARSE_CBOR",
+      "E_PARSE_ENVELOPE",
+      "E_PARSE_FIELD"
+    ],
+    "seal": [
+      "E_SEAL_RECIPIENT",
+      "E_SEAL_SUITE",
+      "E_SEAL_OPEN"
+    ],
+    "verify": [
+      "E_VERIFY_ROLE",
+      "E_VERIFY_NOANCHOR",
+      "E_VERIFY_UNAUTHORIZED",
+      "E_VERIFY_REVOKED",
+      "E_VERIFY_SIG",
+      "E_VERIFY_THRESHOLD",
+      "E_VERIFY_PID",
+      "E_VERIFY_VERSION",
+      "E_VERIFY_ROTATION",
+      "E_VERIFY_IAT",
+      "E_VERIFY_EXPIRED",
+      "E_VERIFY_NONCE",
+      "E_VERIFY_DEVICE",
+      "E_VERIFY_CATHASH"
+    ]
+  },
+  "corrections": [
+    {
+      "finding": "The note under the minimum catalog says \"The ver here is 7 (03 07), which is why the envelope is 31 bytes rather than the 33 it would be past version 255.\" Section 8.0 and Correction 9 of section 16 both put the envelope at 27 bytes for ver \u003c 24, and the hex dump agrees: map head 1 + v 2 + pid 10 + ver 2 + iat 6 + exp 6 = 27. The 31 and 33 figures are wrong for this document, and 31 would be right only for a ver above 65535.",
+      "id": "cor-1",
+      "resolution": "The corpus follows the hex dump and section 8.0. The catalog fixture reproduces the published digest exactly, so nothing downstream is affected; 03-WIRE.md 8.2 should have that sentence corrected to 27 bytes, and to 29 for ver in 256..65535.",
+      "subject": "03-WIRE.md 8.2, the catalog worked example"
+    },
+    {
+      "finding": "The row \"kem, kdf, aead | 7\" over-counts by one. The three fields encode as 0b 10, 0c 01 and 0d 03, which is 2 bytes each and 6 in total, so the outer payload is 370 bytes and the unpadded sealed frame is 454, not 371 and 455.",
+      "id": "cor-2",
+      "resolution": "The corpus emits the sealed directive with its measured length and records both numbers in document_sizes. The padded figure of 512 in that table is unaffected: 454 and 455 both round to the same 256-byte grid value.",
+      "subject": "03-WIRE.md 9.6, the sealed directive size table"
+    },
+    {
+      "finding": "Two decisions are left to the implementer. First, an unrecognized key in the critical range 1..63 is a parse failure under 3.3 and also under P11, but 3.3 sits inside the CBOR profile (code E_PARSE_CBOR) and P11 is the field step (code E_PARSE_FIELD). A CBOR decoder cannot evaluate 3.3 because it does not know the doc_type. Second, section 2.1 requires the small-order and canonical-encoding checks when a key ENTERS the trusted set, but the step tables of section 6 have no step that validates the pk values inside a key document's keys array; V6 covers only signature slots.",
+      "id": "cor-3",
+      "resolution": "The corpus assigns E_PARSE_CBOR to what a decoder can decide without a doc_type (key 0, keys at or above 1024, every structural rule) and E_PARSE_FIELD to everything doc-type-dependent, including an unrecognized critical key and a key document whose keys array carries a small-order or non-canonical pk. 03-WIRE.md should add a step P12 stating the second rule explicitly with code E_PARSE_FIELD, otherwise Rust, Go and Dart will each pick a different code for the same fixture and the shared-code requirement of section 6.6 is unmet.",
+      "subject": "03-WIRE.md 6.1 P11 versus 3.3, unknown critical keys and key material"
+    },
+    {
+      "finding": "A key document with every field at its stated cap (16 keys, 64 revoked kids, 256 revoked node ids, 16 tier hashes, 16 deprecations) encodes to 5118 bytes, which is 1022 bytes above thr.resp_max of 4096. The caps and the response ceiling are not jointly satisfiable, and GET /sub/k1 is the one endpoint a client must reach before it has anything else.",
+      "id": "cor-4",
+      "resolution": "The corpus ships both: pos-k1-max-caps as a parser vector and pos-k1-max-deliverable as the largest that fits the ceiling. The panel needs an emission bound that the field table does not state, or the key document needs the same chunking the catalog has. Chunking is the better answer, because the revocation list is the field that grows and it is the one field a client must not be denied.",
+      "subject": "03-WIRE.md 8.1 field caps versus invariant 5"
+    },
+    {
+      "finding": "03-WIRE.md Correction 1 revises BC1's 220 to 280 bytes down to 60 to 142 with a mean of 116. Measured against this generator's encoder over the same five shapes the mean is 108 bytes. The individual shapes are in node_entry_shapes.",
+      "id": "cor-5",
+      "resolution": "03-WIRE.md Correction 1's conclusion stands unchanged and so does its range. Any residual difference is in how much text a fixture puts in pn and h, which is fixture choice rather than encoding, so the mean is not a protocol constant and should not be cited as one.",
+      "subject": "01-DECISION.md BC1 node entry size, re-measured"
+    },
+    {
+      "finding": "crypto/rand.Reader in Go is not seedable and there is no standard-library API that makes it deterministic.",
+      "id": "cor-6",
+      "resolution": "The generator uses no entropy source at all. Values that must look unpredictable (padding content is all zero by rule, but nonces, thumbprints, pin bytes and Reality keys are not) are either fixed constants from 03-WIRE.md 15 or drawn from a SHA-256 counter stream over a fixed label. Re-running the generator reproduces every byte, which is the property the instruction was asking for.",
+      "subject": "The task's instruction to seed crypto/rand"
+    },
+    {
+      "finding": "03-WIRE.md 2.3 says the small-order test MUST be added at key ingest using filippo.io/edwards25519, \"which is already in the module graph through mihomo\". It is not. The only edwards25519 module in libs/caramba-core/go.mod is github.com/metacubex/edwards25519 v1.2.0, declared indirect at libs/caramba-core/go.mod:61, and a grep for filippo.io/edwards25519 across every go.mod and go.sum in the repository returns nothing.",
+      "id": "cor-8",
+      "resolution": "The Go verifier either takes metacubex/edwards25519, which is a fork of the same code under a different import path and is already vendored, or it adds filippo.io/edwards25519 as a new direct dependency and says so. The corpus does not care which: ed25519_public_key_ingest carries the eight small-order encodings and their non-canonical spellings as raw hex, so the test is the same either way. 03-WIRE.md 2.3 should name the module that is actually present.",
+      "subject": "03-WIRE.md 2.3, the Go note on small-order key rejection"
+    },
+    {
+      "finding": "03-WIRE.md 2.3 points at the panel's existing licensing code as the Ed25519 precedent to reuse and then says VerifyingKey::verify MUST NOT be used. That code uses exactly it: libs/caramba-shared/src/license.rs:205 builds the key with VerifyingKey::from_bytes, which performs no small-order or canonicity check in ed25519-dalek v2, and :225 verifies with verifying_key.verify(\u0026msg, \u0026signature). The dependency is at libs/caramba-shared/Cargo.toml:16 and the import at license.rs:27, both as the wire document states.",
+      "id": "cor-9",
+      "resolution": "A CSM/1 signer and verifier in the panel MUST use VerifyingKey::verify_strict and MUST run the section 2.1 clause 3 test at key ingest, and reusing the license module's helper as-is would carry the defect into the protocol. The ed25519_public_key_ingest and ed25519_signature sections of this corpus fail against a verify-based implementation, ed-sig-noncanonical-S and ed-sig-cofactored-only in particular, which is the intended outcome: this is a defect the corpus is supposed to catch on day one. Whether the licensing path itself should be fixed is out of scope here and belongs to whoever owns libs/caramba-shared.",
+      "subject": "03-WIRE.md 2.3's Rust precedent already violates the profile it cites"
+    },
+    {
+      "finding": "pd is capped at MAX_BSTR_BYTES of 3072, so the reachable padded size of a document is bounded by L0 + 3076 as well as by thr.resp_max. A 230-byte directive cannot be padded to the 4096 ceiling; the largest grid value it can reach is 3328.",
+      "id": "cor-7",
+      "resolution": "Not a defect, and no change is proposed: the bucket rule draws r from pb, which defaults to [0,3] and therefore never approaches the cap. It is recorded because an implementer who reads only the clamp sentence in 12.2 will size a buffer for 4096 bytes of padding and never see it used.",
+      "subject": "03-WIRE.md 12.2 padding versus MAX_BSTR_BYTES"
+    }
+  ],
+  "document_sizes": {
+    "bootstrap_blob": {
+      "maximum": 3836,
+      "minimum": 385
+    },
+    "catalog": {
+      "dual_signature": 348,
+      "maximum": 48589,
+      "maximum_exits": 448,
+      "minimum": 272,
+      "typical": 5589
+    },
+    "catalog_chunk": {
+      "maximum_count": 18,
+      "minimum": 407,
+      "typical_count": 2
+    },
+    "directive": {
+      "maximum": 3840,
+      "maximum_unpadded": 1019,
+      "minimum": 228,
+      "typical": 444
+    },
+    "key_document": {
+      "maximum_at_field_caps": 5118,
+      "maximum_deliverable": 4089,
+      "minimum": 257,
+      "typical": 456
+    },
+    "reserve_pool": {
+      "minimum": 479
+    },
+    "sealed_directive": {
+      "padded_r0": 512,
+      "unpadded": 454
+    }
+  }
+}
