@@ -556,7 +556,11 @@ pub async fn register_email(
 /// случае. Отсутствие настроенного бесплатного плана это конфигурация оператора,
 /// а не сбой регистрации, поэтому здесь предупреждение, а не ошибка ответа.
 async fn grant_free_plan_on_signup(state: &AppState, user_id: i64) {
-    let granted = match state.store_service.ensure_free_plan_subscription(user_id).await {
+    let granted = match state
+        .store_service
+        .ensure_free_plan_subscription(user_id)
+        .await
+    {
         Ok(plan) => plan,
         Err(e) => {
             tracing::warn!(user_id, error = %e, "signup: free plan grant failed (non-fatal)");
