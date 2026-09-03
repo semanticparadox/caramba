@@ -21,6 +21,8 @@ base64 = { version = "0.22", optional = true }
 geo = ["dep:reqwest", "dep:tracing", "dep:maxminddb"]
 self-update = ["dep:reqwest", "dep:tracing", "dep:sha2", "dep:uuid", "dep:anyhow", "dep:tokio"]
 license = ["dep:ed25519-dalek", "dep:chrono", "dep:base64"]
+# CSM/1: подпись документов протокола (панель). Верификатора здесь нет.
+csm = ["dep:ed25519-dalek", "dep:sha2"]
 
 [dev-dependencies]
 rand_core = { version = "0.6", features = ["getrandom"] }

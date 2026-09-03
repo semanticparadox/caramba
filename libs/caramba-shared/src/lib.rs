@@ -13,6 +13,9 @@ pub mod self_update;
 
 pub mod license;
 
+#[cfg(feature = "csm")]
+pub mod csm;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
