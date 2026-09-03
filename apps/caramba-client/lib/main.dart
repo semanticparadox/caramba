@@ -16,6 +16,13 @@ void main() {
 
 /// Root application widget. Dark is the hero theme and the default; light is a
 /// faithful sibling. Theme mode follows the user preference in [settingsProvider].
+/// Мессенджер корня: отказ по deeplink приходит вне дерева виджетов (роутер
+/// строится в провайдере, контекста там нет), а промолчать нельзя - молчаливый
+/// отказ выглядит как сломанное приложение. Ключ даёт показать тост из любого
+/// места, не таща BuildContext через слои.
+final GlobalKey<ScaffoldMessengerState> rootMessengerKey =
+    GlobalKey<ScaffoldMessengerState>();
+
 class CarambaApp extends ConsumerWidget {
   const CarambaApp({super.key});
 
@@ -40,6 +47,7 @@ class CarambaApp extends ConsumerWidget {
     final brandAccent = branding.brandAccentColor;
     return MaterialApp.router(
       title: branding.displayName(kBrandName),
+      scaffoldMessengerKey: rootMessengerKey,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(brandAccent: brandAccent),
       darkTheme: AppTheme.dark(brandAccent: brandAccent),

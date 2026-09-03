@@ -26,6 +26,8 @@ import 'package:caramba_client/features/split/split_tunnel_screen.dart';
 import 'package:caramba_client/features/support/new_ticket_screen.dart';
 import 'package:caramba_client/features/support/ticket_detail_screen.dart';
 import 'package:caramba_client/features/support/tickets_screen.dart';
+import 'package:caramba_client/data/models/enrollment.dart';
+import 'package:caramba_client/main.dart';
 import 'package:caramba_client/router/deep_links.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/shell/app_shell.dart';
@@ -316,6 +318,19 @@ final routerProvider = Provider<GoRouter>((ref) {
     // Ссылка импорта — вход в generic-режим: без этого флага пользователь без
     // аккаунта панели отскочил бы на /login с уже открытого экрана импорта.
     onImport: () => ref.read(guestModeProvider.notifier).enable(),
+    // Отказ показываем: ссылка без TLS (INV-8) или без кода иначе просто
+    // ничего не делает, и это неотличимо от зависшего приложения.
+    onRefused: (refusal) {
+      final messenger = rootMessengerKey.currentState;
+      if (messenger == null) return;
+      messenger.clearSnackBars();
+      messenger.showSnackBar(
+        SnackBar(
+          duration: const Duration(milliseconds: 3200),
+          content: Text(refusal.message),
+        ),
+      );
+    },
   );
   unawaited(deepLinks.start());
   ref.onDispose(deepLinks.dispose);

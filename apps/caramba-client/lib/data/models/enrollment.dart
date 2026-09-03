@@ -38,7 +38,7 @@ extension LinkRefusalMessage on LinkRefusal {
     LinkRefusal.emptyCode => 'Не хватает инвайт-кода.',
     LinkRefusal.insecureTransport =>
       'Адрес по http:// отклонён: манифест, конфигурация, правила и geo '
-          'забираются только по https (исключение одно — адрес .onion). '
+          'забираются только по https, единственное исключение это адрес .onion. '
           'Введите https-адрес.',
   };
 }

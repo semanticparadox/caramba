@@ -37,12 +37,21 @@ class DeepLinkHandler {
   /// `/login` вместо экрана импорта.
   final void Function()? _onImport;
 
+  /// Вызывается, когда ссылка НАША по схеме и действию, но отвергнута: без TLS
+  /// (INV-8), без кода, с неразбираемым адресом. Чужие ссылки сюда не попадают.
+  final void Function(LinkRefusal refusal)? _onRefused;
+
   StreamSubscription<Uri>? _sub;
   String? _pending;
 
-  DeepLinkHandler(this._router, {AppLinks? appLinks, void Function()? onImport})
-    : _appLinks = appLinks ?? AppLinks(),
-      _onImport = onImport;
+  DeepLinkHandler(
+    this._router, {
+    AppLinks? appLinks,
+    void Function()? onImport,
+    void Function(LinkRefusal refusal)? onRefused,
+  }) : _appLinks = appLinks ?? AppLinks(),
+       _onImport = onImport,
+       _onRefused = onRefused;
 
   /// Локация роутера, на которую ведёт ссылка, или `null`, если это не наш
   /// deeplink. Чистая функция: разбор ссылки проверяется без роутера.
@@ -99,11 +108,29 @@ class DeepLinkHandler {
 
   /// Обрабатывает одну ссылку: запоминает цель и ведёт роутер.
   void handle(Uri uri) {
-    final target = targetOf(uri.toString());
-    if (target == null) return;
+    final raw = uri.toString();
+    final target = targetOf(raw);
+    if (target == null) {
+      final refusal = refusalOf(raw);
+      if (refusal != null) _onRefused?.call(refusal);
+      return;
+    }
     if (target.startsWith(AppRoute.connectionImport)) _onImport?.call();
     _pending = target;
     _router.go(target);
+  }
+
+  /// Причина отказа для ссылки, которую мы узнали по схеме и действию, но не
+  /// приняли. `null`, если ссылка вообще не наша: о чужих ссылках пользователю
+  /// сообщать нечего, их приложению доставлять и не должны были.
+  static LinkRefusal? refusalOf(String raw) {
+    for (final r in <LinkRefusal?>[
+      EnrollLink.parse(raw).refusal,
+      ImportLink.parse(raw).refusal,
+    ]) {
+      if (r != null && r != LinkRefusal.notOurLink) return r;
+    }
+    return null;
   }
 
   /// Куда ведёт последняя принятая ссылка, если её ещё не повторяли.

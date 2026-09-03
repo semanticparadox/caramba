@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:caramba_client/data/models/enrollment.dart';
 import 'package:caramba_client/router/deep_links.dart';
 import 'package:caramba_client/router/routes.dart';
 
@@ -37,6 +38,8 @@ import 'package:caramba_client/router/routes.dart';
 }
 
 void main() {
+  _refusalSuite();
+
   test('targetOf разбирает оба действия схемы', () {
     expect(
       DeepLinkHandler.targetOf(
@@ -105,5 +108,43 @@ void main() {
 
     expect(guestEnabled, isTrue);
     expect(find.text('import https://sub.example/b'), findsOneWidget);
+  });
+}
+
+void _refusalSuite() {
+  group('отказ по deeplink виден пользователю', () {
+    test('http-ссылка импорта отвергается с причиной про TLS', () {
+      expect(
+        DeepLinkHandler.targetOf('carambaconnect://import?url=http%3A%2F%2Fx.example%2Fs'),
+        isNull,
+      );
+      expect(
+        DeepLinkHandler.refusalOf('carambaconnect://import?url=http%3A%2F%2Fx.example%2Fs'),
+        LinkRefusal.insecureTransport,
+      );
+    });
+
+    test('https-ссылка импорта принимается', () {
+      expect(
+        DeepLinkHandler.targetOf('carambaconnect://import?url=https%3A%2F%2Fx.example%2Fs'),
+        isNotNull,
+      );
+      expect(
+        DeepLinkHandler.refusalOf('carambaconnect://import?url=https%3A%2F%2Fx.example%2Fs'),
+        isNull,
+      );
+    });
+
+    test('энроллмент без кода отвергается с причиной, а не молча', () {
+      expect(
+        DeepLinkHandler.refusalOf('carambaconnect://enroll?panel=https%3A%2F%2Fp.example'),
+        LinkRefusal.emptyCode,
+      );
+    });
+
+    test('чужая ссылка не даёт причины: сообщать пользователю нечего', () {
+      expect(DeepLinkHandler.refusalOf('https://example.com/'), isNull);
+      expect(DeepLinkHandler.refusalOf('othersscheme://enroll?code=X'), isNull);
+    });
   });
 }
