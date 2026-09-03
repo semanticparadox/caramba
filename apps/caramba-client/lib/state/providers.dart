@@ -69,7 +69,16 @@ final prefsStoreProvider = Provider<PrefsStore>((ref) => PrefsStore());
 /// HTTP-клиент к панели. `onSessionExpired` пробрасывает auth-нотифаеру
 /// принудительный логаут, когда refresh окончательно протух.
 final apiClientProvider = Provider<ApiClient>((ref) {
-  final client = ApiClient(tokens: ref.watch(tokenStoreProvider));
+  // Панель берётся из активного профиля, а не из константы сборки: приложение
+  // не принадлежит ни одному оператору, пока пользователь его не выбрал.
+  // kApiBaseUrl остаётся только для брендированной сборки конкретной панели и
+  // в публичной сборке пуст.
+  final profile = ref.watch(activeConnectionProfileProvider);
+  final panelUrl = (profile?.panelUrl ?? '').trim();
+  final client = ApiClient(
+    tokens: ref.watch(tokenStoreProvider),
+    baseUrl: panelUrl.isNotEmpty ? panelUrl : null,
+  );
   ref.onDispose(() => client.onSessionExpired = null);
   return client;
 });

@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/models/connection_profile.dart';
+import 'package:caramba_client/data/panel_probe.dart';
 import 'package:caramba_client/data/subscription_fetch.dart';
 import 'package:caramba_client/features/connections/qr_scan_sheet.dart';
 import 'package:caramba_client/router/routes.dart';
@@ -318,6 +319,53 @@ class _ConnectionImportScreenState
   }
 
   /// Шаг 2: завести профиль с телом, форматом и кэшем узлов.
+
+  /// Спрашивает, подключать ли распознанную панель. Возврат `true` означает
+  /// «вести на энроллмент». Текст говорит, что именно даёт подключение, иначе
+  /// вопрос выглядит как навязывание аккаунта там, где он не нужен.
+  Future<bool> _offerPanel(PanelProbeResult panel) async {
+    final c = context.c;
+    final answer = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: c.surface1,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: AppRadius.sheetTop),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpace.s5),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Это подписка панели ${panel.displayName}',
+                style: AppType.titleLg.copyWith(color: c.textHi),
+              ),
+              const SizedBox(height: AppSpace.s3),
+              Text(
+                'Подписка уже работает. Если подключить панель, в приложении '
+                'появятся смена страны и релэя, выбор протокола, тариф и '
+                'устройства. Для этого нужен код приглашения или вход.',
+                style: AppType.bodyMd.copyWith(color: c.textMed),
+              ),
+              const SizedBox(height: AppSpace.s5),
+              FilledButton(
+                onPressed: () => Navigator.of(sheetContext).pop(true),
+                child: const Text('Подключить панель'),
+              ),
+              const SizedBox(height: AppSpace.s2),
+              GhostButton(
+                label: 'Пока не нужно',
+                onPressed: () => Navigator.of(sheetContext).pop(false),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    return answer ?? false;
+  }
+
   Future<void> _save() async {
     final preview = _preview;
     final raw = _fetchedRaw;
@@ -338,6 +386,19 @@ class _ConnectionImportScreenState
     await ref.read(connectionProfilesProvider.notifier).add(profile);
     if (!mounted) return;
     showCarambaToast(context, 'Профиль добавлен');
+
+    // Ссылку могла отдать панель Caramba. Тогда предлагаем подключить её:
+    // подписка сама по себе даёт только свои узлы, а панель добавляет смену
+    // страны, релэя и протокола, тариф и устройства. Отказ ничего не ломает,
+    // профиль уже сохранён и работает как обычная подписка.
+    final panel = await probeCarambaPanel(source);
+    if (!mounted) return;
+    if (panel != null && await _offerPanel(panel)) {
+      if (!mounted) return;
+      context.go('${AppRoute.enroll}?panel=${Uri.encodeComponent(panel.origin)}');
+      return;
+    }
+    if (!mounted) return;
     // Generic-режим: пользователь пришёл сюда с экрана входа или по deeplink
     // `carambaconnect://import`, возвращать его в список профилей незачем —
     // ведём на Home, подключаться. Признак — отсутствие сессии панели, а не

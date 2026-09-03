@@ -16,12 +16,19 @@ import 'package:caramba_client/data/models/traffic_point.dart';
 import 'package:caramba_client/data/models/user.dart';
 import 'package:caramba_client/data/token_store.dart';
 
-/// Базовый URL панели. Переопределяется через `--dart-define=CARAMBA_API_BASE=...`.
-/// По умолчанию — локальная панель в dev (Android-эмулятор: 10.0.2.2).
-const String kApiBaseUrl = String.fromEnvironment(
-  'CARAMBA_API_BASE',
-  defaultValue: 'https://exarobot.top',
-);
+/// Базовый URL панели для СБОРКИ, а не для приложения.
+///
+/// Публичная сборка НЕ знает ни одной панели: Caramba Connect это обычный
+/// клиент, как Happ или Hiddify, и панель появляется только тогда, когда
+/// пользователь подключил её сам (импортом подписки, кодом или ссылкой).
+/// Пустая строка означает «панели нет»: панельные вызовы без профиля с
+/// panelUrl обязаны падать с внятной ошибкой, а не уходить к чужому
+/// оператору.
+///
+/// `--dart-define=CARAMBA_API_BASE=https://panel.example` собирает
+/// брендированную сборку конкретного оператора, где панель известна заранее.
+/// Это единственный законный способ зашить панель в приложение.
+const String kApiBaseUrl = String.fromEnvironment('CARAMBA_API_BASE');
 
 /// Исключение уровня API с человекочитаемым сообщением и HTTP-кодом.
 class ApiException implements Exception {
@@ -57,13 +64,35 @@ class ApiClient {
   /// Single-flight: текущая операция ротации refresh-токена.
   Future<AuthTokens?>? _refreshing;
 
+  /// Origin панели, к которой привязан этот клиент. Пусто означает, что панели
+  /// нет: приложение работает как обычный клиент подписок, и любой панельный
+  /// вызов обязан отказать понятной ошибкой вместо запроса в никуда.
+  ///
+  /// Считается из фактических настроек Dio, а не из аргумента конструктора:
+  /// подставленный извне Dio (тесты, панельный клиент энроллмента) несёт свой
+  /// baseUrl, и судить о наличии панели надо по нему.
+  String get panelOrigin {
+    final base = _dio.options.baseUrl.trim();
+    if (base.isEmpty) return '';
+    return base.endsWith(_apiSuffix)
+        ? base.substring(0, base.length - _apiSuffix.length)
+        : base;
+  }
+
+  /// Панель подключена и панельные вызовы имеют смысл.
+  bool get hasPanel => panelOrigin.isNotEmpty;
+
+  static const String _apiSuffix = '/api/v2/app';
+
   ApiClient({required TokenStore tokens, Dio? dio, String? baseUrl})
     : _tokens = tokens,
       _dio =
           dio ??
           Dio(
             BaseOptions(
-              baseUrl: '${baseUrl ?? kApiBaseUrl}/api/v2/app',
+              baseUrl: (baseUrl ?? kApiBaseUrl).trim().isEmpty
+                  ? ''
+                  : '${(baseUrl ?? kApiBaseUrl).trim()}$_apiSuffix',
               connectTimeout: const Duration(seconds: 15),
               receiveTimeout: const Duration(seconds: 20),
               contentType: Headers.jsonContentType,
@@ -74,6 +103,22 @@ class ApiClient {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
+          // Панель не подключена: отказываем здесь, а не отправляем запрос с
+          // пустым origin. Иначе пользователь видит сетевую ошибку Dio вместо
+          // единственной настоящей причины.
+          if (panelOrigin.isEmpty) {
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.cancel,
+                error: const ApiException(
+                  'Панель не подключена. Импортируйте подписку или введите код приглашения.',
+                ),
+              ),
+              true,
+            );
+            return;
+          }
           if (options.extra['skipAuth'] != true) {
             final access = await _tokens.readAccess();
             if (access != null && access.isNotEmpty) {

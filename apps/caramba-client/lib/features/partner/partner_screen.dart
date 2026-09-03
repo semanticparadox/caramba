@@ -9,6 +9,7 @@ import 'package:caramba_client/data/models/sub_plan.dart';
 import 'package:caramba_client/features/profile/panel_required.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/account_state.dart';
+import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
@@ -381,7 +382,13 @@ class _PartnerCodeCard extends ConsumerWidget {
             icon: Lucide.copy,
             minHeight: 42,
             onPressed: () {
-              Clipboard.setData(ClipboardData(text: code.referralLink));
+              Clipboard.setData(
+                ClipboardData(
+                  text: code.referralLinkFor(
+                    ref.read(apiClientProvider).panelOrigin,
+                  ),
+                ),
+              );
               showCarambaToast(context, 'Ссылка скопирована');
             },
           ),

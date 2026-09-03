@@ -4,9 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/brand.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/auth_state.dart';
+import 'package:caramba_client/state/branding_state.dart';
+import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/settings_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
@@ -30,6 +33,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   /// Username бота без @. Переопределяется через
   /// `--dart-define=CARAMBA_BOT_USERNAME=...` под конкретный деплой.
+  /// Username бота ТЕКУЩЕЙ панели. Дефолт пуст: у публичной сборки бота нет,
+  /// он появляется вместе с подключённой панелью. Брендированная сборка
+  /// оператора может задать его через dart-define.
   static const _botUsername = String.fromEnvironment(
     'CARAMBA_BOT_USERNAME',
     defaultValue: 'exa_robot',
@@ -100,9 +106,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   /// Открывает бота в Telegram: сперва нативное приложение (`tg://`),
   /// иначе web-fallback (`https://t.me/...`). `start=login` подсказывает боту
   /// сразу выдать код для входа.
+  /// Ссылка на бота панели: сначала то, что отдала сама панель в брендинге,
+  /// затем dart-define брендированной сборки. Ничего нет - раздела нет.
+  String get _botLink {
+    final fromPanel = ref.read(activeBrandingProvider).botUrl.trim();
+    if (fromPanel.isNotEmpty) return fromPanel;
+    return _botUsername.isEmpty ? '' : 'https://t.me/$_botUsername';
+  }
+
   Future<void> _openBot() async {
-    final tgApp = Uri.parse('tg://resolve?domain=$_botUsername&start=login');
-    final web = Uri.parse('https://t.me/$_botUsername?start=login');
+    final link = _botLink;
+    if (link.isEmpty) return;
+    final handle = link.split('/').last.split('?').first;
+    final tgApp = Uri.parse('tg://resolve?domain=$handle&start=login');
+    final web = Uri.parse('$link?start=login');
     try {
       if (await canLaunchUrl(tgApp)) {
         await launchUrl(tgApp);
@@ -135,6 +152,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final busy = auth.isBusy;
     final error = _localError ?? auth.error;
 
+    // Панель подключена только если её выбрал пользователь. Публичная сборка
+    // ни к какому оператору не привязана, поэтому вход по коду из бота и сам
+    // бот появляются лишь вместе с панелью.
+    final profile = ref.watch(activeConnectionProfileProvider);
+    final panelUrl = (profile?.panelUrl ?? '').trim();
+    final hasPanel = panelUrl.isNotEmpty || kApiBaseUrl.trim().isNotEmpty;
+    final botLink = _botLink;
+    final panelName = (profile?.displayName ?? '').trim();
+
     return Scaffold(
       backgroundColor: c.bgCanvas,
       body: SafeArea(
@@ -155,23 +181,68 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   style: AppType.titleMd.copyWith(color: c.textHi),
                 ),
                 const SizedBox(height: AppSpace.s6),
-                Text('Вход', style: AppType.headline.copyWith(color: c.textHi)),
+                Text(
+                  hasPanel ? 'Вход' : 'Подключение',
+                  style: AppType.headline.copyWith(color: c.textHi),
+                ),
                 const SizedBox(height: AppSpace.s3),
                 Text(
-                  'Откройте бота @$_botUsername в Telegram и запросите код для входа.',
+                  hasPanel
+                      ? 'Подписка или вход в панель${panelName.isEmpty ? '' : ' $panelName'}.'
+                      : 'Вставьте ссылку на подписку или подключите панель по '
+                            'приглашению. Аккаунт для подписки не нужен.',
                   style: AppType.bodyMd.copyWith(color: c.textMed),
-                ),
-                const SizedBox(height: AppSpace.s5),
-                GhostButton(
-                  label: 'Открыть бота',
-                  icon: Lucide.send,
-                  onPressed: busy ? null : _openBot,
                 ),
                 const SizedBox(height: AppSpace.s6),
                 const SectionTitle(
-                  'Код из бота',
+                  'Подписка',
                   padding: EdgeInsets.only(bottom: AppSpace.s3),
                 ),
+                Text(
+                  'Ссылка подписки, конфиг sing-box или clash, QR или файл.',
+                  style: AppType.bodySm.copyWith(color: c.textMed),
+                ),
+                const SizedBox(height: AppSpace.s3),
+                FilledButton.icon(
+                  onPressed: busy ? null : _startGuestImport,
+                  icon: LucideIcon(Lucide.globe, size: 18, color: c.textOnAccent),
+                  label: const Text('Добавить подписку'),
+                ),
+                const SizedBox(height: AppSpace.s6),
+                const SectionTitle(
+                  'Панель Caramba',
+                  padding: EdgeInsets.only(bottom: AppSpace.s3),
+                ),
+                Text(
+                  'Оператор дал код приглашения или ссылку? Подключите панель, '
+                  'и серверы, тариф и настройки будут управляться из приложения.',
+                  style: AppType.bodySm.copyWith(color: c.textMed),
+                ),
+                const SizedBox(height: AppSpace.s3),
+                GhostButton(
+                  label: 'Подключить по коду',
+                  icon: Lucide.userPlus,
+                  onPressed: busy ? null : () => context.go(AppRoute.enroll),
+                ),
+                if (hasPanel) ...[
+                  const SizedBox(height: AppSpace.s6),
+                  if (botLink.isNotEmpty) ...[
+                    Text(
+                      'Код для входа выдаёт бот панели.',
+                      style: AppType.bodySm.copyWith(color: c.textMed),
+                    ),
+                    const SizedBox(height: AppSpace.s3),
+                    GhostButton(
+                      label: 'Открыть бота',
+                      icon: Lucide.send,
+                      onPressed: busy ? null : _openBot,
+                    ),
+                    const SizedBox(height: AppSpace.s5),
+                  ],
+                  const SectionTitle(
+                    'Код из бота',
+                    padding: EdgeInsets.only(bottom: AppSpace.s3),
+                  ),
                 Row(
                   children: [
                     for (var i = 0; i < _len; i++) ...[
@@ -212,42 +283,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         )
                       : const Text('Войти'),
                 ),
-                const SizedBox(height: AppSpace.s4),
-                Text(
-                  'Код действует 5 минут и подходит один раз.',
-                  style: AppType.bodySm.copyWith(color: c.textMed),
-                ),
-                const SizedBox(height: AppSpace.s6),
-                const SectionTitle(
-                  'Есть инвайт-код',
-                  padding: EdgeInsets.only(bottom: AppSpace.s3),
-                ),
-                Text(
-                  'Подключаетесь к другой панели по приглашению? Введите инвайт-код.',
-                  style: AppType.bodySm.copyWith(color: c.textMed),
-                ),
-                const SizedBox(height: AppSpace.s3),
-                GhostButton(
-                  label: 'Энроллмент по коду',
-                  icon: Lucide.userPlus,
-                  onPressed: busy ? null : () => context.go(AppRoute.enroll),
-                ),
-                const SizedBox(height: AppSpace.s6),
-                const SectionTitle(
-                  'Своя подписка',
-                  padding: EdgeInsets.only(bottom: AppSpace.s3),
-                ),
-                Text(
-                  'Аккаунт не нужен: вставьте ссылку на подписку или конфиг, и '
-                  'приложение подключится по ней.',
-                  style: AppType.bodySm.copyWith(color: c.textMed),
-                ),
-                const SizedBox(height: AppSpace.s3),
-                GhostButton(
-                  label: 'Импортировать подписку',
-                  icon: Lucide.globe,
-                  onPressed: busy ? null : _startGuestImport,
-                ),
+                  const SizedBox(height: AppSpace.s4),
+                  Text(
+                    'Код действует 5 минут и подходит один раз.',
+                    style: AppType.bodySm.copyWith(color: c.textMed),
+                  ),
+                ],
               ],
             ),
           ),

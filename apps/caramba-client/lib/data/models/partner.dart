@@ -50,7 +50,13 @@ class PartnerCode {
   }
 
   /// Реферальная ссылка кода (короткий путь панели `/r/CODE`).
-  String get referralLink => 'https://exarobot.top/r/$code';
+  /// Реферальная ссылка. Хост даёт панель: у каждой свой, и зашивать один
+  /// нельзя. [panelOrigin] пуст (панель не подключена) - отдаём сам код.
+  String referralLinkFor(String panelOrigin) {
+    final origin = panelOrigin.trim();
+    if (origin.isEmpty) return code;
+    return '${origin.endsWith('/') ? origin.substring(0, origin.length - 1) : origin}/r/$code';
+  }
 
   /// Всего начислено в денежных единицах строкой без хвостовых нулей.
   String get balanceEarnedLabel => ReferralInfo.formatMinor(balanceEarnedCents);

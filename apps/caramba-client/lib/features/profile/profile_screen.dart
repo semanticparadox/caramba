@@ -12,6 +12,7 @@ import 'package:caramba_client/features/notifications/notifications_screen.dart'
 import 'package:caramba_client/features/profile/panel_required.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/account_state.dart';
+import 'package:caramba_client/state/branding_state.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/theme/spacing.dart';
@@ -149,7 +150,10 @@ class ProfileScreen extends ConsumerWidget {
                 label: 'Купить или продлить',
                 icon: Lucide.creditCard,
                 onPressed: () =>
-                    openExternal(context, 'https://t.me/exa_robot?start=plans'),
+                    openExternal(
+                      context,
+                      _plansLink(ref) ,
+                    ),
               ),
 
               // ---- Устройства
@@ -534,15 +538,25 @@ class _FamilySheet extends ConsumerWidget {
       final invite = await ref
           .read(apiClientProvider)
           .inviteFamily(subscriptionId: sub.id);
-      unawaited(Clipboard.setData(ClipboardData(text: invite.inviteLink)));
+      final link = invite.inviteLinkFor(ref.read(activeBrandingProvider).botUrl);
+      unawaited(Clipboard.setData(ClipboardData(text: link)));
       ref.invalidate(familyProvider(sub.id));
       if (context.mounted) {
         Navigator.of(context).pop();
         showCarambaToast(context, 'Ссылка-приглашение скопирована');
-        await openExternal(context, invite.inviteLink);
+        if (link.startsWith('http')) await openExternal(context, link);
       }
     } on ApiException catch (e) {
       if (context.mounted) showCarambaToast(context, e.message);
     }
   }
+}
+
+/// Ссылка «тарифы»: её даёт подключённая панель в брендинге. Хардкод бота
+/// одного оператора здесь недопустим: приложение не принадлежит ни одному.
+String _plansLink(WidgetRef ref) {
+  final bot = ref.read(activeBrandingProvider).botUrl.trim();
+  if (bot.isNotEmpty) return '$bot?start=plans';
+  final support = ref.read(activeBrandingProvider).supportUrl.trim();
+  return support;
 }
