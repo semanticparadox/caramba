@@ -211,9 +211,19 @@ void main() {
     expect(find.text('2,0 МБ/с'), findsOneWidget);
     expect(find.text('64 КБ/с'), findsOneWidget);
 
+    // Relay остаётся ВИДИМЫМ и выключенным с причиной. Раньше строки тут не
+    // было вовсе, и это ровно тот отказ, ради которого правило написано:
+    // спрятанный переключатель неотличим от «такой настройки не бывает», и
+    // пользователь ищет её в обновлении приложения, которого не существует.
+    expect(find.text('Relay (вход)'), findsOneWidget);
+    expect(find.text('Недоступно'), findsOneWidget);
+    expect(
+      find.textContaining('цепочка строится только на конфиге панели'),
+      findsOneWidget,
+    );
+
     // Панельного здесь нет ничего.
     expect(find.byType(NotificationBell), findsNothing);
-    expect(find.text('Relay (вход)'), findsNothing);
     expect(find.text('Трафик'), findsNothing);
     expect(find.text('Free'), findsNothing);
     expect(find.text('Задержка'), findsNothing);

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:caramba_client/data/connection_profiles_store.dart';
 import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/csm_profile.dart';
+import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/vpn/vpn_models.dart';
 
 /// Состояние мульти-профиля подключения (план §4.4).
@@ -234,6 +235,14 @@ class ConnectionProfilesNotifier
   /// Записывает результат `importSubscription`: тело подписки, формат и кэш
   /// узлов. Пин узла сбрасывается, если его больше нет в новом списке (после
   /// «Обновить подписку» состав узлов мог поменяться).
+  ///
+  /// Вместе с пином проверяется и СТРАНА. Пережить обновление она имеет право
+  /// ровно до тех пор, пока в новом составе есть хоть один её узел: страна без
+  /// узлов не разрешается ни `rawProxyNameForCountry`, ни автоподбором, и
+  /// `connectRaw` уходит с пустым именем прокси — то есть в любой узел, какой
+  /// выберет ядро. Оставленная в профиле, такая страна остаётся галочкой
+  /// «Германия» над канадским выходом; это то же расхождение, что и уцелевший
+  /// пин, только с другим триггером, поэтому и снимается здесь же.
   Future<void> setImported(
     String id, {
     required String rawConfig,
@@ -244,12 +253,17 @@ class ConnectionProfilesNotifier
     final keepPin =
         p.selectedServerId != null &&
         servers.any((s) => s.id == p.selectedServerId);
+    final country = normalizeCountryCode(p.selectedExitCountry);
+    final keepCountry =
+        country.isEmpty ||
+        servers.any((s) => normalizeCountryCode(s.country) == country);
     return p.copyWith(
       rawConfig: rawConfig,
       format: format,
       servers: servers,
       serversUpdatedMs: (at ?? DateTime.now()).millisecondsSinceEpoch,
       clearSelectedServer: !keepPin,
+      clearExitCountry: !keepCountry,
     );
   });
 
@@ -260,6 +274,40 @@ class ConnectionProfilesNotifier
       selectedServerId: serverId,
       clearSelectedServer: serverId == null,
     ),
+  );
+
+  /// Закрепляет страну выхода на профиле. `null` — «авто».
+  ///
+  /// Пины, противоречащие новой стране, снимаются здесь же: профиль, у которого
+  /// страна DE, а закреплённый узел канадский, разрешался бы по-разному в
+  /// зависимости от того, кто прочитал его первым. Пин узла подписки снимается
+  /// по известной стране узла, панельный — безусловно: списка узлов панели у
+  /// профиля нет, и устаревший `nodes.id` хуже, чем честный автоподбор.
+  Future<void> setSelectedExitCountry(String id, String? countryCode) {
+    final code = (countryCode ?? '').trim().toUpperCase();
+    final country = code.length == 2 ? code : null;
+    return _update(id, (p) {
+      final pinned = p.selectedServerId;
+      final keepRawPin =
+          pinned != null &&
+          (country == null ||
+              p.servers.any(
+                (s) => s.id == pinned && s.country.toUpperCase() == country,
+              ));
+      return p.copyWith(
+        selectedExitCountry: country,
+        clearExitCountry: country == null,
+        clearExitNode: true,
+        clearSelectedServer: !keepRawPin,
+      );
+    });
+  }
+
+  /// Закрепляет узел панели (`nodes.id`). `null` — автоподбор приложением.
+  Future<void> setSelectedExitNode(String id, int? nodeId) => _update(
+    id,
+    (p) =>
+        p.copyWith(selectedExitNodeId: nodeId, clearExitNode: nodeId == null),
   );
 
   /// Сохраняет результат замера задержек (`probe`).

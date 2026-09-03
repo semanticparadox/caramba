@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:caramba_client/data/models/auth_tokens.dart';
 import 'package:caramba_client/data/models/branding.dart';
 import 'package:caramba_client/data/models/enrollment.dart';
+import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/notification.dart';
 import 'package:caramba_client/data/models/partner.dart';
 import 'package:caramba_client/data/models/relay.dart';
@@ -42,6 +43,16 @@ class ApiException implements Exception {
 
   @override
   String toString() => 'ApiException($statusCode): $message';
+}
+
+/// Вызов не имеет смысла в текущем режиме приложения.
+///
+/// Отдельный тип, а не обычная ошибка: «панель не подключена» — это не сбой,
+/// который лечится повтором, а отсутствующая возможность. UI обязан показать
+/// названную причину и оставить контрол видимым, а не предлагать «попробуйте
+/// ещё раз» на действие, которого в этом режиме не существует.
+class ApiNotAvailableException extends ApiException {
+  const ApiNotAvailableException(super.message);
 }
 
 /// HTTP-клиент к панели (`/api/v2/app/*`).
@@ -412,6 +423,44 @@ class ApiClient {
   Future<List<Relay>> getRelays() async {
     final res = await _dio.get<dynamic>('/relays');
     return _list(res, Relay.fromApiJson, 'relays');
+  }
+
+  /// PUT /subscriptions/{id}/selection — закрепляет выход и вход подписки.
+  ///
+  /// Тело: `{"node_id": ..., "relay_country": ...}`, где каждое поле имеет три
+  /// состояния (см. [SelectionField]): ключ отсутствует — не менять, `null` —
+  /// сбросить в дефолт, значение — установить. Ответ несёт то, что применилось
+  /// ФАКТИЧЕСКИ (`{node_id, relay_country}`): запрошенный узел мог не подойти
+  /// плану, и локальное состояние подстраивается под ответ, а не под запрос.
+  ///
+  /// Панели нет — [ApiNotAvailableException] вместо сетевой ошибки: в режиме
+  /// импортированной подписки закреплять выбор негде, и это состояние, а не
+  /// сбой.
+  Future<ExitSelection> putSubscriptionSelection({
+    required int subscriptionId,
+    SelectionField<int> nodeId = const SelectionField<int>.unchanged(),
+    SelectionField<String> relayCountry =
+        const SelectionField<String>.unchanged(),
+  }) async {
+    if (!hasPanel) {
+      throw const ApiNotAvailableException(
+        'Выбор страны закрепляется только на панели. В режиме импортированной '
+        'подписки он применяется локально.',
+      );
+    }
+    if (!nodeId.present && !relayCountry.present) {
+      // Оба поля «не трогать» — тело было бы пустым: запрос не отправляем,
+      // потому что менять нечего, и отвечаем «панель ничего не закрепила».
+      return ExitSelection.none;
+    }
+    final res = await _dio.put<dynamic>(
+      '/subscriptions/$subscriptionId/selection',
+      data: <String, dynamic>{
+        if (nodeId.present) 'node_id': nodeId.value,
+        if (relayCountry.present) 'relay_country': relayCountry.value,
+      },
+    );
+    return ExitSelection.fromJson(_okMap(res));
   }
 
   /// GET /traffic — подневная история трафика (~30 дней) для графика.

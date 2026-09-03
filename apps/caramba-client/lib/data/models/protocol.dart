@@ -1,8 +1,15 @@
 import 'package:caramba_client/widgets/lucide.dart';
 
 /// Транспортный протокол маскировки. `id` совпадает со строкой `Policy.Protocol`
-/// в caramba-core (`AmneziaWG` / `VLESS-Reality` / `Hysteria2` / `TUIC` /
-/// `Shadowsocks`), пустая строка = «Авто» (ядро само выбирает url-test).
+/// в caramba-core (`AmneziaWG` / `VLESS-Reality` / `VLESS` / `Hysteria2` /
+/// `TUIC` / `Shadowsocks`), пустая строка = «Авто» (ядро само выбирает
+/// url-test).
+///
+/// Список НЕ описывает флот: он описывает то, что ядро умеет ПОПРОСИТЬ. Какие
+/// из этих протоколов действительно раздаёт текущий источник, считает
+/// `protocol_inventory_state.dart` по живому инвентарю — иначе экран обещает
+/// протокол, которого нет ни на одном узле, и попытка его применить деградирует
+/// молча.
 class ProtocolOption {
   final String id; // '' = авто
   final String name;
@@ -11,6 +18,22 @@ class ProtocolOption {
   final bool recommended;
   final bool auto;
 
+  /// Типы outbound'а, которыми этот протокол приходит от источника (`type` у
+  /// элемента `proxies` в clash/mihomo, `proto_name` в каталоге CSM).
+  ///
+  /// Зеркалит `protocolClashType` из libs/caramba-core/profile/profile.go и
+  /// нужен ровно для одного: сопоставить строку опции с тем, что перечислил
+  /// источник. Пустой список у «Авто» — сопоставлять нечего, оно доступно
+  /// всегда.
+  final List<String> outboundTypes;
+
+  /// Уточнение формы, без которого опция это не она: у `VLESS-Reality` это
+  /// `reality`. Проверяется ТОЛЬКО когда источник вообще сообщает уточнения
+  /// (каталог CSM отдаёт `security`/`network`, подписка — один голый тип), —
+  /// иначе Reality молча объявлялся бы недоступным на каждой подписке, которая
+  /// просто не рассказывает про TLS.
+  final String? shape;
+
   const ProtocolOption({
     required this.id,
     required this.name,
@@ -18,6 +41,8 @@ class ProtocolOption {
     required this.icon,
     this.recommended = false,
     this.auto = false,
+    this.outboundTypes = const <String>[],
+    this.shape,
   });
 
   static const defaults = <ProtocolOption>[
@@ -34,30 +59,48 @@ class ProtocolOption {
       desc: 'Маскировка под обычный трафик. Лучший обход DPI в России.',
       icon: Lucide.lock,
       recommended: true,
+      outboundTypes: <String>['wireguard'],
     ),
     ProtocolOption(
       id: 'VLESS-Reality',
       name: 'VLESS · Reality',
       desc: 'Невидим для DPI, маскируется под настоящие сайты по TLS.',
       icon: Lucide.shield,
+      outboundTypes: <String>['vless'],
+      shape: 'reality',
     ),
     ProtocolOption(
       id: 'Hysteria2',
       name: 'Hysteria2',
       desc: 'Высокая скорость на нестабильных и мобильных сетях.',
       icon: Lucide.zap,
+      outboundTypes: <String>['hysteria2'],
     ),
     ProtocolOption(
       id: 'TUIC',
       name: 'TUIC',
       desc: 'Быстрый UDP с низкой задержкой.',
       icon: Lucide.route,
+      outboundTypes: <String>['tuic'],
     ),
     ProtocolOption(
       id: 'Shadowsocks',
       name: 'Shadowsocks',
       desc: 'Простой и стабильный протокол.',
       icon: Lucide.globe,
+      outboundTypes: <String>['ss', 'shadowsocks'],
+    ),
+    // VLESS без Reality дописан В КОНЕЦ намеренно: `CoreConfig.protocol` это
+    // сохранённый ИНДЕКС в этом списке, и вставка в середину переставила бы
+    // чужой сохранённый выбор на соседний протокол. Строка `VLESS` уже есть и
+    // в `protocolClashType` ядра, и в закрытом словаре CSM
+    // (kCsmProtocolVocabulary), так что выбор доезжает до обоих концов.
+    ProtocolOption(
+      id: 'VLESS',
+      name: 'VLESS',
+      desc: 'VLESS поверх TLS: ws, grpc, tcp или httpupgrade, без Reality.',
+      icon: Lucide.shield,
+      outboundTypes: <String>['vless'],
     ),
   ];
 }

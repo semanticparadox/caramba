@@ -84,6 +84,20 @@ class ConnectionProfile {
   /// Когда список [servers] последний раз обновлялся (мс эпохи); 0 — никогда.
   final int serversUpdatedMs;
 
+  /// Выбранная страна выхода (ISO-2, верхний регистр). `null` — авто.
+  ///
+  /// Пин узла ([selectedServerId]) переживал перезапуск и раньше, а выбор в
+  /// панельном режиме жил только в памяти: один и тот же контрол вёл себя
+  /// по-разному в зависимости от режима. Страна хранится ЗДЕСЬ, на профиле,
+  /// потому что она свойство подключения, а не приложения: два профиля с
+  /// разными операторами имеют разные списки стран.
+  final String? selectedExitCountry;
+
+  /// Пин конкретного узла панели (`nodes.id`). `null` — выбирает приложение.
+  /// Импортированная подписка пинится через [selectedServerId] (там ключ —
+  /// имя прокси, числа не существует).
+  final int? selectedExitNodeId;
+
   /// Кэш брендинга (произвольный JSON). В P1 только хранится, тему не ведёт.
   final Map<String, dynamic>? brandingCache;
 
@@ -114,6 +128,8 @@ class ConnectionProfile {
     this.selectedServerId,
     this.lastProbe,
     this.serversUpdatedMs = 0,
+    this.selectedExitCountry,
+    this.selectedExitNodeId,
     this.brandingCache,
     this.lastActiveMs = 0,
     this.csm,
@@ -150,6 +166,10 @@ class ConnectionProfile {
         selectedServerId: _nullIfEmpty(json['selected_server_id']),
         lastProbe: ProbeSnapshot.fromJson(json['last_probe']),
         serversUpdatedMs: _decodeMs(json['servers_updated_ms']),
+        // Записи до выбора страны этих ключей не несут: мягкий разбор, как и
+        // у format выше, иначе старый профиль перестал бы читаться целиком.
+        selectedExitCountry: _decodeCountry(json['selected_exit_country']),
+        selectedExitNodeId: _decodeNodeId(json['selected_exit_node_id']),
         brandingCache: _decodeBranding(json['branding_cache']),
         lastActiveMs: (json['last_active_ms'] as num?)?.toInt() ?? 0,
         // Запись, сделанная до CSM, не несёт этого ключа: читаем мягко, ровно
@@ -171,6 +191,8 @@ class ConnectionProfile {
     'selected_server_id': selectedServerId,
     'last_probe': lastProbe?.toJson(),
     'servers_updated_ms': serversUpdatedMs,
+    'selected_exit_country': selectedExitCountry,
+    'selected_exit_node_id': selectedExitNodeId,
     'branding_cache': brandingCache,
     'last_active_ms': lastActiveMs,
     'csm': csm?.toJson(),
@@ -190,10 +212,14 @@ class ConnectionProfile {
     String? selectedServerId,
     ProbeSnapshot? lastProbe,
     int? serversUpdatedMs,
+    String? selectedExitCountry,
+    int? selectedExitNodeId,
     Map<String, dynamic>? brandingCache,
     int? lastActiveMs,
     CsmProfileState? csm,
     bool clearSelectedServer = false,
+    bool clearExitCountry = false,
+    bool clearExitNode = false,
     bool clearCsm = false,
   }) => ConnectionProfile(
     id: id ?? this.id,
@@ -211,6 +237,14 @@ class ConnectionProfile {
         : (selectedServerId ?? this.selectedServerId),
     lastProbe: lastProbe ?? this.lastProbe,
     serversUpdatedMs: serversUpdatedMs ?? this.serversUpdatedMs,
+    // «Авто» — это осознанный сброс, а не отсутствие аргумента, поэтому у
+    // страны и узла свои явные флаги очистки (как у clearSelectedServer).
+    selectedExitCountry: clearExitCountry
+        ? null
+        : (selectedExitCountry ?? this.selectedExitCountry),
+    selectedExitNodeId: clearExitNode
+        ? null
+        : (selectedExitNodeId ?? this.selectedExitNodeId),
     brandingCache: brandingCache ?? this.brandingCache,
     lastActiveMs: lastActiveMs ?? this.lastActiveMs,
     // csm не снимается обычной мутацией: липкое правило INV-13 требует, чтобы
@@ -228,6 +262,17 @@ class ConnectionProfile {
 
   /// Отметка времени: не-число (запись чужой версии) читается как «неизвестно».
   static int _decodeMs(Object? v) => v is num ? v.toInt() : 0;
+
+  /// Страна выхода: приводим к ISO-2 верхнего регистра. Всё, что не похоже на
+  /// код страны (пустая строка, число, «auto»), читается как «авто».
+  static String? _decodeCountry(Object? v) {
+    if (v is! String) return null;
+    final code = v.trim().toUpperCase();
+    return code.length == 2 ? code : null;
+  }
+
+  /// Пин узла панели: не-число читается как «пина нет».
+  static int? _decodeNodeId(Object? v) => v is num ? v.toInt() : null;
 
   static String? _nullIfEmpty(Object? v) {
     if (v is String && v.isNotEmpty) return v;

@@ -19,6 +19,7 @@ import 'package:caramba_client/features/partner/partner_screen.dart';
 import 'package:caramba_client/features/profile/profile_screen.dart';
 import 'package:caramba_client/features/protocol/protocol_screen.dart';
 import 'package:caramba_client/features/referrals/referrals_screen.dart';
+import 'package:caramba_client/features/servers/relay_screen.dart';
 import 'package:caramba_client/features/servers/servers_screen.dart';
 import 'package:caramba_client/features/settings/settings_screen.dart';
 import 'package:caramba_client/features/splash/splash_screen.dart';
@@ -187,6 +188,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoute.splitTunnel,
         parentNavigatorKey: _rootKey,
         builder: (context, state) => const SplitTunnelScreen(),
+      ),
+      GoRoute(
+        path: AppRoute.relay,
+        parentNavigatorKey: _rootKey,
+        builder: (context, state) => const RelayScreen(),
       ),
       // Профили подключения (мульти-профиль) + импорт, поверх шелла.
       GoRoute(

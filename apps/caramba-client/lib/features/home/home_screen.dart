@@ -21,6 +21,7 @@ import 'package:caramba_client/state/account_state.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
+import 'package:caramba_client/state/exit_inventory_state.dart';
 import 'package:caramba_client/state/servers_state.dart';
 import 'package:caramba_client/state/settings_state.dart';
 import 'package:caramba_client/state/subscription_state.dart';
@@ -381,19 +382,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     required List<ProtocolOption> protocols,
     required List<RoutingMode> modes,
   }) {
+    // Строка сервера говорит СТРАНОЙ: узел под ней меняется автоподбором, а
+    // выбирает пользователь именно страну. Имя узла остаётся рядом вторичным —
+    // без него не видно, куда автоподбор в итоге встал.
+    //
+    // Страну называет [exitHeadlineProvider], а не пин профиля: закреплённая
+    // страна без свободных узлов connect не останавливает, и заголовок обязан
+    // назвать ту страну, через которую трафик выходит, а не ту, которую
+    // пользователь когда-то выбрал.
+    final headline = ref.watch(exitHeadlineProvider);
+    final country = headline.title;
     return [
       RowsGroup(
         children: [
           CRow(
             icon: Lucide.globe,
             label: 'Сервер',
-            value: server == null ? 'Авто' : server.name,
+            value: country,
             chevron: true,
-            trailing: server?.countryCode == null
+            trailing: server == null
                 ? null
                 : Padding(
                     padding: const EdgeInsets.only(right: AppSpace.s2),
-                    child: CodeChip(server!.countryCode!),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 132),
+                      child: Text(
+                        server.name,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.right,
+                        style: AppType.bodySm.copyWith(
+                          color: context.c.textLow,
+                        ),
+                      ),
+                    ),
                   ),
             onTap: () => context.go(AppRoute.servers),
           ),
@@ -402,7 +423,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             label: 'Relay (вход)',
             value: relays[relayIdx].name,
             chevron: true,
-            onTap: () => _pickRelay(),
+            onTap: () => context.go(AppRoute.relay),
           ),
           CRow(
             icon: protocols[cfg.protocol].icon,
@@ -420,6 +441,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
+      if (headline.diverged) ...[
+        const SizedBox(height: AppSpace.s3),
+        // Подмену выбора нельзя проводить молча: заголовок уже говорит правду о
+        // стране, но без этой строки правда выглядела бы как «настройка сама
+        // сбросилась». Причина названа тут же, рядом со строкой «Сервер».
+        InlineBanner(glyph: Lucide.globe, text: headline.divergenceMessage),
+      ],
       const SizedBox(height: AppSpace.s4),
       ValueListenableBuilder<int>(
         valueListenable: _tick,
@@ -485,6 +513,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final serverValue = (connected && proxy != null && proxy.isNotEmpty)
         ? (proxy == base ? base : '$base · $proxy')
         : base;
+    // Цепочка через вход на сыром конфиге не собирается. Строку всё равно
+    // показываем: спрятанная, она неотличима от «такой настройки не бывает», и
+    // пользователь ищет её в обновлении приложения. Причина берётся из ядра
+    // (запись `relay_chaining` в `Capabilities`), а не сочиняется здесь.
+    final relay = ref.watch(relayAvailabilityProvider);
 
     return [
       RowsGroup(
@@ -511,6 +544,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             chevron: true,
             onTap: () => context.go(AppRoute.servers),
           ),
+          Opacity(
+            opacity: relay.isAvailable ? 1 : 0.45,
+            child: CRow(
+              icon: Lucide.waypoints,
+              label: 'Relay (вход)',
+              // Имя входа берём из [Relay.defaults], а не из [relaysProvider]:
+              // тот тянет список у панели, а эта ветка в панель не ходит.
+              value: relay.isAvailable
+                  ? Relay
+                        .defaults[cfg.relay.clamp(0, Relay.defaults.length - 1)]
+                        .name
+                  : 'Недоступно',
+              chevron: relay.isAvailable,
+              onTap: relay.isAvailable
+                  ? () => context.go(AppRoute.relay)
+                  : null,
+            ),
+          ),
           CRow(
             icon: protocols[cfg.protocol].icon,
             label: 'Протокол',
@@ -527,6 +578,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
+      if (!relay.isAvailable) ...[
+        const SizedBox(height: AppSpace.s3),
+        // Выключенная строка обязана быть названа причиной, а места под
+        // подпись у CRow нет: причина едет отдельной строкой под группой.
+        InlineBanner(glyph: Lucide.waypoints, text: relay.message),
+      ],
       const SizedBox(height: AppSpace.s4),
       ValueListenableBuilder<int>(
         valueListenable: _tick,
@@ -602,26 +659,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (s.id == id) return s.name.isEmpty ? s.id : s.name;
     }
     return id;
-  }
-
-  Future<void> _pickRelay() async {
-    final relays = ref.read(relaysProvider);
-    final cfg = ref.read(coreConfigProvider);
-    final sel = relays.isEmpty ? 0 : cfg.relay.clamp(0, relays.length - 1);
-    final i = await showPickerSheet(
-      context: context,
-      title: 'Relay (вход)',
-      subtitle:
-          'Через какую страну идёт вход в цепочку. Удобно в России: вход через устойчивую страну, выход где нужно.',
-      options: relays
-          .map((r) => (name: r.name, desc: r.desc, icon: null as String?))
-          .toList(),
-      selected: sel,
-    );
-    if (i != null && mounted) {
-      CsmSettingsBridge.setRelay(ref, i, relays);
-      showCarambaToast(context, 'Relay: ${relays[i].name}');
-    }
   }
 
   Future<void> _pickRoute() async {

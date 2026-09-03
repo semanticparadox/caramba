@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/data/models/connection_profile.dart';
+import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/server.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
@@ -77,7 +78,7 @@ class VpnNotifier extends StateNotifier<VpnStatus> {
         raw: raw,
         format: profile.format,
         label: profile.displayName,
-        serverId: profile.selectedServerId,
+        serverId: _rawServerId(profile),
       );
       return true;
     }
@@ -93,6 +94,21 @@ class VpnNotifier extends StateNotifier<VpnStatus> {
     await _applyCorePreferences();
     await _conn.connect(target);
     return true;
+  }
+
+  /// Имя прокси для сырого подключения: явный пин, а если его нет — узел
+  /// закреплённой страны.
+  ///
+  /// Страна ядру на этом пути не передаётся вовсе: `connectRaw` знает одну
+  /// строку — имя прокси, и пустая значит «любой узел». Пин обычно уже
+  /// конкретный (его ставит выбор страны), но пережить он может не всё:
+  /// «Обновить подписку» снимает пин, узла которого в новом составе нет, а
+  /// закреплённая страна остаётся. Без этого запасного разрешения такой профиль
+  /// показывал бы «Германия» с галочкой, выпуская трафик через любой узел.
+  static String? _rawServerId(ConnectionProfile p) {
+    final pin = p.selectedServerId;
+    if (pin != null && pin.isNotEmpty) return pin;
+    return rawProxyNameForCountry(p.servers, p.selectedExitCountry);
   }
 
   /// Отдаёт ядру политику и режим захвата трафика. Ошибку setPolicy не считаем
@@ -133,6 +149,69 @@ final vpnProvider = StateNotifierProvider<VpnNotifier, VpnStatus>((ref) {
     () => ref.read(activeConnectionProfileProvider),
     () => ref.read(corePolicyProvider),
     () => ref.read(tunnelModeProvider),
+  );
+});
+
+/// Что Home обязана сказать про выход: страна, через которую трафик выходит НА
+/// САМОМ ДЕЛЕ, и — отдельно — закреплённая страна, мимо которой он уходит.
+///
+/// Заголовок строки «Сервер» читается как утверждение о выходе, а не как
+/// напоминание о настройке, поэтому источником для него не может быть пин.
+/// Живых узлов в закреплённой стране может не быть (на боевом флоте в DE узел
+/// один, и одного переполнения хватает), автоподбор тогда уходит в другую
+/// страну — и пин, оставшийся заголовком, называл бы канадский выход
+/// «Германией».
+class ExitHeadline {
+  /// ISO-2 страны узла, через который идёт (или пойдёт) трафик. Пусто — узла
+  /// нет или страну по нему не определить: заголовок тогда «Авто».
+  final String countryCode;
+
+  /// Закреплённая страна, мимо которой уходит трафик; `null` — расхождения нет.
+  final String? unavailableCountry;
+
+  const ExitHeadline({this.countryCode = '', this.unavailableCountry});
+
+  /// Заголовок строки «Сервер».
+  String get title => countryCode.isEmpty ? 'Авто' : countryNameOf(countryCode);
+
+  /// Автоподбор увёл трафик из закреплённой страны.
+  bool get diverged => unavailableCountry != null;
+
+  /// Готовая причина для баннера. Пусто — расхождения нет, и говорить нечего.
+  String get divergenceMessage => unavailableCountry == null
+      ? ''
+      : 'В стране «${countryNameOf(unavailableCountry)}» сейчас нет свободных '
+            'узлов. Подключение идёт через $title.';
+
+  @override
+  bool operator ==(Object other) =>
+      other is ExitHeadline &&
+      other.countryCode == countryCode &&
+      other.unavailableCountry == unavailableCountry;
+
+  @override
+  int get hashCode => Object.hash(countryCode, unavailableCountry);
+}
+
+/// Разрешённый заголовок выхода.
+///
+/// Узел берётся тот, что держит ЯДРО, и лишь вне сессии — тот, к которому
+/// пойдёт connect: во время сессии правда о выходе принадлежит ядру, и
+/// пересчёт рекомендации (узел ушёл из выдачи, пришли новые пинги) не имеет
+/// права переименовать страну живого туннеля.
+final exitHeadlineProvider = Provider<ExitHeadline>((ref) {
+  final live = ref.watch(vpnProvider.select((s) => s.server));
+  final server = live ?? ref.watch(recommendedServerProvider);
+  final node = normalizeCountryCode(server?.countryCode);
+  final pinned = normalizeCountryCode(
+    ref.watch(activeConnectionProfileProvider)?.selectedExitCountry,
+  );
+  // Узла нет вовсе (список ещё не приехал, подписка пуста) — трафик никуда не
+  // идёт, и закреплённая страна остаётся честным заголовком намерения.
+  if (node.isEmpty) return ExitHeadline(countryCode: pinned);
+  return ExitHeadline(
+    countryCode: node,
+    unavailableCountry: (pinned.isEmpty || pinned == node) ? null : pinned,
   );
 });
 
