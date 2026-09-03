@@ -520,6 +520,19 @@ pub async fn register_email(
         }
     };
 
+    // Бесплатный план новому аккаунту.
+    //
+    // Раньше его выдавал ТОЛЬКО путь с инвайт-кодом (register_email_with_enroll →
+    // ensure_free_plan_subscription_tx) и бот. Обычная регистрация из приложения
+    // не выдавала ничего: человек заводил аккаунт и оставался без подписки, то
+    // есть без строки в конфиге любой ноды, и не мог ни подключиться, ни дойти до
+    // экрана оплаты. Теперь оба пути ведут к одному состоянию.
+    //
+    // Идемпотентно: на кодовом пути подписка уже создана в транзакции, и вызов
+    // вернёт None. Раскатку по нодам делаем в обоих случаях, потому что нового
+    // участника бесплатного плана ноды не увидят, пока конфиг не перевыпущен.
+    grant_free_plan_on_signup(&state, user.id).await;
+
     let access = match issue_access_token(user.id) {
         Ok(t) => t,
         Err(s) => return s.into_response(),
@@ -535,6 +548,59 @@ pub async fn register_email(
         Json(token_pair(access, refresh, user.id)),
     )
         .into_response()
+}
+
+/// Сажает новый аккаунт на бесплатный план и публикует конфиг плана на ноды.
+///
+/// Best-effort по построению: аккаунт уже создан и токены будут выданы в любом
+/// случае. Отсутствие настроенного бесплатного плана это конфигурация оператора,
+/// а не сбой регистрации, поэтому здесь предупреждение, а не ошибка ответа.
+async fn grant_free_plan_on_signup(state: &AppState, user_id: i64) {
+    let granted = match state.store_service.ensure_free_plan_subscription(user_id).await {
+        Ok(plan) => plan,
+        Err(e) => {
+            tracing::warn!(user_id, error = %e, "signup: free plan grant failed (non-fatal)");
+            None
+        }
+    };
+
+    // На кодовом пути подписка создана в транзакции регистрации и вызов выше
+    // вернул None; публиковать всё равно надо, поэтому берём план напрямую.
+    let plan_id = match granted {
+        Some(id) => Some(id),
+        None => sqlx::query_scalar::<_, i64>(
+            "SELECT p.id FROM plans p \
+             JOIN subscriptions s ON s.plan_id = p.id \
+             WHERE s.user_id = $1 AND p.is_free AND p.is_active \
+               AND s.status IN ('active', 'pending', 'throttled') \
+             LIMIT 1",
+        )
+        .bind(user_id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None),
+    };
+
+    let Some(plan_id) = plan_id else {
+        tracing::warn!(
+            user_id,
+            "signup: no active free plan configured, account created without a subscription"
+        );
+        return;
+    };
+
+    if let Err(e) = state
+        .orchestration_service
+        .notify_nodes_for_plans(&[plan_id])
+        .await
+    {
+        tracing::warn!(
+            user_id,
+            plan_id,
+            error = %e,
+            "signup: free plan granted but node publish failed (non-fatal)"
+        );
+    }
 }
 
 /// POST /api/v2/app/login/email — вход по email/password.
@@ -745,6 +811,13 @@ pub async fn login_telegram(
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
+
+    // Новый аккаунт через Telegram это тоже регистрация: без подписки он не
+    // попадёт ни в один конфиг ноды. Порядок с enroll_code не важен, вызов
+    // идемпотентен.
+    if was_new {
+        grant_free_plan_on_signup(&state, user.id).await;
+    }
 
     // Списываем enroll_code только при создании нового аккаунта. Для Telegram-входа
     // невалидный код НЕ блокирует логин (в отличие от register): диплинк-вход —
