@@ -681,7 +681,12 @@ impl MonitoringService {
     /// не спамим пользователю больше одного предупреждения в сутки.
     async fn check_low_balances(&self) -> anyhow::Result<()> {
         // Выбираем пользователей с авто-продлением и низким балансом
-        let low_balance_users: Vec<(i64, i64, Option<String>, String)> = sqlx::query_as(
+        // tg_id читается как Option: колонка nullable, а аккаунт, заведённый по
+        // email, Telegram-идентификатора не имеет вовсе. Необязательный декод
+        // ронял бы ВЕСЬ обход на первой такой строке (sqlx отдаёт UnexpectedNull
+        // ошибкой, а не None), то есть один пользователь без телеграма лишал бы
+        // предупреждения о балансе всех остальных, ежечасно и навсегда.
+        let low_balance_users: Vec<(i64, Option<i64>, Option<String>, String)> = sqlx::query_as(
             r#"
             SELECT DISTINCT u.id, u.tg_id, u.language_code, p.name
             FROM users u
@@ -706,6 +711,13 @@ impl MonitoringService {
         );
 
         for (user_db_id, tg_id, lang, plan_name) in low_balance_users {
+            // Предупреждение доставляется только в Telegram, поэтому аккаунту без
+            // него слать нечего. Пропускаем молча: это не сбой, а другой способ
+            // регистрации.
+            let Some(tg_id) = tg_id else {
+                continue;
+            };
+
             let redis_key = format!("balance_warned:{}", user_db_id);
 
             // Проверяем дедупликацию: уже предупреждали за последние 24 часа?
@@ -1066,11 +1078,16 @@ async fn daily_traffic_topup(pool: &PgPool) -> anyhow::Result<Vec<i64>> {
     }
 
     // Снимаем троттлинг с подписок, чей used_traffic после пополнения снова
-    // ниже лимита плана (лимит 0 = безлимит). Возвращаем их plan_id, чтобы
-    // ноды перегенерировали конфиги и вернули пользователей в строй.
+    // ниже лимита плана. Возвращаем их plan_id, чтобы ноды перегенерировали
+    // конфиги и вернули пользователей в строй.
     // Потолок здесь обязан совпадать с тем, по которому подписку затроттлили
     // (subscription_service::throttle_free_quota_subscriptions), иначе юзер с
     // бонусным трафиком либо застрянет в 'throttled', либо будет флапать.
+    // Совпадать обязаны ОБА выражения: и сам потолок {limit}, и признак «потолок
+    // вообще есть» {limited}. Здесь раньше стояло собственное определение
+    // безлимита (traffic_limit_gb = 0) — на бесплатном плане, где потолок теперь
+    // считается по daily_traffic_mb, оно перестало быть отрицанием того, что
+    // проверяет троттлинг.
     let reactivate_sql = format!(
         r#"
         UPDATE subscriptions s
@@ -1080,11 +1097,12 @@ async fn daily_traffic_topup(pool: &PgPool) -> anyhow::Result<Vec<i64>> {
           AND u.id = s.user_id
           AND s.status = 'throttled'
           AND (
-              COALESCE(p.traffic_limit_gb, 0) = 0
+              NOT {limited}
               OR COALESCE(s.used_traffic, 0) < {limit}
           )
         RETURNING s.plan_id
         "#,
+        limited = crate::services::bonus_traffic::QUOTA_LIMITED_PLAN_SQL,
         limit = crate::services::bonus_traffic::QUOTA_LIMIT_BYTES_SQL,
     );
     let reactivated_plan_ids: Vec<i64> =

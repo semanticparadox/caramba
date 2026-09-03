@@ -248,9 +248,14 @@ pub async fn get_user_keys(
         return status.into_response();
     }
 
-    let user: Option<(String, i64)> = sqlx::query_as(
+    // u.tg_id читается как Option, а u.id выбирается рядом: колонка nullable
+    // (email-регистрация), а non-optional декодирование давало бы
+    // Err(UnexpectedNull), который `.unwrap_or(None)` ниже превращал в
+    // «ключей нет» — 404 вместо ключей, без единой записи в логе.
+    let user: Option<(String, Option<i64>, i64)> = sqlx::query_as(
         r#"
-        SELECT COALESCE(NULLIF(s.vless_uuid, ''), NULLIF(s.subscription_uuid, '')) AS user_uuid, u.tg_id
+        SELECT COALESCE(NULLIF(s.vless_uuid, ''), NULLIF(s.subscription_uuid, '')) AS user_uuid,
+               u.tg_id, u.id
         FROM subscriptions s
         JOIN users u ON u.id = s.user_id
         WHERE s.user_id = $1
@@ -265,8 +270,10 @@ pub async fn get_user_keys(
     .await
     .unwrap_or(None);
 
-    if let Some((uuid, tg_id)) = user {
-        let hy2_password = format!("{}:{}", tg_id, uuid.replace("-", ""));
+    if let Some((uuid, tg_id, owner_id)) = user {
+        // Тот же построитель, что и в конфиге ноды: см. services::user_tag.
+        let client_identity = crate::services::user_tag::config_client_identity(tg_id, owner_id);
+        let hy2_password = crate::services::user_tag::proxy_auth_password(client_identity, &uuid);
         Json(InternalUserKeys {
             user_uuid: uuid,
             hy2_password,

@@ -154,20 +154,58 @@ pub async fn get_subscription(
     let bonus_traffic_mb = crate::services::bonus_traffic::balance_mb(&state.pool, auth.user_id)
         .await
         .unwrap_or(0);
-    let traffic_limit_bytes = crate::services::bonus_traffic::quota_limit_bytes(
-        sub.traffic_limit_gb.unwrap_or(0) as i64,
+
+    // `SubscriptionWithDetails` несёт из плана только traffic_limit_gb, а на
+    // бесплатном плане энфорсмент считает совсем по другой колонке
+    // (daily_traffic_mb). Без этих двух флагов потолок пришлось бы угадывать —
+    // и раньше он угадывался как «план платный», из-за чего бесплатный
+    // пользователь, задушенный на 200 МБ, видел в приложении 2% от 10 ГБ.
+    let (is_free, daily_traffic_mb): (bool, i32) = sqlx::query_as(
+        "SELECT COALESCE(is_free, FALSE), COALESCE(daily_traffic_mb, 0) FROM plans WHERE id = $1",
+    )
+    .bind(sub.sub.plan_id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None)
+    .unwrap_or((false, 0));
+
+    let traffic_limit_gb = sub.traffic_limit_gb.unwrap_or(0);
+    let traffic_limit_bytes = crate::services::bonus_traffic::plan_quota_limit_bytes(
+        is_free,
+        traffic_limit_gb as i64,
+        daily_traffic_mb as i64,
         bonus_traffic_mb,
     );
+    // Период, за который посчитаны traffic_limit_bytes и used_traffic_bytes:
+    // "day" ровно тогда, когда потолок взят из суточной колонки. Приложению
+    // это нужно, чтобы рисовать суточный счётчик, а не бессмысленный «всего».
+    let quota_period = if is_free && traffic_limit_gb > 0 && daily_traffic_mb > 0 {
+        "day"
+    } else {
+        "total"
+    };
 
     Json(serde_json::json!({
         "id": sub.sub.id,
         "subscription_uuid": uuid,
         "plan_name": sub.plan_name,
         "status": sub.sub.status,
+        // На суточном плане это расход, ещё не прощённый суточным пополнением
+        // (monitoring::daily_traffic_topup вычитает норму с полом 0), то есть
+        // фактически «сегодня»; на остальных — расход за весь срок подписки.
+        // Что именно — говорит quota_period.
         "used_traffic_bytes": sub.sub.used_traffic,
         "used_traffic_gb": format!("{:.2}", used_gb),
+        // Сырая колонка плана. На бесплатном плане она НЕ является потолком —
+        // клиент обязан считать по traffic_limit_bytes / quota_period.
         "traffic_limit_gb": sub.traffic_limit_gb,
         "traffic_limit_bytes": traffic_limit_bytes,
+        "quota_period": quota_period,
+        "is_free": is_free,
+        // Суточная норма плана в МБ (0 — суточной нормы нет). Отдаём сырую
+        // колонку отдельно от потолка: в traffic_limit_bytes уже подмешан
+        // бонусный трафик, а нарисовать «200 МБ в сутки» надо без него.
+        "daily_traffic_mb": daily_traffic_mb,
         "bonus_traffic_mb": bonus_traffic_mb,
         "expires_at": sub.sub.expires_at.to_rfc3339(),
         "days_left": days_left,
@@ -212,6 +250,31 @@ fn country_flag(country: &str) -> String {
     }
 }
 
+/// Статус узла в словаре, который понимает приложение: `online | busy | full`.
+///
+/// Клиент (`ExitLocation` в caramba-client) рисует `full` как «не принимает
+/// подключения», а ВСЁ, что не `online` и не `busy` — как «не в сети». Раньше
+/// сюда как есть проваливался `nodes.status` из БД, где у всех живых узлов
+/// стоит `'active'`: этой строки в словаре нет, поэтому клиент читал каждый
+/// узел как offline и список выходов был мёртв целиком. Маппинг обязан жить в
+/// панели, а не в клиенте: контракт уже записан на стороне Dart, и этот
+/// эндпоинт читают не только Flutter-клиенты.
+///
+/// Ветки на `'maintenance'` / `'disabled'` здесь намеренно нет: до этой функции
+/// доезжают только узлы, прошедшие `status = 'active'` (фильтр в
+/// `node_repo::{get_nodes_for_plan, get_active_nodes}` плюс его же повтор в
+/// `list_servers`), так что колонка статуса на этом шаге не несёт информации —
+/// её несут загрузка и вместимость.
+fn server_status(is_full: bool, cpu_pct: f64) -> &'static str {
+    if is_full {
+        "full"
+    } else if cpu_pct > 80.0 {
+        "busy"
+    } else {
+        "online"
+    }
+}
+
 /// GET /api/v2/app/servers — список доступных пользователю exit-серверов.
 ///
 /// Переиспользует пул узлов из store_service (как api/client.rs::get_active_servers),
@@ -230,7 +293,18 @@ pub async fn list_servers(
         .into_iter()
         .filter(|n| {
             // Прячем relay-узлы и перегруженные машины.
-            !n.is_relay && n.last_cpu.unwrap_or(0.0) < 95.0 && n.last_ram.unwrap_or(0.0) < 98.0
+            //
+            // `status == "active"` повторяет предикат, который уже применили
+            // node_repo::{get_nodes_for_plan, get_active_nodes}. Повтор не
+            // лишний: ниже статус узла для приложения собирается ТОЛЬКО из
+            // загрузки и вместимости, и это законно ровно потому, что сюда не
+            // доезжает ни один неактивный узел. Если фильтр наверху когда-нибудь
+            // ослабят, узел в обслуживании просто исчезнет из списка (он и не
+            // выбираем), а не притворится живым.
+            n.status == "active"
+                && !n.is_relay
+                && n.last_cpu.unwrap_or(0.0) < 95.0
+                && n.last_ram.unwrap_or(0.0) < 98.0
         })
         .map(|n| {
             let cpu = n.last_cpu.unwrap_or(0.0);
@@ -238,13 +312,7 @@ pub async fn list_servers(
             let load = (cpu + ram) / 2.0;
             let connections = n.active_connections.unwrap_or(0);
             let is_full = n.max_users > 0 && connections >= n.max_users;
-            let status = if is_full {
-                "full".to_string()
-            } else if cpu > 80.0 {
-                "busy".to_string()
-            } else {
-                n.status.clone()
-            };
+            let status = server_status(is_full, cpu).to_string();
             AppServer {
                 id: n.id,
                 name: format!("Node #{} ({} Mbps)", n.id, n.current_speed_mbps),
@@ -258,4 +326,36 @@ pub async fn list_servers(
         .collect();
 
     Json(servers).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::server_status;
+
+    /// Словарь фиксирован: приложение знает только online/busy/full. Ни одно
+    /// значение колонки `nodes.status` («active») наружу выйти не должно —
+    /// именно оно клало весь список выходов.
+    #[test]
+    fn the_wire_vocabulary_is_online_busy_full() {
+        assert_eq!(server_status(false, 0.0), "online");
+        assert_eq!(server_status(false, 80.0), "online");
+        assert_eq!(server_status(false, 80.1), "busy");
+        assert_eq!(server_status(false, 94.9), "busy");
+        // Вместимость важнее загрузки: полный узел нельзя выбрать вообще, а
+        // busy — можно.
+        assert_eq!(server_status(true, 0.0), "full");
+        assert_eq!(server_status(true, 99.0), "full");
+
+        for status in [
+            server_status(false, 0.0),
+            server_status(false, 90.0),
+            server_status(true, 0.0),
+        ] {
+            assert!(
+                matches!(status, "online" | "busy" | "full"),
+                "статус {status:?} вне словаря приложения"
+            );
+            assert_ne!(status, "active", "колонка БД не должна утекать на провод");
+        }
+    }
 }

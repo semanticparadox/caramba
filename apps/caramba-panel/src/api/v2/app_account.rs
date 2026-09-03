@@ -593,12 +593,40 @@ struct AppSubscription {
     status: String,
     /// free | paid | private (private = семейная, выданная родителем).
     kind: String,
+    /// Расход за период, который называет `quota_period`: на суточном
+    /// плане это расход, ещё не прощённый суточным пополнением
+    /// (`monitoring::daily_traffic_topup` вычитает норму с полом 0), то есть
+    /// фактически «сегодня»; на остальных — за весь срок подписки.
     used_traffic_bytes: i64,
     used_traffic_gb: String,
-    /// Квота трафика в ГБ (0/None = безлимит).
+    /// СЫРАЯ колонка плана `traffic_limit_gb`, а НЕ потолок (0/None =
+    /// в колонке нуль). На бесплатном плане энфорсмент считает по суточной
+    /// норме, поэтому здесь стоит 10 у того, кого душат на 200 МБ. Поле
+    /// сохранено со старым значением ради уже выпущенных клиентов; новый
+    /// код обязан брать `traffic_limit_bytes` вместе с `quota_period`.
     traffic_quota_gb: Option<i32>,
     /// Еженедельное пополнение бесплатного трафика в ГБ (daily_traffic_mb * 7).
+    /// Это ПЕРЕСЧЁТ суточной нормы на неделю, а не квота: делить на него
+    /// `used_traffic_*` нельзя — счётчик живёт на другом периоде.
     weekly_free_refill_gb: Option<f64>,
+    /// Потолок, по которому реально работают истечение и троттлинг: норма
+    /// плана (суточная на free, тарифная на paid) + бонусный трафик.
+    /// `null` = безлимит. Единственное число, против которого можно рисовать бар.
+    traffic_limit_bytes: Option<i64>,
+    /// Период, за который посчитаны `traffic_limit_bytes` и `used_traffic_*`:
+    /// "day" | "total". Число без периода — ровно та ошибка, из-за которой
+    /// карточка подписки врала в обе стороны сразу.
+    quota_period: &'static str,
+    /// Признак бесплатного тарифа (`plans.is_free`) — тот же флаг, по которому
+    /// энфорсмент выбирает ветку потолка. `kind` его не заменяет: семейная
+    /// подписка на бесплатном плане приезжает как "private".
+    is_free: bool,
+    /// Суточная норма плана в МБ (0 — нет). Отдаётся отдельно от потолка:
+    /// в `traffic_limit_bytes` уже подмешан бонус, а надпись «200 МБ в сутки»
+    /// нужно рисовать без него.
+    daily_traffic_mb: i32,
+    /// Бонусный трафик пользователя в МБ, УЖЕ учтённый в `traffic_limit_bytes`.
+    bonus_traffic_mb: i64,
     expires_at: String,
     days_left: i64,
     /// Устройства: использовано (lease за 15 мин) / лимит плана.
@@ -651,6 +679,21 @@ pub async fn list_subscriptions(
     .await
     .unwrap_or_default();
 
+    // Бонусный трафик общий на все подписки пользователя — читаем один
+    // раз, а не по ходу в базу на каждую строку. При ошибке берём 0: потолок
+    // окажется занижен, то есть бар в приложении заполнится раньше срока, а не
+    // позже — единственная сторона ошибки, не обещающая трафик, которого нет.
+    let bonus_traffic_mb = crate::services::bonus_traffic::balance_mb(&state.pool, auth.user_id)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(
+                err = %e,
+                user_id = auth.user_id,
+                "app: bonus balance read failed, quota ceiling reported without bonus"
+            );
+            0
+        });
+
     let now = chrono::Utc::now();
     let subs: Vec<AppSubscription> = rows
         .into_iter()
@@ -683,6 +726,26 @@ pub async fn list_subscriptions(
                 None
             };
 
+            // Тот же потолок, по которому работает энфорсмент (один хелпер на все
+            // пути отображения). Считать его здесь самостоятельно нельзя: именно
+            // самодеятельность давала бесплатному юзеру потолок в 7 раз больше
+            // реального.
+            let traffic_limit_bytes = crate::services::bonus_traffic::plan_quota_limit_bytes(
+                is_free,
+                limit_gb as i64,
+                daily_mb as i64,
+                bonus_traffic_mb,
+            );
+            // "day" ровно тогда, когда потолок взят из суточной колонки, то есть
+            // точно по ветке `plan_quota_limit_bytes`: бесплатный план С включённым
+            // ограничением (traffic_limit_gb > 0) И с суточной нормой. Во всех
+            // остальных случаях — включая безлимит — счётчик накопительный.
+            let quota_period = if is_free && limit_gb > 0 && daily_mb > 0 {
+                "day"
+            } else {
+                "total"
+            };
+
             AppSubscription {
                 id: r.try_get("id").unwrap_or(0),
                 subscription_uuid: r.try_get("subscription_uuid").unwrap_or_default(),
@@ -693,6 +756,11 @@ pub async fn list_subscriptions(
                 used_traffic_gb: format!("{:.2}", used_gb),
                 traffic_quota_gb: if limit_gb > 0 { Some(limit_gb) } else { None },
                 weekly_free_refill_gb: weekly_free,
+                traffic_limit_bytes,
+                quota_period,
+                is_free,
+                daily_traffic_mb: daily_mb,
+                bonus_traffic_mb,
                 expires_at: expires.to_rfc3339(),
                 days_left: (expires - now).num_days().max(0),
                 device_used: r.try_get("device_used").unwrap_or(0),
@@ -764,4 +832,399 @@ pub async fn list_relays(
         .collect();
 
     Json(out).into_response()
+}
+
+// ============================================================
+// SELECTION — выбор exit-ноды и relay-страны из приложения
+// ============================================================
+
+/// Разбирает трёхзначное поле запроса: отсутствует / null / значение.
+///
+/// Голый `Option<T>` этих случаев не различает — serde отдаёт `None` и для
+/// пропущенного ключа, и для `null`. Приём: поле объявлено как
+/// `Option<Option<T>>` с `#[serde(default, deserialize_with = "de_tristate")]`.
+/// `deserialize_with` вызывается ТОЛЬКО когда ключ присутствует, поэтому
+/// `null` доезжает как `Some(None)`, а отсутствие ключа даёт `None` из
+/// `Default`. Различие несущее: «поле не прислали» обязано сохранить текущее
+/// значение, а `null` — сбросить его на выбор оператора.
+fn de_tristate<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+#[derive(Deserialize)]
+pub struct UpdateSelectionRequest {
+    /// Exit-нода: отсутствует — не трогаем, null — сброс на выбор оператора,
+    /// число — закрепить (валидируется по плану подписки).
+    #[serde(default, deserialize_with = "de_tristate")]
+    pub node_id: Option<Option<i64>>,
+    /// Relay-страна: ISO-2 из GET /relays либо литерал "none" (relay выключен).
+    #[serde(default, deserialize_with = "de_tristate")]
+    pub relay_country: Option<Option<String>>,
+}
+
+#[derive(Serialize)]
+struct AppSelection {
+    ok: bool,
+    subscription_id: i64,
+    /// Значения перечитаны из БД после UPDATE, а не отражены из запроса:
+    /// приложение рисует их сразу, не дожидаясь следующего поллинга.
+    node_id: Option<i64>,
+    relay_country: Option<String>,
+}
+
+/// Ответ на невалидный ввод: `error` — машиночитаемый код для клиента,
+/// `message` — текст, который приложение может показать как есть.
+fn selection_error(status: StatusCode, code: &str, message: String) -> axum::response::Response {
+    (
+        status,
+        Json(serde_json::json!({ "error": code, "message": message })),
+    )
+        .into_response()
+}
+
+/// Нормализует relay-страну по закрытому словарю `allowed` (ISO-2 в верхнем
+/// регистре — ровно то, что отдаёт `list_relays`).
+///
+/// Литерал «none» (выключить relay) разрешён всегда и приводится к нижнему
+/// регистру: в таком виде его ждёт `subscription.rs`. Отвергать неизвестное
+/// значение важно не из педантизма — рассогласованный выбор в БД делает
+/// последующую подписанную директиву неразбираемой на клиенте.
+/// Чистая функция: тестируется без БД.
+fn normalize_relay_country(raw: &str, allowed: &[String]) -> Result<String, String> {
+    let value = raw.trim();
+    if value.is_empty() {
+        return Err("relay_country must not be empty — send null to reset it".to_string());
+    }
+    if value.eq_ignore_ascii_case("none") {
+        return Ok("none".to_string());
+    }
+    let upper = value.to_ascii_uppercase();
+    if allowed.iter().any(|a| a.eq_ignore_ascii_case(&upper)) {
+        return Ok(upper);
+    }
+    let mut vocabulary = vec!["none".to_string()];
+    vocabulary.extend(allowed.iter().cloned());
+    Err(format!(
+        "relay_country '{}' is not available. Allowed: {}",
+        value,
+        vocabulary.join(", ")
+    ))
+}
+
+/// Узлы, которые план подписки реально разрешает как exit.
+///
+/// Зеркалит `node_repo::get_nodes_for_plan` + фолбэк из `subscription.rs`:
+/// если план не разрешает ничего (нет plan_groups / пустая группа / plan_id
+/// отсутствует), конфиг всё равно отдаёт все активные узлы. Валидатор обязан
+/// признавать ровно тот же набор — иначе приложение получит 400 на узел,
+/// который сервер потом честно бы отдал.
+async fn permitted_exit_node_ids(
+    state: &AppState,
+    plan_id: Option<i64>,
+) -> Result<Vec<i64>, sqlx::Error> {
+    if let Some(pid) = plan_id {
+        let by_plan: Vec<i64> = sqlx::query_scalar(
+            r#"SELECT DISTINCT n.id
+                 FROM nodes n
+                 JOIN node_group_members ngm ON ngm.node_id = n.id
+                 JOIN plan_groups pg ON pg.group_id = ngm.group_id
+                WHERE pg.plan_id = $1
+                  AND n.status = 'active'
+                  AND n.is_relay = FALSE"#,
+        )
+        .bind(pid)
+        .fetch_all(&state.pool)
+        .await?;
+        if !by_plan.is_empty() {
+            return Ok(by_plan);
+        }
+    }
+
+    sqlx::query_scalar("SELECT id FROM nodes WHERE status = 'active' AND is_relay = FALSE")
+        .fetch_all(&state.pool)
+        .await
+}
+
+/// PUT /api/v2/app/subscriptions/{id}/selection — сохранить выбор
+/// «через какую страну выхожу» и «через какой relay вхожу».
+///
+/// До этого эндпоинта у приложения не было легитимного писателя в
+/// `subscriptions.node_id` / `relay_country`: TMA-эндпоинт сидит за другим JWT
+/// (session_secret по tg_id), а запись на GET-конфига — побочный эффект, а не
+/// намерение пользователя.
+///
+/// Семантика полей — трёхзначная (см. `UpdateSelectionRequest`). Обе колонки
+/// пишутся одним UPDATE, результат перечитывается через RETURNING.
+pub async fn update_subscription_selection(
+    State(state): State<AppState>,
+    axum::Extension(auth): axum::Extension<AuthUser>,
+    Path(sub_id): Path<i64>,
+    Json(payload): Json<UpdateSelectionRequest>,
+) -> impl IntoResponse {
+    // Владение и существование неразличимы снаружи: чужой id отвечает ровно
+    // так же, как несуществующий, чтобы по кодам ответа нельзя было перебрать
+    // диапазон id и узнать, какие подписки есть в системе.
+    let owned = sqlx::query("SELECT id, plan_id FROM subscriptions WHERE id = $1 AND user_id = $2")
+        .bind(sub_id)
+        .bind(auth.user_id)
+        .fetch_optional(&state.pool)
+        .await;
+
+    let row = match owned {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return selection_error(
+                StatusCode::NOT_FOUND,
+                "not_found",
+                "Subscription not found".to_string(),
+            );
+        }
+        Err(e) => {
+            tracing::error!(err = %e, "app: selection ownership lookup failed");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    let plan_id: Option<i64> = row.try_get::<Option<i64>, _>("plan_id").ok().flatten();
+
+    // --- Валидация node_id по закрытому словарю плана ---
+    let node_update: Option<Option<i64>> = match &payload.node_id {
+        None => None,
+        Some(None) => Some(None),
+        Some(Some(requested)) => {
+            let permitted = match permitted_exit_node_ids(&state, plan_id).await {
+                Ok(ids) => ids,
+                Err(e) => {
+                    tracing::error!(err = %e, "app: selection node vocabulary lookup failed");
+                    return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+                }
+            };
+            if !permitted.contains(requested) {
+                let list = permitted
+                    .iter()
+                    .map(|id| id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return selection_error(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_node_id",
+                    format!(
+                        "Server {} is not available on your plan. Allowed: {}",
+                        requested,
+                        if list.is_empty() {
+                            "none"
+                        } else {
+                            list.as_str()
+                        }
+                    ),
+                );
+            }
+            Some(Some(*requested))
+        }
+    };
+
+    // --- Валидация relay_country по тому же словарю, что отдаёт /relays ---
+    let relay_update: Option<Option<String>> = match &payload.relay_country {
+        None => None,
+        Some(None) => Some(None),
+        Some(Some(raw)) => {
+            let allowed: Vec<String> = state
+                .infrastructure_service
+                .get_active_relay_nodes()
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|n| match n.country_code.as_deref() {
+                    Some(c) if c.len() == 2 => Some(c.to_uppercase()),
+                    _ => None,
+                })
+                .collect();
+            match normalize_relay_country(raw, &allowed) {
+                Ok(v) => Some(Some(v)),
+                Err(msg) => {
+                    return selection_error(StatusCode::BAD_REQUEST, "invalid_relay_country", msg);
+                }
+            }
+        }
+    };
+
+    // Пустое тело — не ошибка: возвращаем текущее состояние, чтобы приложение
+    // могло использовать этот же путь как «прочитать выбор».
+    let updated = if node_update.is_none() && relay_update.is_none() {
+        sqlx::query(
+            "SELECT node_id, relay_country FROM subscriptions WHERE id = $1 AND user_id = $2",
+        )
+        .bind(sub_id)
+        .bind(auth.user_id)
+        .fetch_optional(&state.pool)
+        .await
+    } else {
+        // Один UPDATE на обе колонки: CASE-флаг решает «писать или оставить»,
+        // поэтому «сбросить одно и задать другое» не разъезжается на два рейса.
+        sqlx::query(
+            r#"UPDATE subscriptions
+                  SET node_id = CASE WHEN $3::boolean THEN $4::bigint ELSE node_id END,
+                      relay_country = CASE WHEN $5::boolean THEN $6::text ELSE relay_country END
+                WHERE id = $1 AND user_id = $2
+            RETURNING node_id, relay_country"#,
+        )
+        .bind(sub_id)
+        .bind(auth.user_id)
+        .bind(node_update.is_some())
+        .bind(node_update.flatten())
+        .bind(relay_update.is_some())
+        .bind(relay_update.clone().flatten())
+        .fetch_optional(&state.pool)
+        .await
+    };
+
+    let updated = match updated {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return selection_error(
+                StatusCode::NOT_FOUND,
+                "not_found",
+                "Subscription not found".to_string(),
+            );
+        }
+        Err(e) => {
+            tracing::error!(err = %e, "app: selection update failed");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    // Маркер «выбором владеет приложение» — им `subscription.rs` глушит запись
+    // на GET-конфига. Ставится и при сбросе в null: именно сброс легче всего
+    // потерять, потому что авто-пин узла срабатывает как раз на NULL.
+    //
+    // Но только когда что-то ДЕЙСТВИТЕЛЬНО записали. Пустое тело этот эндпоинт
+    // трактует как чтение текущего выбора, и чтение не должно объявлять
+    // владение: маркер живёт 180 дней и глушит единственного писателя
+    // relay_country в мини-аппе, так что безобидный GET-подобный вызов
+    // выключил бы там выбор релэя на полгода.
+    if node_update.is_some() || relay_update.is_some() {
+        let _ = state
+            .redis
+            .set(
+                &crate::subscription::app_selection_marker_key(sub_id),
+                "1",
+                crate::subscription::APP_SELECTION_MARKER_TTL_SECS,
+            )
+            .await;
+    }
+
+    Json(AppSelection {
+        ok: true,
+        subscription_id: sub_id,
+        node_id: updated.try_get::<Option<i64>, _>("node_id").ok().flatten(),
+        relay_country: updated
+            .try_get::<Option<String>, _>("relay_country")
+            .ok()
+            .flatten(),
+    })
+    .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{UpdateSelectionRequest, normalize_relay_country};
+
+    // --- трёхзначный разбор: отсутствует / null / значение ---
+
+    #[test]
+    fn absent_fields_are_distinct_from_null() {
+        let req: UpdateSelectionRequest = serde_json::from_str("{}").unwrap();
+        assert!(
+            req.node_id.is_none(),
+            "missing node_id must mean 'unchanged'"
+        );
+        assert!(req.relay_country.is_none());
+    }
+
+    #[test]
+    fn null_means_reset_not_absent() {
+        let req: UpdateSelectionRequest =
+            serde_json::from_str(r#"{"node_id": null, "relay_country": null}"#).unwrap();
+        assert_eq!(req.node_id, Some(None));
+        assert_eq!(req.relay_country, Some(None));
+    }
+
+    #[test]
+    fn values_survive_as_some_some() {
+        let req: UpdateSelectionRequest =
+            serde_json::from_str(r#"{"node_id": 5, "relay_country": "ru"}"#).unwrap();
+        assert_eq!(req.node_id, Some(Some(5)));
+        assert_eq!(req.relay_country, Some(Some("ru".to_string())));
+    }
+
+    #[test]
+    fn one_field_absent_while_the_other_resets() {
+        let req: UpdateSelectionRequest =
+            serde_json::from_str(r#"{"relay_country": null}"#).unwrap();
+        assert!(req.node_id.is_none());
+        assert_eq!(req.relay_country, Some(None));
+    }
+
+    #[test]
+    fn unknown_fields_are_tolerated_for_forward_compatibility() {
+        // Клиент, который уже умеет протокол, не должен ловить 400 от панели,
+        // которая его ещё не умеет.
+        let req: UpdateSelectionRequest =
+            serde_json::from_str(r#"{"protocol": "hysteria2", "node_id": 2}"#).unwrap();
+        assert_eq!(req.node_id, Some(Some(2)));
+    }
+
+    #[test]
+    fn wrong_type_is_a_parse_error_not_a_silent_reset() {
+        assert!(serde_json::from_str::<UpdateSelectionRequest>(r#"{"node_id": "5"}"#).is_err());
+    }
+
+    // --- закрытый словарь relay ---
+
+    #[test]
+    fn relay_none_is_always_allowed_and_lowercased() {
+        let allowed: Vec<String> = vec![];
+        assert_eq!(normalize_relay_country("NONE", &allowed).unwrap(), "none");
+        assert_eq!(normalize_relay_country("None", &allowed).unwrap(), "none");
+        assert_eq!(normalize_relay_country(" none ", &allowed).unwrap(), "none");
+    }
+
+    #[test]
+    fn known_country_is_uppercased() {
+        let allowed = vec!["RU".to_string()];
+        assert_eq!(normalize_relay_country("ru", &allowed).unwrap(), "RU");
+        assert_eq!(normalize_relay_country(" RU ", &allowed).unwrap(), "RU");
+    }
+
+    #[test]
+    fn unknown_country_is_rejected_with_the_vocabulary() {
+        let allowed = vec!["RU".to_string()];
+        let err = normalize_relay_country("DE", &allowed).unwrap_err();
+        assert!(err.contains("DE"), "reason must name the rejected value");
+        assert!(
+            err.contains("none") && err.contains("RU"),
+            "reason must list the vocabulary: {err}"
+        );
+    }
+
+    #[test]
+    fn empty_string_is_rejected_rather_than_treated_as_reset() {
+        let allowed = vec!["RU".to_string()];
+        assert!(normalize_relay_country("", &allowed).is_err());
+        assert!(normalize_relay_country("   ", &allowed).is_err());
+    }
+
+    #[test]
+    fn free_text_never_reaches_the_database() {
+        let allowed = vec!["RU".to_string(), "CA".to_string()];
+        for bad in ["RUS", "russia", "R", "'; DROP TABLE nodes;--"] {
+            assert!(
+                normalize_relay_country(bad, &allowed).is_err(),
+                "{bad} must be rejected"
+            );
+        }
+    }
 }

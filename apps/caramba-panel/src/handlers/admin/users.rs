@@ -898,17 +898,63 @@ pub async fn get_user_details(
 
     // Бонусный трафик пользователя — общий для всех его подписок, поэтому
     // читаем один раз и используем как в шапке карточки, так и в потолке
-    // каждой подписки ниже.
-    let bonus_traffic_mb = crate::services::bonus_traffic::balance_mb(&state.pool, id)
-        .await
-        .unwrap_or_else(|e| {
-            error!("Failed to read bonus traffic for user {}: {}", id, e);
-            0
-        });
+    // каждой подписки ниже. `None` = баланс НЕ прочитан: он входит слагаемым
+    // в потолок, поэтому подмена ошибки нулём печатала бы потолок без бонуса
+    // как настоящий — на том самом экране, где по этой цифре и решают,
+    // начислен бонус или нет.
+    let bonus_traffic_mb_known: Option<i64> =
+        match crate::services::bonus_traffic::balance_mb(&state.pool, id).await {
+            Ok(mb) => Some(mb),
+            Err(e) => {
+                error!("Failed to read bonus traffic for user {}: {}", id, e);
+                None
+            }
+        };
+    // Для шапки карточки (шаблон ждёт i64): «бонуса нет» и «бонус неизвестен»
+    // там неразличимы, обе ветки рисуют «—». Различие несёт метка потолка.
+    let bonus_traffic_mb = bonus_traffic_mb_known.unwrap_or(0);
     let bonus_traffic_label = if bonus_traffic_mb > 0 {
         format!("{:.2} GB", bonus_traffic_mb as f64 / 1024.0)
     } else {
         "—".to_string()
+    };
+
+    // Класс тарифа по каждой подписке. `SubscriptionWithPlan` тащит из плана
+    // только traffic_limit_gb, а на бесплатном плане энфорсмент считает по
+    // daily_traffic_mb — без этих двух колонок админка показывала бы 10 ГБ там,
+    // где пользователя душат на 200 МБ в сутки. Одним запросом, чтобы не
+    // добавлять по походу в базу на каждую подписку.
+    let sub_ids: Vec<i64> = raw_subscriptions.iter().map(|s| s.id).collect();
+    // `None` = класс тарифа неизвестен, потому что запрос упал. Пустая мапа и
+    // `None` — РАЗНЫЕ вещи: раньше ошибка схлопывалась в `Vec::new()`, ниже
+    // разворачивалась в дефолт `(false, 0)` — «план платный, суточной нормы
+    // нет» — и оператор на единственном экране, где разбирают «почему его
+    // душат», читал платный потолок «10.00 GB» у бесплатной подписки,
+    // задушенной на 200 МБ. Правдоподобная цифра здесь хуже видимого отказа.
+    let plan_class_by_sub: Option<HashMap<i64, (bool, i32)>> = if sub_ids.is_empty() {
+        Some(HashMap::new())
+    } else {
+        match sqlx::query_as::<_, (i64, bool, i32)>(
+            "SELECT s.id, COALESCE(p.is_free, FALSE), COALESCE(p.daily_traffic_mb, 0) \
+             FROM subscriptions s JOIN plans p ON p.id = s.plan_id WHERE s.id = ANY($1)",
+        )
+        .bind(&sub_ids)
+        .fetch_all(&state.pool)
+        .await
+        {
+            Ok(rows) => Some(
+                rows.into_iter()
+                    .map(|(sub_id, is_free, daily_mb)| (sub_id, (is_free, daily_mb)))
+                    .collect(),
+            ),
+            Err(e) => {
+                error!(
+                    "Failed to read plan class for user {} subscriptions: {}",
+                    id, e
+                );
+                None
+            }
+        }
     };
 
     let mut subscriptions = Vec::with_capacity(raw_subscriptions.len());
@@ -975,14 +1021,38 @@ pub async fn get_user_details(
         let assigned_node_id = full_sub.as_ref().and_then(|full| full.node_id);
 
         const BYTES_IN_GB: f64 = 1024.0 * 1024.0 * 1024.0;
+        const BYTES_IN_MB: f64 = 1024.0 * 1024.0;
+        // `None`, если запрос класса тарифа упал ИЛИ у подписки не нашлось живой
+        // строки в `plans` (JOIN отбрасывает висячий/NULL plan_id). Обе ветки
+        // одинаково означают «слагаемых потолка нет», и обе обязаны это сказать.
+        let plan_class = plan_class_by_sub
+            .as_ref()
+            .and_then(|by_sub| by_sub.get(&sub.id).copied());
         let traffic_used_label = format!("{:.2} GB", sub.used_traffic as f64 / BYTES_IN_GB);
-        // Ровно тот потолок, по которому подписку истекают/троттлят.
-        let traffic_limit_label = match crate::services::bonus_traffic::quota_limit_bytes(
-            sub.traffic_limit_gb,
-            bonus_traffic_mb,
-        ) {
-            Some(limit_bytes) => format!("{:.2} GB", limit_bytes as f64 / BYTES_IN_GB),
-            None => "∞".to_string(),
+        // Ровно тот потолок, по которому подписку истекают/троттлят. На
+        // бесплатном плане это суточная норма, а не колонка в гигабайтах —
+        // подпись обязана называть период, иначе «0.20 GB» у юзера с планом
+        // «10 GB» выглядит как поломка панели, а не как исчерпанные сутки.
+        let traffic_limit_label = match (plan_class, bonus_traffic_mb_known) {
+            (Some((is_free, daily_traffic_mb)), Some(bonus_mb)) => {
+                match crate::services::bonus_traffic::plan_quota_limit_bytes(
+                    is_free,
+                    sub.traffic_limit_gb,
+                    daily_traffic_mb as i64,
+                    bonus_mb,
+                ) {
+                    Some(limit_bytes) if is_free => {
+                        format!("{:.2} MB / day", limit_bytes as f64 / BYTES_IN_MB)
+                    }
+                    Some(limit_bytes) => format!("{:.2} GB", limit_bytes as f64 / BYTES_IN_GB),
+                    None => "∞".to_string(),
+                }
+            }
+            // Деградация должна быть НЕПРАВДОПОДОБНОЙ: цифра, которую нельзя
+            // отличить от настоящей, уводит разбор жалобы в неверную сторону
+            // молча, а этот текст сразу говорит, что смотреть надо в логи.
+            (None, _) => "⚠ unknown (plan lookup failed)".to_string(),
+            (_, None) => "⚠ unknown (bonus lookup failed)".to_string(),
         };
 
         subscriptions.push(AdminSubscriptionView {

@@ -709,10 +709,14 @@ impl StoreService {
             return Ok(None);
         }
 
-        // Была, но истекла — поднимаем ту же строку.
+        // Была, но истекла — поднимаем ту же строку. Заодно лечим vless_uuid:
+        // строки, созданные до того, как этот путь начал его выставлять, лежат с
+        // NULL и невидимы для генерации конфигов нод — «восстановленная»
+        // подписка без него осталась бы неподключаемой навсегда.
         let reactivated: Option<i64> = sqlx::query_scalar(
             "UPDATE subscriptions \
-             SET status = 'active', expires_at = '9999-12-31 23:59:59+00' \
+             SET status = 'active', expires_at = '9999-12-31 23:59:59+00', \
+                 vless_uuid = COALESCE(NULLIF(vless_uuid, ''), gen_random_uuid()::TEXT) \
              WHERE user_id = $1 AND plan_id = $2 AND status = 'expired' \
              RETURNING id",
         )
@@ -734,10 +738,15 @@ impl StoreService {
         // случае вторую строку на том же плане; последующие вызовы её увидят
         // как 'active' и остановятся, а сама вторая строка безвредна (квота
         // считается по плану + бонусу пользователя, а не по числу строк).
+        //
+        // ИНВАРИАНТ: vless_uuid обязателен. Генерация конфигов нод
+        // (orchestration_service) выбирает s.vless_uuid и МОЛЧА пропускает
+        // подписки, где он NULL. Строка без него существует в базе, показывается
+        // в кабинете и при этом не пускает ни в один inbound.
         let sub_id: i64 = sqlx::query_scalar(
             "INSERT INTO subscriptions \
-             (user_id, plan_id, status, expires_at, subscription_uuid, used_traffic, activated_at) \
-             VALUES ($1, $2, 'active', '9999-12-31 23:59:59+00', gen_random_uuid()::TEXT, 0, CURRENT_TIMESTAMP) \
+             (user_id, plan_id, status, expires_at, vless_uuid, subscription_uuid, used_traffic, activated_at) \
+             VALUES ($1, $2, 'active', '9999-12-31 23:59:59+00', gen_random_uuid()::TEXT, gen_random_uuid()::TEXT, 0, CURRENT_TIMESTAMP) \
              RETURNING id",
         )
         .bind(user_id)

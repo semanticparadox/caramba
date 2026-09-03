@@ -555,7 +555,12 @@ pub async fn register_email(
 /// Best-effort по построению: аккаунт уже создан и токены будут выданы в любом
 /// случае. Отсутствие настроенного бесплатного плана это конфигурация оператора,
 /// а не сбой регистрации, поэтому здесь предупреждение, а не ошибка ответа.
-async fn grant_free_plan_on_signup(state: &AppState, user_id: i64) {
+///
+/// Не приватна, потому что регистрация в приложении — не единственная точка
+/// входа: бот принимает соглашение (bot::handlers::callback, "accept_terms") и
+/// обязан выдать тот же план тем же порядком (выдача → publish на ноды). Вторая
+/// копия этой последовательности неизбежно разъехалась бы с первой.
+pub(crate) async fn grant_free_plan_on_signup(state: &AppState, user_id: i64) {
     let granted = match state
         .store_service
         .ensure_free_plan_subscription(user_id)

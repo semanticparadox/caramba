@@ -329,6 +329,17 @@ pub async fn callback_handler(
     // `default_language` → ru.
     let lang = crate::bot::utils::lang_by_tg_id(&state, tg_id).await;
 
+    // Второй вход в бота помимо сообщений: инлайн-кнопки в уже отрисованном меню
+    // нажимаются без единого сообщения, поэтому шлюз в `message_handler` такого
+    // пользователя не увидит. Сама проверка стоит один индексный SELECT на
+    // пользователя за время жизни процесса и вызывает выдачу (а с ней и
+    // перезапуск sing-box на нодах) только когда подписки действительно нет —
+    // подробности в `command::ensure_free_plan_for_active_bot_user`.
+    //
+    // Порядок с веткой "accept_terms" ниже безопасен: пока соглашение не принято,
+    // запрос внутри не вернёт строку и выдачи не будет.
+    crate::bot::handlers::command::ensure_free_plan_for_active_bot_user(&state, tg_id).await;
+
     if let Some(data) = q.data {
         match data.as_str() {
             "get_login_code" => {
@@ -407,6 +418,25 @@ pub async fn callback_handler(
                     .flatten();
                 if let Some(u) = user_db {
                     let _ = state.store_service.update_user_terms(u.id).await;
+
+                    // Принятие соглашения — единственная дверь в бота: пока
+                    // terms_accepted_at пуст, command.rs заворачивает любое
+                    // сообщение, включая /start. Значит именно здесь аккаунт
+                    // становится пригодным к использованию и здесь же обязан
+                    // получить бесплатный план — иначе меню открывается, а
+                    // подписки за ним нет.
+                    //
+                    // Best-effort и намеренно ДО отправки приветствия: функция
+                    // сама глушит свои ошибки, и приветствие уходит в любом
+                    // случае. Идемпотентна — повторное нажатие кнопки не
+                    // создаёт вторую подписку.
+                    //
+                    // Ветка срабатывает РОВНО ОДИН РАЗ в жизни аккаунта, поэтому
+                    // сама по себе она не покрывает тех, кто принял соглашение
+                    // раньше, чем эта выдача появилась в коде. Их досаживает
+                    // `command::ensure_free_plan_for_active_bot_user` — вызов в
+                    // начале этого же обработчика и в `message_handler`.
+                    crate::api::v2::app_auth::grant_free_plan_on_signup(&state, u.id).await;
 
                     if let Some(msg) = q.message {
                         let _ = bot.delete_message(msg.chat().id, msg.id()).await;

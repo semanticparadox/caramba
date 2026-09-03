@@ -43,6 +43,103 @@ pub struct SubParams {
     pub relay_country: Option<String>, // e.g. "RU", "US", "none" — override geo-based relay selection
 }
 
+/// Redis key marking "the app owns this subscription's node/relay selection".
+///
+/// Written by `PUT /api/v2/app/subscriptions/{id}/selection`. While the marker
+/// lives, a config GET never persists `node_id` / `relay_country`: the query
+/// parameters stay request-scoped filters instead of silently becoming the
+/// user's stored choice. Without it a stale subscription URL — the app hands
+/// out URLs that still carry `?node_id=` / `?relay_country=` from an earlier
+/// pick — would overwrite the selection the user just made in the app.
+pub fn app_selection_marker_key(sub_id: i64) -> String {
+    format!("app_selection_owner:{}", sub_id)
+}
+
+/// Marker TTL: 180 days. The marker only suppresses the implicit write-on-GET,
+/// and the two columns degrade differently if Redis loses it: `node_id` still
+/// has its `WHERE ... IS NULL` guard and cannot be clobbered, while
+/// `relay_country` falls back to last-write-wins (see
+/// [`persist_relay_from_url`] for why it must). Losing the marker therefore has
+/// one visible consequence — a device replaying an old `?relay_country=` can
+/// re-pin the relay. It is self-healing: the app sends its OWN current relay on
+/// every panel-path config fetch, so its next fetch writes the right value back.
+pub const APP_SELECTION_MARKER_TTL_SECS: usize = 60 * 60 * 24 * 180;
+
+/// True when the app has claimed authority over this subscription's selection.
+/// Only consulted right before a would-be write, so the common config fetch
+/// pays no extra Redis round-trip.
+async fn app_owns_selection(state: &AppState, sub_id: i64) -> bool {
+    matches!(
+        state.redis.get(&app_selection_marker_key(sub_id)).await,
+        Ok(Some(_))
+    )
+}
+
+/// Records a node the config path picked, but only while the column is still
+/// unset. The `IS NULL` predicate lives in the statement rather than in Rust so
+/// that a concurrent `PUT .../selection` cannot slip in between our read of
+/// `sub.node_id` (taken far earlier in this handler) and this write.
+async fn persist_node_if_unset(state: &AppState, sub_id: i64, node_id: i64) {
+    let _ = sqlx::query("UPDATE subscriptions SET node_id = $1 WHERE id = $2 AND node_id IS NULL")
+        .bind(node_id)
+        .bind(sub_id)
+        .execute(&state.pool)
+        .await;
+}
+
+/// Canonical form of a `?relay_country=` value, or `None` if it is not a
+/// selection at all.
+///
+/// Two shapes are a selection: `"none"` (deliberately no relay) and an ISO-2
+/// alpha country code, stored upper-case. Everything else — an empty string, a
+/// stray `"auto"`, a three-letter typo — is a client artefact, not a user
+/// choice, and must never reach the column. Production still carries one row
+/// with `relay_country = ''`, written back when this path stored whatever
+/// arrived; that row is what this guard exists to stop repeating.
+///
+/// Read-side matching (`relay_filter_cc` below) is already case-insensitive, so
+/// normalising on write only makes the stored value canonical — it does not
+/// change which relays anyone gets.
+fn normalize_relay_param(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.eq_ignore_ascii_case("none") {
+        return Some("none".to_string());
+    }
+    if trimmed.len() == 2 && trimmed.chars().all(|c| c.is_ascii_alphabetic()) {
+        return Some(trimmed.to_ascii_uppercase());
+    }
+    None
+}
+
+/// Records the relay carried by `?relay_country=` as the subscription's stored
+/// choice.
+///
+/// Deliberately NOT `..._if_unset`, unlike [`persist_node_if_unset`]. That is
+/// the shape this used to have, and on a table where every production row
+/// already has a non-NULL `relay_country` it means the column freezes at its
+/// first-ever value: the mini-app's relay picker has no other writer — it
+/// expresses a pick only by baking it into the subscription URL — so an
+/// `IS NULL` guard silently retires the picker for every existing subscriber.
+/// The request served still filtered correctly, which is why nothing looked
+/// broken; the NEXT fetch without the parameter served the old relay again.
+///
+/// What protects a newer choice instead is the caller's `app_owns_selection`
+/// check plus `IS DISTINCT FROM` here: re-posting the value already stored
+/// touches no row, so a client re-fetching its config produces no write at all.
+async fn persist_relay_from_url(state: &AppState, sub_id: i64, relay_country: &str) {
+    let Some(value) = normalize_relay_param(relay_country) else {
+        return;
+    };
+    let _ = sqlx::query(
+        "UPDATE subscriptions SET relay_country = $1 \
+         WHERE id = $2 AND relay_country IS DISTINCT FROM $1",
+    )
+    .bind(&value)
+    .bind(sub_id)
+    .execute(&state.pool)
+    .await;
+}
+
 fn parse_ip_maybe(value: &str) -> Option<std::net::IpAddr> {
     let value = value.trim();
     if value.is_empty() {
@@ -285,6 +382,31 @@ pub async fn subscription_handler(
     };
 
     let traffic_limit_gb = plan_details.1;
+
+    // Класс тарифа. На бесплатном плане энфорсмент считает по daily_traffic_mb,
+    // а не по traffic_limit_gb, и без этих двух колонок весь показ ниже
+    // (Subscription-Userinfo и HTML-страница) врал бы ровно на разницу между
+    // 10 ГБ в колонке и 200 МБ, которые на самом деле разрешены.
+    let (is_free, daily_traffic_mb): (bool, i32) = sqlx::query_as(
+        "SELECT COALESCE(is_free, FALSE), COALESCE(daily_traffic_mb, 0) FROM plans WHERE id = $1",
+    )
+    .bind(sub.plan_id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None)
+    .unwrap_or((false, 0));
+    let bonus_traffic_mb = crate::services::bonus_traffic::balance_mb(&state.pool, sub.user_id)
+        .await
+        .unwrap_or(0);
+    // Ровно тот потолок, по которому подписку истекают/троттлят: лимит плана
+    // (суточный на free, общий на платном) плюс бонусный трафик. None = безлимит.
+    let enforced_limit_bytes = crate::services::bonus_traffic::plan_quota_limit_bytes(
+        is_free,
+        traffic_limit_gb as i64,
+        daily_traffic_mb as i64,
+        bonus_traffic_mb,
+    );
+
     // Клампим used_traffic к нулю. Отрицательных значений в базе больше нет —
     // одноразовый онбординг-headroom засевал used_traffic в минус и был убран
     // вместе с ним (миграция 20260831120000), — но заголовок
@@ -293,19 +415,19 @@ pub async fn subscription_handler(
     let used_traffic_bytes = (sub.used_traffic as i64).max(0);
     let expire_timestamp = sub.expires_at.timestamp();
 
-    // upload=0; download=used; total=limit; expire=timestamp
-    // When traffic_limit_gb == 0 (unlimited), omit `total` so clients show ∞
-    let user_info_header = if traffic_limit_gb > 0 {
-        let total_traffic_bytes = (traffic_limit_gb as i64) * 1024 * 1024 * 1024;
-        format!(
+    // upload=0; download=used; total=limit; expire=timestamp.
+    // Безлимит (None) отдаём без `total`, чтобы клиент нарисовал ∞. На
+    // суточном плане `total` — это норма на сутки: клиент покажет расход из
+    // 200 МБ, что совпадает с тем, за что его отключат, а не из 10 ГБ.
+    let user_info_header = match enforced_limit_bytes {
+        Some(total_traffic_bytes) => format!(
             "upload=0; download={}; total={}; expire={}",
             used_traffic_bytes, total_traffic_bytes, expire_timestamp
-        )
-    } else {
-        format!(
+        ),
+        None => format!(
             "upload=0; download={}; expire={}",
             used_traffic_bytes, expire_timestamp
-        )
+        ),
     };
 
     // ===================================================================
@@ -328,12 +450,13 @@ pub async fn subscription_handler(
         // Use already fetched plan_details
         let plan_name = plan_details;
 
-        let used_gb = sub.used_traffic as f64 / 1024.0 / 1024.0 / 1024.0;
-        let limit_gb = plan_name.1;
-        let traffic_pct = if limit_gb > 0 {
-            ((used_gb / limit_gb as f64) * 100.0).min(100.0) as i32
-        } else {
-            0
+        // Страница считает по тому же потолку в байтах, что и заголовок выше:
+        // проценты и подпись должны сходиться с причиной блокировки, иначе
+        // отключённый бесплатник видит «2% из 10 ГБ» и решает, что сервис сломан.
+        let used_bytes = used_traffic_bytes as f64;
+        let traffic_pct = match enforced_limit_bytes {
+            Some(limit) if limit > 0 => ((used_bytes / limit as f64) * 100.0).min(100.0) as i32,
+            _ => 0,
         };
         let days_left = (sub.expires_at - chrono::Utc::now()).num_days().max(0);
         let duration_days = (sub.expires_at - sub.created_at).num_days();
@@ -372,10 +495,22 @@ pub async fn subscription_handler(
             )
         };
 
-        let traffic_display = if limit_gb > 0 {
-            format!("{:.2} GB / {} GB", used_gb, limit_gb)
-        } else {
-            format!("{:.2} GB / ∞", used_gb)
+        // На суточном плане и расход, и потолок — мегабайты за сутки: писать их
+        // в гигабайтах («0.02 GB / 0.20 GB») бесполезно.
+        const BYTES_IN_GB: f64 = 1024.0 * 1024.0 * 1024.0;
+        const BYTES_IN_MB: f64 = 1024.0 * 1024.0;
+        let traffic_display = match enforced_limit_bytes {
+            Some(limit) if is_free => format!(
+                "{:.1} MB / {:.1} MB today",
+                used_bytes / BYTES_IN_MB,
+                limit as f64 / BYTES_IN_MB
+            ),
+            Some(limit) => format!(
+                "{:.2} GB / {:.2} GB",
+                used_bytes / BYTES_IN_GB,
+                limit as f64 / BYTES_IN_GB
+            ),
+            None => format!("{:.2} GB / ∞", used_bytes / BYTES_IN_GB),
         };
 
         let html = format!(
@@ -535,7 +670,7 @@ function copyLink(){{
             expires_display = expires_display,
             sub_url = sub_url,
             sub_url_encoded = urlencoding::encode(&sub_url),
-            progress_bar = if limit_gb > 0 {
+            progress_bar = if enforced_limit_bytes.is_some() {
                 format!(
                     r#"<div class="progress"><div class="progress-fill" style="width:{}%"></div></div>"#,
                     traffic_pct
@@ -597,6 +732,16 @@ function copyLink(){{
     // When a user selects a server in TMA, sub.node_id is set.  The subscription
     // URL from the client app does NOT always carry ?node_id=, so we fall back
     // to the persisted pin.  This ensures "one subscription = one server".
+    //
+    // The precedence is deliberate and unchanged, and it bounds what
+    // `PUT /api/v2/app/subscriptions/{id}/selection` can actually do. That
+    // endpoint writes the STORED selection; it does not steer a tunnel whose
+    // config request carries `?node_id=`. The Go core sends that parameter on
+    // every panel-path fetch, so for the app the exit is decided by the
+    // parameter the core puts in the URL, and the stored value is only what
+    // gets used when the parameter is absent. Making the selection endpoint
+    // authoritative over a live tunnel would mean the core dropping `?node_id=`
+    // — a core-side change, not a panel one.
     let effective_node_id = params.node_id.or(sub.node_id);
 
     let mut filtered_nodes =
@@ -622,25 +767,30 @@ function copyLink(){{
     {
         let auto_id = first.id;
         filtered_nodes.retain(|n| n.id == auto_id);
-        let _ = state
-            .subscription_service
-            .update_subscription_node(sub.id, Some(auto_id))
-            .await;
-        tracing::info!(
-            "Auto-selected node {} for new subscription {}",
-            auto_id,
-            sub.id
-        );
+        // The narrowing above is unconditional (it is what keeps the response
+        // small); only the *persistence* of that guess is suppressed. When the
+        // app owns the selection, `node_id = NULL` means "operator's choice,
+        // re-evaluated every fetch" — pinning it here would silently turn the
+        // user's explicit reset back into a pin the app would then display.
+        if !app_owns_selection(&state, sub.id).await {
+            persist_node_if_unset(&state, sub.id, auto_id).await;
+            tracing::info!(
+                "Auto-selected node {} for new subscription {}",
+                auto_id,
+                sub.id
+            );
+        }
     }
 
-    // Persist last explicitly selected node so UI/miniapp can show where the user last pulled config from.
+    // Persist last explicitly selected node so UI/miniapp can show where the user
+    // last pulled config from. Write-on-GET only: it must never overwrite a stored
+    // choice, so it is doubly gated (app marker + `node_id IS NULL`). `?node_id=`
+    // keeps working as a filter regardless — see `effective_node_id` above.
     if let Some(selected_node_id) = params.node_id
         && filtered_nodes.iter().any(|n| n.id == selected_node_id)
+        && !app_owns_selection(&state, sub.id).await
     {
-        let _ = state
-            .subscription_service
-            .update_subscription_node(sub.id, Some(selected_node_id))
-            .await;
+        persist_node_if_unset(&state, sub.id, selected_node_id).await;
     }
 
     let node_infos = match state
@@ -684,10 +834,26 @@ function copyLink(){{
         );
     }
 
+    // Relay selection priority:
+    // 1. Explicit relay_country URL param (from TMA picker)
+    // 2. Persisted relay_country in subscription DB record (app / TMA choice)
+    // 3. Auto-detected client country via GeoIP
+    // 4. Fallback: include all relays
+    // Resolved before the cache key on purpose: the key must move the moment the
+    // stored choice changes, otherwise a `PUT .../selection` would be invisible
+    // for the lifetime of the cached entry on a URL that carries no parameters.
+    let effective_relay = params
+        .relay_country
+        .clone()
+        .or_else(|| sub.relay_country.clone());
+
     let cache_node_id = effective_node_id.unwrap_or(0);
     let cache_variant = params.variant.as_deref().unwrap_or("default");
     let cache_cc = client_cc.as_deref().unwrap_or("XX");
-    let cache_relay = params.relay_country.as_deref().unwrap_or("auto");
+    let cache_relay = effective_relay
+        .as_deref()
+        .map(|r| r.to_ascii_uppercase())
+        .unwrap_or_else(|| "auto".to_string());
     let cache_key = format!(
         "sub_config_v5:{}:{}:{}:{}:{}:{}",
         uuid, client_type, cache_node_id, cache_variant, cache_cc, cache_relay
@@ -731,27 +897,35 @@ function copyLink(){{
         .await
         .unwrap_or_default();
 
-    // Relay selection priority:
-    // 1. Explicit relay_country URL param (from TMA picker)
-    // 2. Persisted relay_country in subscription DB record
-    // 3. Auto-detected client country via GeoIP
-    // 4. Fallback: include all relays
-    let effective_relay = params
-        .relay_country
-        .clone()
-        .or_else(|| sub.relay_country.clone());
-
-    // Persist relay choice when explicitly provided via URL param
-    if let Some(rc) = &params.relay_country {
-        let _ = sqlx::query("UPDATE subscriptions SET relay_country = $1 WHERE id = $2")
-            .bind(rc)
-            .bind(sub.id)
-            .execute(&state.pool)
-            .await;
+    // Persist the relay choice carried by the URL param.
+    //
+    // Two clients write this column and they are not symmetric. The app has a
+    // real writer — `PUT /api/v2/app/subscriptions/{id}/selection` — and taking
+    // it sets the Redis ownership marker; from then on no URL parameter touches
+    // the column, so a months-old baked-in `?relay_country=` cannot undo a pick
+    // made in the app. The mini-app has NO writer: baking the value into the
+    // subscription URL is the entire mechanism by which its picker reaches the
+    // database, so for a subscription the app has never claimed, the parameter
+    // IS the user's choice and the latest one must win.
+    //
+    // Between two URL-only clients the request itself carries nothing that
+    // separates "the user just picked this" from "this device is replaying a
+    // URL it was handed in June" — no timestamp, no nonce, and the column has
+    // no `updated_at` to compare against. So last-write-wins is chosen
+    // deliberately: it loses relay stability when two devices hold different
+    // stale URLs (each fetch re-pins its own), and it is the only option that
+    // keeps the picker working at all. Freezing instead loses the picker for
+    // 100% of existing subscribers, which is strictly worse.
+    if let Some(rc) = &params.relay_country
+        && !app_owns_selection(&state, sub.id).await
+    {
+        persist_relay_from_url(&state, sub.id, rc).await;
     }
 
     let relay_filter_cc: Option<String> = match effective_relay.as_deref() {
-        Some("none") | Some("NONE") => Some("NONE".to_string()),
+        // Case-insensitive: the app normalises to "none", the TMA has historically
+        // sent "NONE", and a mixed-case value must not fall through to geo-auto.
+        Some(v) if v.eq_ignore_ascii_case("none") => Some("NONE".to_string()),
         Some(cc) if cc.len() == 2 => Some(cc.to_uppercase()),
         _ => client_cc.clone(),
     };
@@ -848,11 +1022,34 @@ function copyLink(){{
 
 #[cfg(test)]
 mod tests {
-    use super::filter_nodes_for_subscription;
+    use super::{filter_nodes_for_subscription, normalize_relay_param};
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     struct TestNode {
         id: i64,
+    }
+
+    /// Только две формы — «релей страны XX» и «без релея» — являются выбором.
+    /// Всё остальное приходит от клиента как артефакт и в колонку попадать не
+    /// должно: в проде уже лежит строка `relay_country = ''`, записанная тогда,
+    /// когда этот путь хранил всё подряд.
+    #[test]
+    fn only_a_country_or_an_explicit_none_is_a_relay_choice() {
+        assert_eq!(normalize_relay_param("ru").as_deref(), Some("RU"));
+        assert_eq!(normalize_relay_param("RU").as_deref(), Some("RU"));
+        assert_eq!(normalize_relay_param(" nl ").as_deref(), Some("NL"));
+        // "none" канонизируется в нижний регистр — именно так его пишет
+        // PUT /selection (normalize_relay_country), и read-side сравнивает
+        // без учёта регистра в обоих случаях.
+        assert_eq!(normalize_relay_param("none").as_deref(), Some("none"));
+        assert_eq!(normalize_relay_param("NONE").as_deref(), Some("none"));
+
+        for junk in ["", "   ", "auto", "rus", "r", "1", "р у"] {
+            assert!(
+                normalize_relay_param(junk).is_none(),
+                "{junk:?} — не выбор пользователя, писать нечего"
+            );
+        }
     }
 
     #[test]
