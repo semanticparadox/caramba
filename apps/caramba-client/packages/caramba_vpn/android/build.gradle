@@ -87,6 +87,13 @@ android {
         // FOREGROUND_SERVICE_SPECIAL_USE type used below needs 34 at runtime but
         // degrades gracefully on older devices (handled in CarambaVpnService).
         minSdk 21
+
+        // The Go bridge is found by NAME from native code, so R8 must not rename
+        // or drop it. These rules travel with the module because the module is
+        // what brings the Go core in: an app that adds caramba_vpn must not have
+        // to know that its release build would otherwise abort inside
+        // Java_go_Seq_init. See proguard-rules.pro for the full account.
+        consumerProguardFiles 'proguard-rules.pro'
     }
 
     // Allow the module to build even if libs/caramba.aar is not yet present in a
