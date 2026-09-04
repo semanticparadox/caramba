@@ -339,6 +339,14 @@ class CarambaCoreLibrary {
   String csmLadder(int handle) =>
       _take(_lookupHandleCall('CarambaCsmLadder')(handle));
 
+  /// `CarambaRouteReport` (ABI v3). Что последний подъём применил к
+  /// маршрутизации: пресет, судьба каждого его внешнего списка, теги GEOSITE и
+  /// доступность базы `GeoSite.dat`, судьба выбранной страны входа.
+  ///
+  /// Читающий вызов без сети, поэтому живёт в UI-изоляте.
+  String routeReport(int handle) =>
+      _take(_lookupHandleCall('CarambaRouteReport')(handle));
+
   /// `CarambaCsmEnroll` (ABI v3). Регистрация профиля: bootstrap blob либо
   /// origin с кодом и пином. Блокирующий: идёт по лестнице.
   String csmEnroll(int handle, String json) {

@@ -68,6 +68,14 @@ mixin FakeCsmDevice {
 
   Future<String> csmLadder() async => csmLadderJson;
 
+  /// Что фейк отдаёт на [routeReport]. По умолчанию — честное «подъёма не
+  /// было»: выдуманный здоровый отчёт научил бы экран рисовать работающий блок
+  /// рекламы там, где база GEOSITE недоступна, а это ровно та ложь, ради
+  /// устранения которой мост и появился.
+  String routeReportJson = MockVpnConnection.routeReportNotRaised;
+
+  Future<String> routeReport() async => routeReportJson;
+
   /// Что фейк отдаёт на [csmEnroll]. Пусто по умолчанию: выдуманный pid и
   /// отпечаток корня закрепили бы профиль на личности, которой никто не
   /// подписывал.

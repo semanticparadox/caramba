@@ -1,4 +1,6 @@
 import 'package:caramba_client/data/models/server.dart';
+import 'package:caramba_client/domain/offering/panel_fleet.dart'
+    show PanelInboundsRead;
 import 'package:caramba_client/vpn/vpn_models.dart';
 
 /// Страна выхода как ТИП, а не как глиф флага.
@@ -57,6 +59,20 @@ enum ExitUnavailableReason {
   /// Контрол показывается выключенным с этой причиной, а не прячется.
   relayChainingUnsupported,
 
+  /// Релэй у узла в панели назначен, а цепочки в конфиге нет: генератор Clash,
+  /// чьё тело и потребляет ядро, игнорирует relay-ноды — он не выпускает ни
+  /// `dialer-proxy`, ни группы `type: relay`, и в `server:` остаётся адрес
+  /// выхода. Суффикс `↪` в имени прокси и группа `Auto-Relay` — ярлык.
+  ///
+  /// Причина отдельная от [relayChainingUnsupported]: там источник цепочку
+  /// выразить не может в принципе, здесь оператор её настроил, а до провода она
+  /// не доехала. Пользователю это разные новости.
+  relayNotChainedByGenerator,
+
+  /// `GET /relays` называет только страны входа; какие узлы за ними стоят и
+  /// строится ли через них цепочка, панель на этом эндпоинте не сообщает.
+  relaysReportedByCountryOnly,
+
   /// Каталог CSM ещё не ведёт инвентарь выходов.
   catalogNotReady,
 
@@ -110,7 +126,13 @@ class ExitAvailability {
         return 'Источник не сообщил ни одного узла.';
       case ExitUnavailableReason.relayChainingUnsupported:
         return 'Вход через другую страну недоступен для импортированной '
-            'подписки: цепочка строится только на конфиге панели.';
+            'подписки: цепочку такой конфиг выразить не может.';
+      case ExitUnavailableReason.relayNotChainedByGenerator:
+        return 'Оператор назначил узлам вход, но в конфиг, который читает '
+            'приложение, цепочка не попадает: трафик идёт прямо на выход.';
+      case ExitUnavailableReason.relaysReportedByCountryOnly:
+        return 'Панель называет входы только странами и не сообщает, строится '
+            'ли через них цепочка.';
       case ExitUnavailableReason.catalogNotReady:
         return 'Каталог оператора ещё не передаёт список стран.';
       case ExitUnavailableReason.noProfile:
@@ -203,6 +225,28 @@ class ExitNode {
             ExitUnavailableReason.nodeFull,
             detail: s.status,
           );
+    // Панель отдаёт инбаунды на том же `/servers`, и молчать о них здесь
+    // значило бы оставить панельный режим «источником, который протоколы не
+    // сообщает» — тем самым, из-за которого пикер показывал весь список ядра,
+    // ничего не проверив. Тройки склеиваются в одну строку намеренно: разбор
+    // формы принадлежит слою предложения (`domain/offering`), а этому полю
+    // достаточно нести токены узла.
+    final read = PanelInboundsRead.fromRow(s.rawJson);
+    final protocol = read.known.isAvailable
+        ? read.rows
+              .where((r) => r.available)
+              .map(
+                (r) => <String>[
+                  r.protocol,
+                  r.network,
+                  r.security,
+                ].where((p) => p.isNotEmpty && p != 'none').join('+'),
+              )
+              .where((t) => t.isNotEmpty)
+              .join(' ')
+        // Панель инбаунды не прочитала — это молчание, и пустая строка здесь
+        // означает именно его.
+        : '';
     return ExitNode(
       key: s.id.toString(),
       panelNodeId: s.id,
@@ -210,6 +254,7 @@ class ExitNode {
       countryCode: normalizeCountryCode(s.countryCode),
       pingMs: s.pingMs,
       load: s.load,
+      protocol: protocol,
       source: ExitInventorySource.panelRest,
       availability: availability,
     );

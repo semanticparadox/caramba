@@ -28,6 +28,20 @@ class Server {
   /// Статус: `online` / `busy` / `full` / ...
   final String status;
 
+  /// Строка ответа `/servers` целиком, как её прислала панель.
+  ///
+  /// [Server] — модель СТРОКИ СПИСКА: имя, страна, пинг, загрузка. Панель на
+  /// том же эндпоинте отдаёт ещё и `inbounds[]` с `via_relay` — данные не про
+  /// строку списка, а про то, что на этом узле можно выбрать. Разбирать их
+  /// здесь значило бы вписать в модель пикера серверов знание о протоколах,
+  /// которое ей ни для чего не нужно; терять их — оставить слой предложения без
+  /// единственного источника, который вообще различает `vless/tcp/reality` и
+  /// `vless/tcp/tls`. Поэтому строка проносится как есть, а форму читает тот,
+  /// кому она принадлежит (`domain/offering/panel_fleet.dart`).
+  ///
+  /// `null` — объект собран не из JSON (тесты, автоподбор).
+  final Map<String, dynamic>? rawJson;
+
   const Server({
     required this.id,
     required this.name,
@@ -35,6 +49,7 @@ class Server {
     this.pingMs,
     this.load = 0,
     this.status = 'online',
+    this.rawJson,
   });
 
   bool get isSelectable => status != 'full';
@@ -56,6 +71,7 @@ class Server {
     pingMs: (json['latency_ms'] as num?)?.toInt(),
     load: (json['load_pct'] as num?)?.toDouble() ?? 0,
     status: (json['status'] as String?) ?? 'online',
+    rawJson: json,
   );
 
   Map<String, dynamic> toJson() => {
@@ -74,6 +90,9 @@ class Server {
     pingMs: pingMs ?? this.pingMs,
     load: load ?? this.load,
     status: status ?? this.status,
+    // Обновление пинга не должно стирать инбаунды: пробник трогает одно поле, а
+    // потеря сырой строки обнулила бы весь пикер протокола до «неизвестно».
+    rawJson: rawJson,
   );
 }
 

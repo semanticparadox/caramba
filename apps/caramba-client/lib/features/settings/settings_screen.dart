@@ -10,6 +10,7 @@ import 'package:caramba_client/features/csm/config_age_card.dart';
 import 'package:caramba_client/features/csm/keep_or_revert_card.dart';
 import 'package:caramba_client/features/settings/csm_settings_bridge.dart';
 import 'package:caramba_client/features/settings/csm_write_status_note.dart';
+import 'package:caramba_client/features/settings/route_picker.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
@@ -93,25 +94,9 @@ class SettingsScreen extends ConsumerWidget {
                   trailing: const CsmProvenanceTag(
                     settingKey: CsmSettingKey.preset,
                   ),
-                  onTap: () async {
-                    final i = await showPickerSheet(
-                      context: context,
-                      title: 'Маршрутизация',
-                      subtitle: 'Что идёт через VPN, а что напрямую.',
-                      options: modes
-                          .map(
-                            (m) => (
-                              name: m.name,
-                              desc: m.desc,
-                              icon: m.icon as String?,
-                            ),
-                          )
-                          .toList(),
-                      selected: cfg.route,
-                      disabled: ref.read(csmDisabledRoutePresetsProvider),
-                    );
-                    if (i != null) CsmSettingsBridge.setRoute(ref, i);
-                  },
+                  // Лист общий с Home: две копии этого выбора уже успели
+                  // разойтись — на Home он открывался без карты недоступного.
+                  onTap: () => showRoutePicker(context, ref),
                 ),
                 CRow(
                   label: 'Kill-switch',

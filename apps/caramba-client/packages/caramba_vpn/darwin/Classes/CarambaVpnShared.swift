@@ -48,6 +48,11 @@ enum CarambaVpnKeys {
     // forwarded to a Flutter sink.
     static let loopbackProxy = "caramba.vpn.loopbackProxy"
 
+    // The `api.RouteReport` JSON of the LAST raise, written by the extension
+    // (the process whose core actually raised) and read by the plugin. Verbatim
+    // core output: nothing on this side parses or reshapes it.
+    static let routeReport = "caramba.vpn.routeReport"
+
     // Configuration handed from the app to the extension via providerConfiguration.
     // The first three mirror the `configure` method-channel args; the rest carry
     // the connect args + optional policy.
@@ -243,7 +248,37 @@ enum CarambaSharedState {
         CarambaAppGroup.defaults.string(forKey: CarambaVpnKeys.loopbackProxy) ?? ""
     }
 
+    /// The routing report of the LAST raise, as the core produced it.
+    ///
+    /// It crosses the App Group for the same reason the loopback address does:
+    /// the core that raised lives in the network extension, the plugin that is
+    /// asked for the report lives in the app, and `up` is never called on the
+    /// app-process core. Asking that core would answer "no tunnel has been
+    /// raised by this core instance" for the life of the install — true of that
+    /// core, a lie about the device.
+    ///
+    /// The extension is the sole writer and refreshes it whenever the core's
+    /// answer changes, teardown included, so the `tunnel_up` inside the payload
+    /// stays the core's own reading rather than a frozen one.
+    static func writeRouteReport(_ json: String) {
+        let d = CarambaAppGroup.defaults
+        // An empty answer is NOT written over a real one: on the Dart side an
+        // empty string means "this build has no bridge", and the last raise
+        // having happened is a better answer than that.
+        guard !json.isEmpty else { return }
+        d.set(json, forKey: CarambaVpnKeys.routeReport)
+    }
+
+    static func readRouteReport() -> String {
+        CarambaAppGroup.defaults.string(forKey: CarambaVpnKeys.routeReport) ?? ""
+    }
+
     /// Resets shared state to the disconnected baseline (called on stop).
+    ///
+    /// The route report is deliberately NOT reset: it answers "what did the last
+    /// raise apply", which is exactly what is asked after the tunnel comes down.
+    /// The extension rewrites it during teardown so the payload's own
+    /// `tunnel_up` goes false with the tunnel.
     static func reset() {
         writeStatus(.disconnected)
         writeTraffic(.zero)

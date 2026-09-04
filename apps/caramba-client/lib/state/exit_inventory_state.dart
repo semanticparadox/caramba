@@ -4,6 +4,8 @@ import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/server.dart';
+import 'package:caramba_client/domain/offering/panel_fleet.dart'
+    show panelRelayHopOf;
 import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/state/servers_state.dart';
@@ -175,11 +177,38 @@ ExitInventory _panelInventory(
     nodes: nodes,
     loading: async.isLoading,
     error: async.hasError ? async.error : null,
-    // Цепочка через вход работает на панельном пути: caramba-sub форвардит
-    // `?relay_country=` в конфиг.
-    relayAvailability: ExitAvailability.available,
+    relayAvailability: _panelRelayAvailability(servers),
     selectedCountry: selectedCountry,
     selectedNodeKey: selectedKey,
+  );
+}
+
+/// Работает ли выбор входа на панельном пути — по тому, что говорит сама
+/// панель, а не по надежде.
+///
+/// Здесь стояло безусловное [ExitAvailability.available] с комментарием
+/// «caramba-sub форвардит `?relay_country=` в конфиг». Форвардит — и на этом
+/// всё: генератор Clash relay-ноды игнорирует, поэтому переключатель менял
+/// параметр запроса и не менял на проводе ни байта. Теперь ответ приходит с
+/// провода: `via_relay.chained_in_config` у узлов.
+ExitAvailability _panelRelayAvailability(List<Server> servers) {
+  var sawHop = false;
+  for (final s in servers) {
+    final hop = panelRelayHopOf(s.rawJson);
+    if (hop == null) continue;
+    sawHop = true;
+    // Хотя бы один узел строит настоящую цепочку — выбор входа имеет смысл.
+    if (hop.chainedInConfig) return ExitAvailability.available;
+  }
+  if (sawHop) {
+    return const ExitAvailability.unavailable(
+      ExitUnavailableReason.relayNotChainedByGenerator,
+    );
+  }
+  // Ни один узел про вход не сказал: это молчание панели, а не отсутствие
+  // релэев — они живут на отдельном эндпоинте, который узлов не называет.
+  return const ExitAvailability.unavailable(
+    ExitUnavailableReason.relaysReportedByCountryOnly,
   );
 }
 

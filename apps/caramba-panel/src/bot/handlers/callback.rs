@@ -345,6 +345,15 @@ pub async fn callback_handler(
             "get_login_code" => {
                 let _ = bot.answer_callback_query(callback_id).await;
                 if let Some(msg) = q.message {
+                    // Ссылка первой: она не требует ввода вообще. Код следом —
+                    // запасной путь там, где схема caramba:// не перехватывается.
+                    crate::bot::handlers::command::send_connect_link(
+                        &bot,
+                        &state,
+                        msg.chat().id,
+                        tg_id,
+                    )
+                    .await;
                     crate::bot::handlers::command::send_login_code(
                         &bot,
                         &state,
@@ -1056,6 +1065,20 @@ pub async fn callback_handler(
                                         } else {
                                             response.push('\n');
                                         }
+
+                                        // Ссылка-приглашение приложения стоит
+                                        // ровно здесь: человек, копирующий адрес
+                                        // подписки, именно в этот момент и хочет
+                                        // подключить приложение. Раньше отсюда он
+                                        // уходил на экран «введите код», который
+                                        // пройти было нельзя.
+                                        response.push_str(
+                                            &crate::bot::handlers::command::connect_link_message(
+                                                &state, user_tg.id, lang,
+                                            )
+                                            .await,
+                                        );
+                                        response.push_str("\n\n");
 
                                         for link in links {
                                             response.push_str(&format!(

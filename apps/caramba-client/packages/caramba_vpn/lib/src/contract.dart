@@ -354,6 +354,82 @@ abstract interface class VpnConnection<S extends Object> {
   /// Возвращает пустую строку, когда ядро CSM недоступно в этой сборке.
   Future<String> csmState();
 
+  /// Что ПОСЛЕДНИЙ подъём реально применил к маршрутизации, как JSON.
+  ///
+  /// Читающий вызов: он ничего не запрашивает по сети и ничего не применяет.
+  ///
+  /// Экран настроек до этого моста не имел НИ ОДНОГО способа отличить
+  /// работающий блок рекламы от включённого и мёртвого, и владелец сказал об
+  /// этом ровно так: «непонятно, работают или нет». Причина не в экране —
+  /// канала не было:
+  ///
+  ///  * сборка конфига выбрасывает недоступный внешний список ВМЕСТЕ с
+  ///    правилами, которые на него ссылались, и «Россия (умный)» без
+  ///    `ru-blocked` снаружи неотличим от полноценного;
+  ///  * пресеты «Только блок рекламы» и «Стриминг и AI» это ЧИСТЫЕ теги
+  ///    GEOSITE, а секция `geox-url` пишется только под доверенным каталогом с
+  ///    подписанными хешами. Без базы `GeoSite.dat` такой тег не значит ничего.
+  ///
+  /// Форма ответа:
+  ///
+  /// ```json
+  /// {
+  ///   "known": true,
+  ///   "reason": "",
+  ///   "detail": "",
+  ///   "raised_at_ms": 1756800000000,
+  ///   "tunnel_up": true,
+  ///   "source": "preset|custom|core_default",
+  ///   "preset": {
+  ///     "preset_id": "ru-smart", "preset_name": "…", "emoji": "🇷🇺",
+  ///     "country": "RU", "final_action": "DIRECT",
+  ///     "rules": 12, "dropped_rules": 2,
+  ///     "rules_by_type": {"GEOSITE": 7, "GEOIP": 3},
+  ///     "geosite_tags": ["telegram", "…"],
+  ///     "sources": [{
+  ///       "name": "ru-blocked",
+  ///       "state": "file|mirror|dropped",
+  ///       "reason": "not_in_catalog|no_mirror",
+  ///       "detail": "…", "url": "…", "path": "…",
+  ///       "rules": 1, "kept_rules": 0
+  ///     }]
+  ///   },
+  ///   "rules": 12,
+  ///   "geosite": {
+  ///     "required": true, "tags": ["category-ads-all"],
+  ///     "state": "not_required|verified|present|refused|unknown",
+  ///     "reason": "geox_unmanaged|not_in_catalog|file_missing",
+  ///     "detail": "…", "path": "…/GeoSite.dat", "size_bytes": 0, "url": ""
+  ///   },
+  ///   "relay": {
+  ///     "requested": "TR",
+  ///     "state": "not_requested|ignored|sent",
+  ///     "capability": {"name": "relay_chaining", "supported": false,
+  ///                    "reason": "raw_profile", "detail": "…"},
+  ///     "dialer_proxy_seen": false, "detail": "…"
+  ///   },
+  ///   "ignored": [{"name": "…", "supported": false, "reason": "…"}]
+  /// }
+  /// ```
+  ///
+  /// Правила чтения, без которых экран снова начнёт врать:
+  ///
+  ///  * `known: false` означает, что подъёма ещё не было. Это НЕ «всё хорошо».
+  ///  * `rules` равен `null`, когда состав правил выбрало само ядро
+  ///    (`source: "core_default"`). Ноль и «не знаю» здесь разные ответы.
+  ///  * `geosite.state` равен `unknown` вполне законно. Показывать его
+  ///    неизвестным, а не зелёным, — единственное честное поведение;
+  ///    `refused` же означает, что все правила GEOSITE ТОЧНО мертвы.
+  ///  * `relay.dialer_proxy_seen` это НАБЛЮДЕНИЕ над применённым телом
+  ///    конфига, а не обещание панели: `state: "sent"` вместе с
+  ///    `dialer_proxy_seen: false` значит «страна ушла в панель, цепочки в
+  ///    теле нет, подтвердить нечем».
+  ///  * `reason` это машинный код; текст пользователю выбирает приложение.
+  ///    `detail` написан по-английски для журнала и показу не подлежит.
+  ///
+  /// Возвращает пустую строку, когда ядро недоступно в этой сборке.
+  Future<String> routeReport();
+
   /// Состояние всех ступеней лестницы и история попыток как JSON.
   ///
   /// История ЛОКАЛЬНА: она никогда не уходит оператору (02-SPEC.md 7.10). Этот

@@ -306,10 +306,65 @@ void main() {
       },
     );
 
-    test('вход через другую страну доступен на панельном пути', () async {
+    test('вход не объявляется рабочим без подтверждения панели', () async {
+      // Здесь стояло `isAvailable, isTrue` с обоснованием «caramba-sub
+      // форвардит relay_country в конфиг». Форвардит — и всё: генератор Clash
+      // relay-ноды игнорирует, `dialer-proxy` не выпускает, и переключатель
+      // менял параметр запроса, не меняя на проводе ни байта. Узлы фикстуры
+      // про вход не говорят ничего, и честный ответ — «панель называет входы
+      // только странами».
       final c = await _boot(
         profiles: <ConnectionProfile>[_panelProfile()],
         servers: _servers,
+      );
+      final relay = c.read(relayAvailabilityProvider);
+      expect(relay.isAvailable, isFalse);
+      expect(relay.reason, ExitUnavailableReason.relaysReportedByCountryOnly);
+    });
+
+    test('назначенный вход без цепочки выключен С ПРИЧИНОЙ', () async {
+      // Живой узел 1: `nodes.relay_id = 2`, панель отдаёт via_relay и честно
+      // сообщает `chained_in_config: false`.
+      final c = await _boot(
+        profiles: <ConnectionProfile>[_panelProfile()],
+        servers: <Server>[
+          Server.fromJson(const <String, dynamic>{
+            'id': 1,
+            'name': 'DE-1',
+            'country_code': 'DE',
+            'latency_ms': 40,
+            'status': 'online',
+            'via_relay': <String, dynamic>{
+              'node_id': 2,
+              'name': 'RU relay',
+              'country_code': 'RU',
+              'chained_in_config': false,
+            },
+          }),
+        ],
+      );
+      final relay = c.read(relayAvailabilityProvider);
+      expect(relay.isAvailable, isFalse);
+      expect(relay.reason, ExitUnavailableReason.relayNotChainedByGenerator);
+    });
+
+    test('цепочка, которую генератор строит, вход включает', () async {
+      final c = await _boot(
+        profiles: <ConnectionProfile>[_panelProfile()],
+        servers: <Server>[
+          Server.fromJson(const <String, dynamic>{
+            'id': 1,
+            'name': 'DE-1',
+            'country_code': 'DE',
+            'status': 'online',
+            'via_relay': <String, dynamic>{
+              'node_id': 2,
+              'name': 'RU relay',
+              'country_code': 'RU',
+              'chained_in_config': true,
+            },
+          }),
+        ],
       );
       expect(c.read(relayAvailabilityProvider).isAvailable, isTrue);
     });

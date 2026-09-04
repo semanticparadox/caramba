@@ -38,14 +38,6 @@ class FfiVpnConnection<S extends Object> implements VpnConnection<S> {
   /// поднят. Совпадает с 1 Гц остальных платформ.
   static const Duration pollInterval = Duration(seconds: 1);
 
-  /// Заглушка URL панели для путей без панели (raw-подписка, generic-режим).
-  ///
-  /// `CarambaNew` требует непустой panelURL и возвращает 0 на пустом, а
-  /// импорт/probe панель вообще не трогают. Домен `.invalid` зарезервирован
-  /// RFC 2606 и никогда не резолвится, так что ядро физически не может по нему
-  /// куда-то пойти.
-  static const String placeholderPanelUrl = 'https://panel.invalid';
-
   final VpnServerDescriptor<S> _describe;
   final VpnRawTargetFactory<S>? _rawTarget;
   final VpnConfigResolver? _resolveConfig;
@@ -141,6 +133,22 @@ class FfiVpnConnection<S extends Object> implements VpnConnection<S> {
 
   /// Открывает библиотеку и создаёт хэндл ядра (идемпотентно), применяя
   /// накопленные режим захвата и политику.
+  ///
+  /// Пустой [panelUrl] уезжает в ядро КАК ЕСТЬ. Раньше здесь подставлялась
+  /// заглушка `https://panel.invalid` — «домен из RFC 2606, он всё равно не
+  /// резолвится». Резолвится он и правда никогда, но ядру не всё равно, пустой
+  /// у него PanelBaseURL или нет: непустой означает «у оператора есть зеркало».
+  /// Пресет блокировки рекламы, увидев базу, ПОДАВЛЯЕТ откат на встроенный тег
+  /// GEOSITE и выпускает rule-provider на `https://panel.invalid/rulesets/ads`
+  /// — источник, который не может загрузиться никогда. Для человека с
+  /// импортированной подпиской это означало полную потерю блокировки рекламы:
+  /// список оператора не приедет, а встроенный список уже вытеснен.
+  ///
+  /// Пустая база — задокументированный режим ядра «только импорт»
+  /// (`api.NewCore`: «Пустой PanelBaseURL допустим»), и на ней пресет честно
+  /// откатывается на GEOSITE, а отчёт маршрутизации сообщает `dropped` с
+  /// причиной `no_mirror` вместо `mirror`, то есть «зеркала нет», а не
+  /// «зеркало есть, доедет ли — не видно».
   CarambaCoreLibrary _ensureCore({String panelUrl = ''}) {
     final lib = _lib ??= openCarambaCoreLibrary(
       explicitPath: _explicitLibraryPath,
@@ -148,7 +156,7 @@ class FfiVpnConnection<S extends Object> implements VpnConnection<S> {
     if (_handle == 0) {
       Directory(_workDir).createSync(recursive: true);
       _handle = lib.create(
-        panelUrl: panelUrl.isEmpty ? placeholderPanelUrl : panelUrl,
+        panelUrl: panelUrl,
         workDir: _workDir,
         tokenPath: '$_workDir/tokens.json',
       );
@@ -414,6 +422,12 @@ class FfiVpnConnection<S extends Object> implements VpnConnection<S> {
   @override
   Future<String> csmLadder() async =>
       _readCore((lib) => lib.csmLadder(_handle));
+
+  @override
+  Future<String> routeReport() async =>
+      // _readCore отдаёт пустую строку, когда библиотеки нет или символа в ней
+      // нет: сборка без ABI v3 это «отчёта нет», а не «маршрутизация пуста».
+      _readCore((lib) => lib.routeReport(_handle));
 
   @override
   Future<String> csmEnroll({

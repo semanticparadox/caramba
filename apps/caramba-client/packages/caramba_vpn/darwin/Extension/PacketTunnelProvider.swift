@@ -106,6 +106,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             #if canImport(Caramba)
             // Down() shuts mihomo's listeners (including the TUN inbound).
             try? self.core?.down()
+            // Republished AFTER down and BEFORE the core is dropped: the report
+            // survives teardown (it describes the raise that just ended), and
+            // re-reading it here is what makes the `tunnel_up` inside it follow
+            // the tunnel down instead of freezing on the value it had while the
+            // engine was still up.
+            if let client = self.core {
+                self.publishRouteReport(from: client)
+            }
             self.core = nil
             #endif
             self.connectedSinceMs = 0
@@ -211,6 +219,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         // not_configured and the ladder degrades to R1 and R5 on the one
         // platform the listener was added for (02-SPEC.md 8.2).
         CarambaSharedState.writeLoopbackProxy(client.loopbackProxyURL())
+        // The routing report is taken by the core at the moment the engine
+        // starts, and only this process has that core. Publishing it here is
+        // what lets the app answer "is the ad block actually cutting anything"
+        // at all; without it the app-process core answers "nothing raised" for
+        // the life of the install.
+        publishRouteReport(from: client)
         #else
         _ = serverId
         _ = rawMode
@@ -249,8 +263,33 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         if let t = readTraffic(from: client) {
             CarambaSharedState.writeTraffic(t)
         }
+
+        // The report also rides the poll, so a reconnect that re-applies a
+        // different config does not leave the app reading the previous raise.
+        // Written only when the core's answer actually changed: this is a whole
+        // JSON document and the tick is 1 Hz.
+        publishRouteReport(from: client)
         #endif
     }
+
+    #if canImport(Caramba)
+    /// Last report handed to the App Group, so the 1 Hz tick writes only on a
+    /// real change.
+    private var lastRouteReport: String = ""
+
+    /// Publishes the core's routing report into the App Group.
+    ///
+    /// The payload crosses verbatim: nothing here parses or reshapes it, so the
+    /// app reads exactly what `api.RouteReport` produced. A throw or an empty
+    /// answer leaves the previous report standing — the last raise is a better
+    /// answer than the empty string, which the app reads as "no bridge".
+    private func publishRouteReport(from client: CarambaClient) {
+        guard let json = try? client.routeReport(), !json.isEmpty else { return }
+        guard json != lastRouteReport else { return }
+        lastRouteReport = json
+        CarambaSharedState.writeRouteReport(json)
+    }
+    #endif
 
     #if canImport(Caramba)
     /// Reads the tunnel stage. Prefers the contract-shaped `StatusJSON()` from the

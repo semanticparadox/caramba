@@ -295,6 +295,9 @@ class MockVpnConnection<S extends Object> implements VpnConnection<S> {
   Future<String> csmLadder() async => csmLadderJson;
 
   @override
+  Future<String> routeReport() async => routeReportJson;
+
+  @override
   Future<String> csmEnroll({
     String origin = '',
     String code = '',
@@ -374,6 +377,72 @@ class MockVpnConnection<S extends Object> implements VpnConnection<S> {
   /// Что мок отдаёт на [csmLadder]. Пусто по той же причине: попытка, которой
   /// не было, в истории INV-17 быть не должна.
   String csmLadderJson = '';
+
+  /// Что мок отдаёт на [routeReport].
+  ///
+  /// По умолчанию это ЧЕСТНОЕ «подъёма не было» — ровно то, что отдаёт ядро до
+  /// первого [connect]. Мок не выдумывает здорового отчёта намеренно: экран,
+  /// собранный против выдуманного «блок рекламы работает», показал бы зелёную
+  /// галочку и на настоящем ядре, где база GEOSITE недоступна, а это и есть та
+  /// самая ложь, ради устранения которой мост появился.
+  ///
+  /// Тест подставляет сюда свой отчёт. Заготовки для типичных состояний —
+  /// [routeReportRaisedAdblockUnknownGeosite] и
+  /// [routeReportRaisedDroppedRuleSource].
+  String routeReportJson = routeReportNotRaised;
+
+  /// Отчёт до первого подъёма: `known:false` с причиной `not_raised`.
+  static const String routeReportNotRaised =
+      '{"known":false,"reason":"not_raised",'
+      '"detail":"no tunnel has been raised by this core instance, so there is '
+      'nothing applied to report on",'
+      '"tunnel_up":false,"rules":null,'
+      '"geosite":{"required":false,"state":"unknown","reason":"not_raised",'
+      '"path":"","size_bytes":0},'
+      '"relay":{"state":"not_requested","dialer_proxy_seen":false}}';
+
+  /// Заготовка: пресет «Только блок рекламы» поднят, а состояние базы GEOSITE
+  /// неизвестно. Это САМЫЙ частый реальный случай — доверенного каталога нет,
+  /// `geox-url` не пишется, и обещать пользователю работающий блок рекламы
+  /// нечем.
+  static const String routeReportRaisedAdblockUnknownGeosite =
+      '{"known":true,"raised_at_ms":1756800000000,"tunnel_up":true,'
+      '"source":"preset",'
+      '"preset":{"preset_id":"adblock","preset_name":"Только блок рекламы",'
+      '"emoji":"🛡️","final_action":"DIRECT","rules":2,"dropped_rules":0,'
+      '"rules_by_type":{"GEOIP":1,"GEOSITE":1},'
+      '"geosite_tags":["category-ads-all"]},'
+      '"rules":2,'
+      '"geosite":{"required":true,"tags":["category-ads-all"],'
+      '"state":"unknown","reason":"geox_unmanaged",'
+      '"detail":"no trusted catalog and no local GeoSite.dat",'
+      '"path":"/data/caramba/GeoSite.dat","size_bytes":0},'
+      '"relay":{"state":"not_requested","dialer_proxy_seen":false}}';
+
+  /// Заготовка: пресет «Россия (умный)» поднят, но оба его внешних списка не
+  /// доехали. Пресет включён и наполовину пуст — экран обязан это показать.
+  static const String routeReportRaisedDroppedRuleSource =
+      '{"known":true,"raised_at_ms":1756800000000,"tunnel_up":true,'
+      '"source":"preset",'
+      '"preset":{"preset_id":"ru-smart","preset_name":"Россия (умный)",'
+      '"emoji":"🇷🇺","country":"RU","final_action":"DIRECT",'
+      '"rules":10,"dropped_rules":2,'
+      '"rules_by_type":{"GEOIP":2,"GEOSITE":8},'
+      '"geosite_tags":["telegram","instagram","facebook","twitter","youtube",'
+      '"discord","openai","category-ru"],'
+      '"sources":['
+      '{"name":"ru-blocked","state":"dropped","reason":"no_mirror",'
+      '"detail":"no verified file and no mirror base URL","rules":1,'
+      '"kept_rules":0},'
+      '{"name":"ru-blocked-ip","state":"dropped","reason":"no_mirror",'
+      '"detail":"no verified file and no mirror base URL","rules":1,'
+      '"kept_rules":0}]},'
+      '"rules":10,'
+      '"geosite":{"required":true,"tags":["telegram"],"state":"verified",'
+      '"path":"/data/caramba/GeoSite.dat","size_bytes":1048576},'
+      '"relay":{"requested":"TR","state":"sent","dialer_proxy_seen":false,'
+      '"detail":"relay_country was sent to the panel, but the applied body '
+      'carries no dialer-proxy key"}}';
 
   /// Последняя карта `want`, переданная в [csmRequestSettings].
   Map<int, Object?> lastSettingsWrite = const <int, Object?>{};

@@ -11,6 +11,7 @@ import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/panel_probe.dart';
 import 'package:caramba_client/data/subscription_fetch.dart';
 import 'package:caramba_client/features/connections/qr_scan_sheet.dart';
+import 'package:caramba_client/features/enroll/connect_link.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
@@ -45,6 +46,23 @@ enum ImportFormat {
     }
     return ImportFormat.auto;
   }
+}
+
+/// Что предложить после импорта подписки, которую отдала панель Caramba.
+///
+/// Список намеренно короткий и состоит только из того, что панель РЕАЛЬНО умеет
+/// авторизовать: она выдаёт ссылку подключения через своего бота и гасит её
+/// одним запросом. Пункта «ввести инвайт-код» здесь больше нет — именно он был
+/// тупиком, потому что кодов панель никому не выпускала.
+enum _PanelOffer {
+  /// Открыть бота оператора: ссылку подключения выдаёт он.
+  openBot,
+
+  /// Открыть экран вставки ссылки `caramba://connect`.
+  pasteLink,
+
+  /// Ничего не делать, подписка и так работает.
+  none,
 }
 
 /// Экран импорта подписки: вставка URL или сырого текста, QR или файл, плюс
@@ -279,6 +297,19 @@ class _ConnectionImportScreenState
       setState(() => _error = 'Вставьте ссылку или конфиг.');
       return;
     }
+    // Ссылку подключения панели легко перепутать со ссылкой подписки: и ту, и
+    // другую присылает один и тот же бот в одном сообщении. Разбирать её как
+    // конфиг бессмысленно, а ошибка ядра «не разобрать подписку» ничего не
+    // объясняет. Уводим туда, где эта ссылка и обрабатывается.
+    if (looksLikeConnectLink(source)) {
+      context.go(
+        Uri(
+          path: AppRoute.connect,
+          queryParameters: {'link': source},
+        ).toString(),
+      );
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -320,12 +351,24 @@ class _ConnectionImportScreenState
 
   /// Шаг 2: завести профиль с телом, форматом и кэшем узлов.
 
-  /// Спрашивает, подключать ли распознанную панель. Возврат `true` означает
-  /// «вести на энроллмент». Текст говорит, что именно даёт подключение, иначе
-  /// вопрос выглядит как навязывание аккаунта там, где он не нужен.
-  Future<bool> _offerPanel(PanelProbeResult panel) async {
+  /// Спрашивает, подключать ли распознанную панель.
+  ///
+  /// РАНЬШЕ ЗДЕСЬ БЫЛ ТУПИК. Единственная кнопка вела на `/enroll` БЕЗ кода, то
+  /// есть на экран «введите инвайт-код», а выпускать эти коды на живой панели
+  /// было нечем: таблица пуста, и человек с уже готовым аккаунтом упирался в
+  /// требование, которое не может выполнить никто. Владелец наткнулся ровно на
+  /// это, вставив ссылку своей подписки.
+  ///
+  /// Поэтому лист предлагает ТОЛЬКО то, что панель действительно умеет выдать:
+  /// ссылку подключения `caramba://connect`, которую даёт бот оператора рядом
+  /// со ссылкой на подписку. Адрес бота берётся из брендинга самой панели. Если
+  /// панель его не опубликовала, кнопки «открыть бота» НЕТ и вместо неё стоит
+  /// прямая фраза о том, что способ подключения оператор не опубликовал:
+  /// кнопка, ведущая в никуда, хуже её отсутствия.
+  Future<_PanelOffer> _offerPanel(PanelProbeResult panel) async {
     final c = context.c;
-    final answer = await showModalBottomSheet<bool>(
+    final botUrl = panel.branding.botUrl.trim();
+    final answer = await showModalBottomSheet<_PanelOffer>(
       context: context,
       backgroundColor: c.surface1,
       isScrollControlled: true,
@@ -343,27 +386,54 @@ class _ConnectionImportScreenState
               ),
               const SizedBox(height: AppSpace.s3),
               Text(
-                'Подписка уже работает. Если подключить панель, в приложении '
-                'появятся смена страны и релэя, выбор протокола, тариф и '
-                'устройства. Для этого нужен код приглашения или вход.',
+                'Подписка уже работает и никуда не денется. Если подключить '
+                'панель, добавятся смена страны и релэя, выбор протокола, тариф '
+                'и устройства.',
                 style: AppType.bodyMd.copyWith(color: c.textMed),
               ),
-              const SizedBox(height: AppSpace.s5),
-              FilledButton(
-                onPressed: () => Navigator.of(sheetContext).pop(true),
-                child: const Text('Подключить панель'),
+              const SizedBox(height: AppSpace.s3),
+              Text(
+                botUrl.isEmpty
+                    ? 'Подключение делается ссылкой, которую выдаёт бот '
+                          'оператора. Адрес бота эта панель не публикует, '
+                          'поэтому открыть его отсюда нельзя: возьмите ссылку у '
+                          'оператора и вставьте её.'
+                    : 'Подключение делается ссылкой из бота оператора: она '
+                          'приходит личным сообщением рядом со ссылкой на '
+                          'подписку.',
+                style: AppType.bodySm.copyWith(color: c.textLow),
               ),
+              const SizedBox(height: AppSpace.s5),
+              if (botUrl.isNotEmpty) ...[
+                FilledButton(
+                  onPressed: () =>
+                      Navigator.of(sheetContext).pop(_PanelOffer.openBot),
+                  child: const Text('Открыть бота за ссылкой'),
+                ),
+                const SizedBox(height: AppSpace.s2),
+                GhostButton(
+                  label: 'У меня уже есть ссылка',
+                  onPressed: () =>
+                      Navigator.of(sheetContext).pop(_PanelOffer.pasteLink),
+                ),
+              ] else
+                FilledButton(
+                  onPressed: () =>
+                      Navigator.of(sheetContext).pop(_PanelOffer.pasteLink),
+                  child: const Text('Вставить ссылку подключения'),
+                ),
               const SizedBox(height: AppSpace.s2),
               GhostButton(
                 label: 'Пока не нужно',
-                onPressed: () => Navigator.of(sheetContext).pop(false),
+                onPressed: () =>
+                    Navigator.of(sheetContext).pop(_PanelOffer.none),
               ),
             ],
           ),
         ),
       ),
     );
-    return answer ?? false;
+    return answer ?? _PanelOffer.none;
   }
 
   Future<void> _save() async {
@@ -393,10 +463,22 @@ class _ConnectionImportScreenState
     // профиль уже сохранён и работает как обычная подписка.
     final panel = await probeCarambaPanel(source);
     if (!mounted) return;
-    if (panel != null && await _offerPanel(panel)) {
+    if (panel != null) {
+      final offer = await _offerPanel(panel);
       if (!mounted) return;
-      context.go('${AppRoute.enroll}?panel=${Uri.encodeComponent(panel.origin)}');
-      return;
+      switch (offer) {
+        case _PanelOffer.openBot:
+          // Уводим в бота и остаёмся здесь: ссылка придёт в мессенджер, и по
+          // возвращении человек либо откроет её (диплинк сам приведёт на экран
+          // подтверждения), либо вставит вручную.
+          await openExternal(context, panel.branding.botUrl.trim());
+          if (!mounted) return;
+        case _PanelOffer.pasteLink:
+          context.go(AppRoute.connect);
+          return;
+        case _PanelOffer.none:
+          break;
+      }
     }
     if (!mounted) return;
     // Generic-режим: пользователь пришёл сюда с экрана входа или по deeplink
@@ -423,6 +505,18 @@ class _ConnectionImportScreenState
   Future<void> _scanQr() async {
     final code = await showQrScanSheet(context);
     if (code == null || !mounted) return;
+    // QR с приглашением панели встречается тут ровно так же часто, как QR с
+    // подпиской: оператор печатает оба. Класть приглашение в поле подписки
+    // значит гарантировать невнятную ошибку разбора.
+    if (looksLikeConnectLink(code.trim())) {
+      context.go(
+        Uri(
+          path: AppRoute.connect,
+          queryParameters: {'link': code.trim()},
+        ).toString(),
+      );
+      return;
+    }
     _sourceController.text = code;
     _resetPreview();
     setState(() {});

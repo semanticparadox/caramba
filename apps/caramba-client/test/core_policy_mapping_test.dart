@@ -11,10 +11,23 @@ import 'package:caramba_client/data/models/split_app.dart';
 import 'package:caramba_client/state/core_config_state.dart';
 import 'package:caramba_client/state/core_policy_mapping.dart';
 
+/// Входы ровно в той форме, в какой их отдаёт панель: `GET /app/relays`
+/// плюс два псевдо-варианта, которые дописывает клиент. Раньше здесь стоял
+/// `Relay.defaults` с выдуманными Турцией, Казахстаном и Финляндией — тест
+/// проверял перевод индекса в страну по списку, которого у оператора нет.
+/// Индексы сохранены: 0 — Выкл, 1 — Авто, 2 — страна.
+final _panelRelays = Relay.fromCountries(<Relay>[
+  Relay.fromApiJson(const <String, dynamic>{
+    'country_code': 'TR',
+    'country_name': 'Турция',
+    'node_count': 2,
+  }),
+]);
+
 void main() {
   group('corePolicyFrom', () {
     test('дефолтная конфигурация означает «ядро решает само»', () {
-      final policy = corePolicyFrom(const CoreConfig(), Relay.defaults);
+      final policy = corePolicyFrom(const CoreConfig(), _panelRelays);
 
       // Протокол это единственное поле, где «Авто» на проводе имеет имя.
       expect(policy.protocol, 'auto');
@@ -34,7 +47,7 @@ void main() {
         const CoreConfig(
           protocol: 2, // VLESS-Reality
           route: 3, // streaming
-          relay: 2, // TR в Relay.defaults
+          relay: 2, // TR в _panelRelays
           stack: 2, // gvisor
           dns: 1, // cloudflare
           mtu: 2, // 1420
@@ -42,7 +55,7 @@ void main() {
           fakeIp: false,
           killSwitch: false,
         ),
-        Relay.defaults,
+        _panelRelays,
       );
 
       expect(policy.protocol, 'VLESS-Reality');
@@ -58,26 +71,23 @@ void main() {
     });
 
     test('пресет full переименован в ru-full, как его знает ядро', () {
-      final policy = corePolicyFrom(const CoreConfig(route: 2), Relay.defaults);
+      final policy = corePolicyFrom(const CoreConfig(route: 2), _panelRelays);
       expect(policy.preset, 'ru-full');
     });
 
     test('relay «Выкл» и «Авто» дают пустую строку', () {
       expect(
-        corePolicyFrom(const CoreConfig(relay: 0), Relay.defaults).relay,
+        corePolicyFrom(const CoreConfig(relay: 0), _panelRelays).relay,
         '',
       );
       expect(
-        corePolicyFrom(const CoreConfig(relay: 1), Relay.defaults).relay,
+        corePolicyFrom(const CoreConfig(relay: 1), _panelRelays).relay,
         '',
       );
     });
 
     test('индекс relay вне списка панели не роняет маппинг', () {
-      final policy = corePolicyFrom(
-        const CoreConfig(relay: 99),
-        Relay.defaults,
-      );
+      final policy = corePolicyFrom(const CoreConfig(relay: 99), _panelRelays);
       expect(policy.relay, '');
     });
 
@@ -88,7 +98,7 @@ void main() {
           splitApps: {'com.b', 'com.a'},
           bypassDomains: 'example.com, bank.ru\nmail.local\n\n',
         ),
-        Relay.defaults,
+        _panelRelays,
       );
       expect(allow.split?.mode, 'allow');
       // Порядок приложений детерминирован: иначе JSON политики «дрожит» и
@@ -102,7 +112,7 @@ void main() {
 
       final bypass = corePolicyFrom(
         const CoreConfig(splitMode: SplitMode.bypassSelected),
-        Relay.defaults,
+        _panelRelays,
       );
       expect(bypass.split?.mode, 'bypass');
     });
@@ -110,7 +120,7 @@ void main() {
     test('в режиме off приложения и домены не отправляются', () {
       final policy = corePolicyFrom(
         const CoreConfig(splitApps: {'com.a'}, bypassDomains: 'example.com'),
-        Relay.defaults,
+        _panelRelays,
       );
       expect(policy.split?.mode, 'off');
       expect(policy.split?.apps, isEmpty);
@@ -118,7 +128,7 @@ void main() {
     });
 
     test('toJson не пишет ключи, которые ядро не должно менять', () {
-      final json = corePolicyFrom(const CoreConfig(), Relay.defaults).toJson();
+      final json = corePolicyFrom(const CoreConfig(), _panelRelays).toJson();
       expect(json.containsKey('stack'), isFalse);
       expect(json.containsKey('mtu'), isFalse);
       expect(json.containsKey('dns'), isFalse);

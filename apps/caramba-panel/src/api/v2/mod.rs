@@ -152,6 +152,10 @@ pub fn app_routes(_state: AppState) -> axum::Router<AppState> {
         // Публичная валидация кода вовлечения (до register/login). READ-ONLY,
         // не списывает использование; PII не утекает.
         .route("/enroll/{code}", get(app_enroll::validate_enroll_code))
+        // Погашение кода из ссылки caramba://connect: единственный путь для
+        // человека, у которого нет ничего, кроме этой ссылки. Публичный —
+        // аутентификацией здесь служит сам одноразовый код.
+        .route("/enroll/redeem", post(app_enroll::redeem_connect_code))
         // Публичный branding (до логина): тир-гейт + brand_* из settings.
         // READ-ONLY; отдаёт только brand_* + флаги, никаких секретов.
         .route("/branding", get(app_branding::get_branding));

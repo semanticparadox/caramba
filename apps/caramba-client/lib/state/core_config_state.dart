@@ -221,7 +221,14 @@ final routingModesProvider = Provider<List<RoutingMode>>(
 );
 
 /// Список relay-входов для синхронного чтения (Home config-row). Берёт реальные
-/// relay-страны из [apiRelaysProvider] когда они загружены, иначе [Relay.defaults].
+/// relay-страны из [apiRelaysProvider] когда они загружены, иначе
+/// [Relay.defaults].
+///
+/// Откат на [Relay.defaults] больше не подставляет стран: там остались только
+/// «Выкл» и «Авто», истинные при любом флоте. Пока панель молчит, пикер честно
+/// пуст на страны — вместо трёх выдуманных, которые он показывал раньше. Сами
+/// входы (узлами, а не странами) живут в слое предложения:
+/// `domain/offering/offering_providers.dart`, `relayOffersProvider`.
 /// Picker'ы, которым нужны loading/error, читают [apiRelaysProvider] напрямую.
 final relaysProvider = Provider<List<Relay>>((ref) {
   return ref.watch(apiRelaysProvider).valueOrNull ?? Relay.defaults;

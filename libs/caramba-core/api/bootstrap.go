@@ -247,25 +247,70 @@ func safeRuleSetPath(name string) (string, error) {
 // пул зеркал и набор подтверждённых списков приходят из каталога и меняются
 // между запусками, а конфиг, собранный на прошлом каталоге, указывал бы на
 // зеркало, которого уже нет.
-func (c *Core) routingForBuild(plan bootstrapPlan) *routing.Config {
+// Второе возвращаемое значение это сырьё отчёта RouteReportJSON: откуда взялись
+// правила и что при сборке потерялось. Считать его отдельным проходом нельзя —
+// потери происходят ровно здесь, а снаружи пресет без выброшенного списка
+// неотличим от пресета, у которого списка не было.
+func (c *Core) routingForBuild(plan bootstrapPlan) (*routing.Config, routeSnapshot) {
 	c.mu.Lock()
 	presetID := c.presetID
 	current := c.policy.Routing
 	c.mu.Unlock()
+
+	snap := routeSnapshot{
+		source:     RouteSourceCoreDefault,
+		geoManaged: plan.boot.Managed,
+		geoURL:     plan.boot.GeoSiteURL,
+	}
+	// Своя конфигурация без пресета: состав правил известен, происхождение —
+	// нет, и разбирать её на источники здесь не по чему. Теги GEOSITE всё
+	// равно считаем: база нужна им ровно так же, как правилам пресета.
+	if current != nil {
+		snap.source = RouteSourceCustom
+		n := len(current.Rules)
+		snap.rules = &n
+		snap.geositeTags = geositeTagsOf(current.Rules)
+	}
 	if presetID == "" {
-		return current
+		return current, snap
 	}
 	preset, ok := routing.PresetByID(presetID)
 	if !ok {
-		return current
+		return current, snap
 	}
-	cfg := preset.BuildWith(plan.pool, profile.CarambaSelector)
+	cfg, rep := preset.BuildWithReport(plan.pool, profile.CarambaSelector)
 	if err := cfg.Validate(); err != nil {
 		// Несогласованный набор правил лучше не подсовывать ядру: остаёмся на
-		// том, что уже было применено.
-		return current
+		// том, что уже было применено. Отчёт при этом обязан описывать ТО, что
+		// осталось в силе, а не сборку, которая была отвергнута.
+		return current, snap
 	}
-	return &cfg
+	snap.source = RouteSourcePreset
+	snap.preset = &rep
+	n := rep.Rules
+	snap.rules = &n
+	snap.geositeTags = rep.GeositeTags
+	return &cfg, snap
+}
+
+// geositeTagsOf собирает теги GEOSITE правил без повторов, в порядке появления.
+//
+// Нужен для конфигурации, поданной напрямую (SetRouting): у неё нет отчёта
+// сборки, а вопрос «нужна ли этому подъёму база GeoSite.dat» стоит тот же.
+func geositeTagsOf(rules []routing.Rule) []string {
+	seen := make(map[string]struct{}, len(rules))
+	var out []string
+	for _, r := range rules {
+		if r.Type != routing.MatchGeosite {
+			continue
+		}
+		if _, dup := seen[r.Value]; dup {
+			continue
+		}
+		seen[r.Value] = struct{}{}
+		out = append(out, r.Value)
+	}
+	return out
 }
 
 // presetCountry возвращает ISO-код страны пресета (пусто у глобальных).

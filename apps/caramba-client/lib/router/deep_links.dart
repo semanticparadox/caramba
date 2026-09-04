@@ -5,18 +5,26 @@ import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/models/csm_enrollment.dart';
 import 'package:caramba_client/data/models/enrollment.dart';
+import 'package:caramba_client/features/enroll/connect_link.dart';
 import 'package:caramba_client/router/routes.dart';
 
 /// Intake входящих deeplink'ов (P2, contract A).
 ///
 /// Слушает custom-scheme URI через [AppLinks]: и холодный старт (приложение
-/// запущено ссылкой), и тёплый (уже работает). Поддерживаются два действия:
+/// запущено ссылкой), и тёплый (уже работает). Поддерживаются три действия:
+///   * `caramba://connect?d=<armor>` — самоописывающееся приглашение: навигация
+///     на [AppRoute.connect], где человек видит оператора и адрес панели и
+///     подтверждает подключение. Ввода нет вообще;
 ///   * `carambaconnect://enroll?panel=<https>&code=<code>` — навигация на
 ///     [AppRoute.enroll]; экран заводит профиль панели, валидирует код и ведёт
 ///     в register/login (аккаунт обязателен);
 ///   * `carambaconnect://import?url=<encoded sub url>` — навигация на
 ///     [AppRoute.connectionImport] с подставленной ссылкой подписки
 ///     (generic-режим, панель не нужна).
+///
+/// Схема `carambaconnect` остаётся живой НАВСЕГДА рядом с новой `caramba`:
+/// ссылки, уже разосланные людям, обязаны продолжать работать, а сломанный
+/// диплинк выглядит как молчащее приложение и неотличим от сбоя.
 ///
 /// Регистрация схемы — платформенная (Android intent-filter, iOS/macOS
 /// CFBundleURLTypes, Windows/Linux протокол). Без неё OS не доставит ссылку;
@@ -56,6 +64,16 @@ class DeepLinkHandler {
   /// Локация роутера, на которую ведёт ссылка, или `null`, если это не наш
   /// deeplink. Чистая функция: разбор ссылки проверяется без роутера.
   static String? targetOf(String raw) {
+    // Ссылка подключения идёт раньше всех: у неё своя схема, и ни один из
+    // разборщиков ниже её не узнает. Срок здесь НЕ проверяется — просроченная
+    // ссылка это не «чужая ссылка», и сказать об этом должен экран, у которого
+    // есть место для причины, а не молчаливый отказ навигации.
+    if (looksLikeConnectLink(raw)) {
+      return Uri(
+        path: AppRoute.connect,
+        queryParameters: {'link': raw.trim()},
+      ).toString();
+    }
     // Разбор CSM идёт ПЕРВЫМ: он единственный читает параметр k, то есть
     // link_pin. Разобрав ту же ссылку старым парсером, приложение молча теряет
     // пин и превращает закреплённый энроллмент в незакреплённый, а это ровно

@@ -18,8 +18,18 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(FLUTTER_BUILD_NAME)</string>
+	<!-- Две схемы намеренно, как и на iOS: caramba://connect это нынешняя
+	     ссылка-приглашение, carambaconnect:// остаётся ради уже разосланных. -->
 	<key>CFBundleURLTypes</key>
 	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.caramba.connect.link</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>caramba</string>
+			</array>
+		</dict>
 		<dict>
 			<key>CFBundleURLName</key>
 			<string>com.caramba.connect.enroll</string>

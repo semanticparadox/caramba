@@ -196,15 +196,15 @@ class _Bench extends ConsumerWidget {
             child: const Text('route'),
           ),
           TextButton(
-            onPressed: () => CsmSettingsBridge.setRelay(ref, 0, Relay.defaults),
+            onPressed: () => CsmSettingsBridge.setRelay(ref, 0, _panelRelays),
             child: const Text('relay-off'),
           ),
           TextButton(
-            onPressed: () => CsmSettingsBridge.setRelay(ref, 1, Relay.defaults),
+            onPressed: () => CsmSettingsBridge.setRelay(ref, 1, _panelRelays),
             child: const Text('relay-auto'),
           ),
           TextButton(
-            onPressed: () => CsmSettingsBridge.setRelay(ref, 2, Relay.defaults),
+            onPressed: () => CsmSettingsBridge.setRelay(ref, 2, _panelRelays),
             child: const Text('relay-country'),
           ),
           TextButton(
@@ -252,6 +252,17 @@ Future<ProviderContainer> _pumpBench(
   await _settle(tester);
   return container;
 }
+
+/// Входы, как их отдаёт панель: `Relay.defaults` больше не содержит стран —
+/// выдуманные TR/KZ/FI удалены, а пикер получает список из `GET /app/relays`.
+/// Индексы стенда прежние: 0 — Выкл, 1 — Авто, 2 — страна.
+final _panelRelays = Relay.fromCountries(<Relay>[
+  Relay.fromApiJson(const <String, dynamic>{
+    'country_code': 'TR',
+    'country_name': 'Турция',
+    'node_count': 2,
+  }),
+]);
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));

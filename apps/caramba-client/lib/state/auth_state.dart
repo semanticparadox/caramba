@@ -6,6 +6,7 @@ import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/models/auth_tokens.dart';
 import 'package:caramba_client/data/models/user.dart';
 import 'package:caramba_client/data/token_store.dart';
+import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/state/subscription_state.dart';
 
@@ -104,6 +105,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// Логин по коду из Telegram-бота (6 цифр). Панель сверяет код в Redis
   /// (`app:logincode:{code}`), привязанный к Telegram-аккаунту, и выдаёт
   /// JWT-пару. На неверный/истёкший код — 401 с inline-ошибкой в форме.
+  ///
+  /// После успеха профиль панели ОБЯЗАН существовать и быть активным: см.
+  /// [_ensurePanelProfile].
   Future<void> loginCode({required String code, String? enrollCode}) =>
       _runAuth(
         () => _api.loginCode(code: code, enrollCode: enrollCode),
@@ -145,6 +149,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = state.copyWith(stage: AuthStage.authenticated, error: null);
       await _loadProfile();
       _preloadSubscription();
+      // Профиль подключения заводится ПОСЛЕДНИМ: он может пересобрать граф
+      // провайдеров (список профилей -> активный -> хранилище токенов -> клиент
+      // -> этот нотифаер), и всё, что должно случиться в текущей сессии
+      // нотифаера, обязано случиться до этого.
+      await _ensurePanelProfile(tokens);
     } on ApiException catch (e) {
       state = state.copyWith(
         stage: AuthStage.unauthenticated,
@@ -158,6 +167,58 @@ class AuthNotifier extends StateNotifier<AuthState> {
         error: 'Что-то пошло не так. Повторите попытку.',
       );
     }
+  }
+
+  /// Заводит и активирует профиль панели после успешного входа.
+  ///
+  /// ПОЧЕМУ ЭТО ЗДЕСЬ. Сессия и профиль подключения это две разные вещи, и до
+  /// сих пор вход по коду из бота создавал только первую. В результате у
+  /// человека была панельная сессия, но не было ни одной записи
+  /// [ConnectionProfile] типа panelAccount — а именно она несёт `panelUrl`,
+  /// `subscriptionUuid` и токен, из которых резолвер собирает конфигурацию
+  /// ядра. Вкладка «Серверы» оставалась пустой ровно у тех, кто вошёл. Путь
+  /// энроллмента профиль заводил, путь входа по коду — нет, и это была не
+  /// разница в замысле, а пропущенный шаг.
+  ///
+  /// Origin берётся у клиента, которым вход и делался: в публичной сборке он
+  /// приходит из активного профиля, в брендированной — из `kApiBaseUrl`. Когда
+  /// origin пуст, заводить нечего: такой вход невозможен, потому что клиент без
+  /// панели отказывает ещё в интерсепторе.
+  ///
+  /// UUID подписки здесь НЕ запрашивается: его подтянет `_preloadSubscription`
+  /// и запишет владелец этого поля. Молчаливый лишний запрос на пути входа
+  /// стоил бы дороже, чем задержка появления uuid на пару секунд.
+  ///
+  /// НИЧЕГО НЕ ПИШЕМ, КОГДА ПИСАТЬ НЕЧЕГО. Список профилей ведёт активный
+  /// профиль, тот ведёт хранилище токенов, а то ведёт API-клиент, от которого
+  /// зависит этот самый нотифаер: любая запись сюда пересобирает половину
+  /// графа и роняет сессию в перезапуск. На повторном входе в ту же панель
+  /// менять нечего, и правильный ответ это выйти сразу.
+  ///
+  /// Токен кладётся на профиль только при СОЗДАНИИ, как запасной снимок:
+  /// `_resolveVpnConfig` предпочитает свежий токен из общего хранилища, потому
+  /// что клиент ротирует его при 401, и запись на профиле устаревает за час.
+  Future<void> _ensurePanelProfile(AuthTokens tokens) async {
+    final origin = _api.panelOrigin.trim();
+    if (origin.isEmpty) return;
+    final profiles = _ref.read(connectionProfilesProvider.notifier);
+    final existing = profiles.findPanelId(origin);
+    if (existing != null &&
+        _ref.read(connectionProfilesProvider).activeId == existing) {
+      return;
+    }
+    // Имя оператора приложение здесь ещё не знает, поэтому берём хост: он
+    // правдив. Уже названный профиль это не переименует — `addPanelAccount`
+    // трогает имя, только пока оно равно самому URL панели.
+    final id = await profiles.addPanelAccount(
+      panelUrl: origin,
+      displayName: Uri.parse(origin).host,
+    );
+    await profiles.setPanelCredentials(
+      id,
+      panelUrl: origin,
+      accessToken: tokens.accessToken,
+    );
   }
 
   /// Стартует фоновую загрузку подписки сразу после логина, чтобы у home/connect

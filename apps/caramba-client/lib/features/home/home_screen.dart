@@ -11,17 +11,21 @@ import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/protocol.dart';
 import 'package:caramba_client/data/models/relay.dart';
 import 'package:caramba_client/data/models/server.dart';
+import 'package:caramba_client/domain/offering/availability.dart';
+import 'package:caramba_client/domain/offering/offering_providers.dart';
 import 'package:caramba_client/features/csm/config_age_card.dart';
 import 'package:caramba_client/features/csm/keep_or_revert_card.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
-import 'package:caramba_client/features/settings/csm_settings_bridge.dart';
+import 'package:caramba_client/features/servers/relay_screen.dart'
+    show effectiveRelayIndex;
+import 'package:caramba_client/features/settings/applied_route_card.dart';
 import 'package:caramba_client/features/settings/reconnect_banner.dart';
+import 'package:caramba_client/features/settings/route_picker.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/account_state.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
-import 'package:caramba_client/state/exit_inventory_state.dart';
 import 'package:caramba_client/state/servers_state.dart';
 import 'package:caramba_client/state/settings_state.dart';
 import 'package:caramba_client/state/subscription_state.dart';
@@ -46,6 +50,48 @@ import 'package:caramba_client/widgets/ui.dart';
 ///     атмосфера, но данные берутся из активного [ConnectionProfile] и из
 ///     потока статистики ядра. Панельные провайдеры в этой ветке НЕ
 ///     подписываются вовсе: за ними нет данных, а запросы ушли бы в 401.
+/// Подпись под дайлом на ПАНЕЛЬНОМ пути.
+///
+/// Вынесена из виджета намеренно: единственное нетривиальное решение здесь —
+/// имеет ли приложение право утверждать цепочку, и проверять его наблюдением за
+/// экраном нельзя. Дайл в состоянии [VpnStage.connected] подставляет таймер
+/// сессии вместо этой строки, так что на самом экране она в этом состоянии
+/// сейчас не видна вовсе — а вычислялась и была ложью.
+///
+/// «Вход: X -> Y» — это УТВЕРЖДЕНИЕ о цепочке. Тело clash, которое читает ядро,
+/// цепочку выразить не может (`dialer-proxy` в нём нет), панель на живом флоте
+/// говорит `chained_in_config: false`, и баннер двумя строками ниже это уже
+/// сообщает — а заголовок утверждал обратное. Право на стрелку даёт только
+/// подтверждённая возможность: «неизвестно» её не даёт, потому что утверждение,
+/// которого никто не подтвердил, — та же ложь, что и опровергнутое.
+String panelDialSubtitle({
+  required VpnStage stage,
+  required Relay? relay,
+  required Availability chaining,
+  required String? serverName,
+  required String protocolName,
+}) {
+  switch (stage) {
+    case VpnStage.connected:
+      final chained =
+          chaining.isAvailable &&
+          relay != null &&
+          !relay.isOff &&
+          !relay.isAuto;
+      if (chained) {
+        return 'Вход: ${relay.name} -> ${serverName ?? 'сервер'}';
+      }
+      return serverName ?? 'Защищено';
+    case VpnStage.connecting:
+    case VpnStage.reconnecting:
+      return '${serverName ?? 'Сервер'} · $protocolName';
+    case VpnStage.error:
+      return 'Проверьте сеть и нажмите снова';
+    case VpnStage.disconnected:
+      return 'Нажмите, чтобы подключиться';
+  }
+}
+
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -212,10 +258,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       final relays = ref.watch(relaysProvider);
       final server = status.server ?? recommended;
       // Индекс relay мог быть выбран на дефолтном списке; relay-список с панели
-      // может быть короче — клампим, чтобы не выйти за границы.
-      final relayIdx = relays.isEmpty
-          ? 0
-          : cfg.relay.clamp(0, relays.length - 1);
+      // может быть короче. Приведение общее с кодировщиком провода, а не кламп:
+      // кламп называл последнюю строку списка там, где ядру уходило «входа не
+      // выбрано». См. [effectiveRelayIndex].
+      final relayIdx = effectiveRelayIndex(cfg.relay, relays);
+      final relay = relayIdx < 0 ? null : relays[relayIdx];
       // План для чипа: активная подписка из /app/subscriptions, иначе /me,
       // иначе активная подписка из /app/subscription, иначе Free.
       final subsList = ref.watch(subscriptionsProvider).valueOrNull;
@@ -230,19 +277,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ref.watch(subscriptionProvider).valueOrNull?.planName ??
           'Free';
 
-      csub = switch (status.stage) {
-        VpnStage.connected => () {
-          final relay = relays[relayIdx];
-          if (!relay.isOff && !relay.isAuto) {
-            return 'Вход: ${relay.name} -> ${server?.name ?? 'сервер'}';
-          }
-          return server?.name ?? 'Защищено';
-        }(),
-        VpnStage.connecting || VpnStage.reconnecting =>
-          '${server?.name ?? 'Сервер'} · ${protocols[cfg.protocol].name}',
-        VpnStage.error => 'Проверьте сеть и нажмите снова',
-        VpnStage.disconnected => 'Нажмите, чтобы подключиться',
-      };
+      csub = panelDialSubtitle(
+        stage: status.stage,
+        relay: relay,
+        chaining: ref.watch(capabilitiesProvider).relayChaining.availability,
+        serverName: server?.name,
+        protocolName: protocols[cfg.protocol].name,
+      );
       headerTrailing = Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -255,8 +296,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         status: status,
         traffic: traffic,
         server: server,
-        relays: relays,
-        relayIdx: relayIdx,
+        relay: relay,
         cfg: cfg,
         protocols: protocols,
         modes: modes,
@@ -360,6 +400,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       const CsmConfigAgeCard(),
                       const CsmPendingChangesSection(),
                       ...cards,
+                      // Что ядро ФАКТИЧЕСКИ применило. Стоит после карточек
+                      // выбора намеренно: сначала то, что пользователь
+                      // попросил, следом — что из этого получилось. До моста
+                      // отчёта второй половины не существовало вовсе, и
+                      // «блок рекламы» оставался обещанием.
+                      const AppliedRouteCard(),
                     ],
                   ),
                 ],
@@ -376,8 +422,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     required VpnStatus status,
     required TrafficStats traffic,
     required Server? server,
-    required List<Relay> relays,
-    required int relayIdx,
+    required Relay? relay,
     required CoreConfig cfg,
     required List<ProtocolOption> protocols,
     required List<RoutingMode> modes,
@@ -418,13 +463,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
             onTap: () => context.go(AppRoute.servers),
           ),
-          CRow(
-            icon: Lucide.waypoints,
-            label: 'Relay (вход)',
-            value: relays[relayIdx].name,
-            chevron: true,
-            onTap: () => context.go(AppRoute.relay),
-          ),
+          _relayRow(relay: relay),
           CRow(
             icon: protocols[cfg.protocol].icon,
             label: 'Протокол',
@@ -434,13 +473,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
           CRow(
             icon: Lucide.route,
-            label: 'Маршрут',
+            // Не «Маршрут»: владелец открыл эту строку в поисках выбора входа
+            // и увидел название страны. Правила и страна входа — разные вещи,
+            // и строка обязана называть свою.
+            label: 'Маршрут (правила)',
             value: modes[cfg.route].name,
             chevron: true,
             onTap: () => _pickRoute(),
           ),
         ],
       ),
+      if (!ref
+          .watch(capabilitiesProvider)
+          .relayChaining
+          .availability
+          .isAvailable) ...[
+        const SizedBox(height: AppSpace.s3),
+        InlineBanner(
+          glyph: Lucide.waypoints,
+          text: ref
+              .watch(capabilitiesProvider)
+              .relayChaining
+              .availability
+              .message,
+        ),
+      ],
       if (headline.diverged) ...[
         const SizedBox(height: AppSpace.s3),
         // Подмену выбора нельзя проводить молча: заголовок уже говорит правду о
@@ -506,7 +563,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     required List<RoutingMode> modes,
   }) {
     final connected = status.isConnected;
-    final count = profile?.serverCount ?? 0;
+    // МАШИНЫ, а не строки конфига. `profile.serverCount` — это длина списка
+    // прокси, то есть по строке на каждый инбаунд каждой машины: у живой
+    // подписки это 13 при двух машинах, и Home повторял ровно ту жалобу
+    // владельца («восемь серверов»), от которой экран серверов уже избавлен.
+    // Число берётся из того же слоя предложения, что и там: одна группа —
+    // одна машина.
+    final machines = ref.watch(offeringProvider).exits.length;
     final base = node ?? 'Авто';
     // «Плюс активный узел ядра»: селектор мог встать не на закреплённый узел
     // (авто-выбор), и тогда важно показать оба.
@@ -515,9 +578,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         : base;
     // Цепочка через вход на сыром конфиге не собирается. Строку всё равно
     // показываем: спрятанная, она неотличима от «такой настройки не бывает», и
-    // пользователь ищет её в обновлении приложения. Причина берётся из ядра
-    // (запись `relay_chaining` в `Capabilities`), а не сочиняется здесь.
-    final relay = ref.watch(relayAvailabilityProvider);
+    // пользователь ищет её в обновлении приложения. Причина берётся из
+    // возможности слоя предложения (`Capabilities.relayChaining`), а не
+    // сочиняется здесь.
+    final chaining = ref.watch(capabilitiesProvider).relayChaining.availability;
 
     return [
       RowsGroup(
@@ -529,11 +593,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ? 'Не выбрана'
                 : profile.displayName,
             chevron: true,
-            trailing: count == 0
+            trailing: machines == 0
                 ? null
                 : Padding(
                     padding: const EdgeInsets.only(right: AppSpace.s2),
-                    child: Tag('узлов: $count'),
+                    // Слово то же, что на экране серверов, и считает то же
+                    // самое: разойтись им нельзя.
+                    child: Tag('узлов: $machines'),
                   ),
             onTap: () => context.go(AppRoute.connections),
           ),
@@ -544,23 +610,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             chevron: true,
             onTap: () => context.go(AppRoute.servers),
           ),
-          Opacity(
-            opacity: relay.isAvailable ? 1 : 0.45,
-            child: CRow(
-              icon: Lucide.waypoints,
-              label: 'Relay (вход)',
-              // Имя входа берём из [Relay.defaults], а не из [relaysProvider]:
-              // тот тянет список у панели, а эта ветка в панель не ходит.
-              value: relay.isAvailable
-                  ? Relay
-                        .defaults[cfg.relay.clamp(0, Relay.defaults.length - 1)]
-                        .name
-                  : 'Недоступно',
-              chevron: relay.isAvailable,
-              onTap: relay.isAvailable
-                  ? () => context.go(AppRoute.relay)
-                  : null,
-            ),
+          // Имя входа берём из [Relay.defaults], а не из [relaysProvider]:
+          // тот тянет список у панели, а эта ветка в панель не ходит.
+          _relayRow(
+            relay:
+                Relay.defaults[effectiveRelayIndex(cfg.relay, Relay.defaults)],
           ),
           CRow(
             icon: protocols[cfg.protocol].icon,
@@ -571,18 +625,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
           CRow(
             icon: Lucide.route,
-            label: 'Маршрут',
+            label: 'Маршрут (правила)',
             value: modes[cfg.route].name,
             chevron: true,
             onTap: () => _pickRoute(),
           ),
         ],
       ),
-      if (!relay.isAvailable) ...[
+      if (!chaining.isAvailable) ...[
         const SizedBox(height: AppSpace.s3),
-        // Выключенная строка обязана быть названа причиной, а места под
-        // подпись у CRow нет: причина едет отдельной строкой под группой.
-        InlineBanner(glyph: Lucide.waypoints, text: relay.message),
+        // Причина относится к ЦЕПОЧКЕ, а не к строке входа: сама строка живая
+        // («Выкл» и «Авто» истинны при любом источнике). Места под подпись у
+        // CRow нет, поэтому причина едет отдельной строкой под группой.
+        InlineBanner(glyph: Lucide.waypoints, text: chaining.message),
       ],
       const SizedBox(height: AppSpace.s4),
       ValueListenableBuilder<int>(
@@ -661,23 +716,38 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return id;
   }
 
-  Future<void> _pickRoute() async {
-    final modes = ref.read(routingModesProvider);
-    final cfg = ref.read(coreConfigProvider);
-    final i = await showPickerSheet(
-      context: context,
-      title: 'Маршрутизация',
-      subtitle: 'Что идёт через VPN, а что напрямую.',
-      options: modes
-          .map((m) => (name: m.name, desc: m.desc, icon: m.icon as String?))
-          .toList(),
-      selected: cfg.route,
+  /// Строка входа, одинаковая в обеих ветках Home.
+  ///
+  /// Строка называет ЗНАЧЕНИЕ, которое сейчас в силе, и всегда ведёт на экран
+  /// входа. Раньше при недоступной цепочке она говорила «Недоступно» и не
+  /// нажималась — а это была неправда сразу дважды: «Выкл» и «Авто» доступны
+  /// при любом флоте, и именно через эту строку лежит единственный путь к
+  /// экрану, на котором чужой или устаревший вход можно снять. Причину
+  /// недоступности цепочки несёт баннер под группой, а не подмена значения.
+  ///
+  /// Приглушение осталось ровно для одного случая: в силе настоящий вход
+  /// оператора, а собрать цепочку источник не может — значит записанное
+  /// значение не исполняется, и молчать об этом нельзя.
+  Widget _relayRow({required Relay? relay}) {
+    final a = ref.watch(capabilitiesProvider).relayChaining.availability;
+    final ignored =
+        a.isUnavailable && relay != null && !relay.isOff && !relay.isAuto;
+    return Opacity(
+      opacity: ignored ? 0.45 : 1,
+      child: CRow(
+        icon: Lucide.waypoints,
+        label: 'Relay (вход)',
+        value: relay?.name ?? '·',
+        chevron: true,
+        onTap: () => context.go(AppRoute.relay),
+      ),
     );
-    if (i != null && mounted) {
-      CsmSettingsBridge.setRoute(ref, i);
-      showCarambaToast(context, 'Маршрут: ${modes[i].name}');
-    }
   }
+
+  /// Лист маршрутов общий с настройками. Своей копии здесь больше нет: она
+  /// открывала список БЕЗ карты недоступного, то есть предлагала маршруты,
+  /// которых оператор не предлагает.
+  Future<void> _pickRoute() => showRoutePicker(context, ref);
 }
 
 /// The plane the config and stats cards sit on. The chart never deviates more

@@ -107,6 +107,13 @@ type Core struct {
 	// КАЖДЫЙ подъём: пул зеркал и набор подтверждённых списков приходят из
 	// каталога и живут короче, чем выбор пользователя.
 	presetID string
+	// lastRoute — снимок маршрутизации ПОСЛЕДНЕГО подъёма (RouteReportJSON).
+	//
+	// Снимок, а не пересчёт на чтении: presetID и relayCountry живут дольше
+	// подъёма и к моменту вопроса «почему не резалась реклама» уже могли
+	// смениться. Отчёт обязан рассказывать про то, что применено, а не про то,
+	// что выбрано сейчас. nil означает, что подъёма ещё не было.
+	lastRoute *routeSnapshot
 	// lastPanelYAML — сырой YAML последнего успешно загруженного профиля панели.
 	// Нужен CarambaProbe: замер узлов идёт по «текущей загруженной конфигурации»
 	// и не должен ради этого повторно ходить в сеть.
@@ -967,8 +974,9 @@ func (c *Core) Up(ctx context.Context, serverID string) (UpResult, error) {
 	}
 	policy.Bootstrap = plan.boot
 	policy.ApplyBootstrapDNS(plan.doh, presetCountry(presetID))
-	if r := c.routingForBuild(plan); r != nil {
-		policy.Routing = r
+	route, routeSnap := c.routingForBuild(plan)
+	if route != nil {
+		policy.Routing = route
 	}
 	setProbeTarget(plan.boot.ProbeURL)
 
@@ -1051,6 +1059,16 @@ func (c *Core) Up(ctx context.Context, serverID string) (UpResult, error) {
 	// через LoopbackProxyURL и передаёт вызовом csmSetLadder.
 	c.mu.Lock()
 	c.loopbackProxyURL = policy.LoopbackProxyURL()
+	c.mu.Unlock()
+
+	// Снимок маршрутизации фиксируется ПОСЛЕ старта движка и только при нём:
+	// отчёт отвечает на вопрос «что применено», а конфиг, на котором движок не
+	// поднялся, не применён ни к чему.
+	routeSnap.relay = newRouteRelayReport(rawRelay, ignored, rawYAML)
+	routeSnap.ignored = ignored
+	routeSnap.raisedAt = time.Now()
+	c.mu.Lock()
+	c.lastRoute = &routeSnap
 	c.mu.Unlock()
 
 	st, _ := c.engine.Status()

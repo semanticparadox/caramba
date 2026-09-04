@@ -136,6 +136,31 @@ internal class CarambaCore private constructor(
             val client = GoMobile.newClient("", "", workDir, tokenPath)
             return CarambaCore(client)
         }
+
+        /**
+         * The core whose [up] last succeeded in this process, or null when none
+         * has.
+         *
+         * The routing report is held by the core that RAISED, and on Android
+         * that core belongs to CarambaVpnService. The plugin keeps two cores of
+         * its own (tools and CSM) and never calls `up` on either, so asking one
+         * of them for the report would answer "no tunnel has been raised by
+         * this core instance" forever — an answer that is true of that core and
+         * a lie about the device. The service and the plugin already share this
+         * process (that is how CarambaVpnBus works), so one process-wide handle
+         * is all the report needs to cross.
+         *
+         * Deliberately NOT cleared by [down]: the report answers "what did the
+         * last raise apply", which is exactly the question asked after the
+         * tunnel is taken down. The Go core keeps its own `lastRoute` across
+         * Down for the same reason. Exactly one core is retained, and the next
+         * successful raise replaces it.
+         */
+        @Volatile
+        private var raised: CarambaCore? = null
+
+        /** @see raised */
+        fun raisedCore(): CarambaCore? = raised
     }
 
     /**
@@ -209,6 +234,20 @@ internal class CarambaCore private constructor(
     fun csmLadder(): String = client.csmLadder()
 
     /**
+     * Returns what the LAST raise actually applied to routing as JSON (ABI v3
+     * `Client.RouteReport`): the preset, the fate of each of its external rule
+     * sources, the GEOSITE tags it depends on, whether the GeoSite.dat base is
+     * there at all, and the fate of the requested entry country.
+     *
+     * A read: it touches no socket and applies nothing. Without it the settings
+     * screen has no way to tell a working ad block from an enabled and dead
+     * one — config assembly silently drops an unreachable rule source together
+     * with the rules that stepped on it, and a GEOSITE tag without the base
+     * means nothing.
+     */
+    fun routeReport(): String = client.routeReport()
+
+    /**
      * Enrols the profile: a bootstrap blob, or an origin with a code and a
      * dictated pin (02-SPEC.md 9). Blocking: it climbs the ladder. Returns the
      * verified state snapshot JSON, from which the app takes the `pid`, the
@@ -266,6 +305,10 @@ internal class CarambaCore private constructor(
 
     /** Releases the client (used by the short-lived tools instance). */
     fun close() {
+        // A closed client must not be called again, so it stops being the one
+        // the route report is read from. Only this core is dropped: a close of
+        // some other instance must not blind the report.
+        if (raised === this) raised = null
         try {
             client.down()
         } catch (_: Throwable) {
@@ -285,7 +328,16 @@ internal class CarambaCore private constructor(
      *
      * @throws Exception if the tunnel fails to start.
      */
-    fun up(serverId: String): String = client.up(serverId)
+    fun up(serverId: String): String {
+        val out = client.up(serverId)
+        // Registered HERE and not in create(): the Go core takes its routing
+        // snapshot only after the engine actually started, so a core that threw
+        // out of up() has nothing to report and must not displace the one that
+        // does. See the `raised` doc for why the report has to cross from the
+        // service's core to the plugin at all.
+        raised = this
+        return out
+    }
 
     /** Stop the tunnel. */
     fun down() {

@@ -22,8 +22,20 @@
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+	<!-- Две схемы намеренно. caramba://connect?d=<armor> это ссылка-приглашение,
+	     которую сейчас выдаёт бот панели; carambaconnect:// остаётся навсегда
+	     рядом, потому что такие ссылки уже разосланы людям, а мёртвый диплинк
+	     выглядит как зависшее приложение. -->
 	<key>CFBundleURLTypes</key>
 	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.caramba.connect.link</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>caramba</string>
+			</array>
+		</dict>
 		<dict>
 			<key>CFBundleURLName</key>
 			<string>com.caramba.connect.enroll</string>

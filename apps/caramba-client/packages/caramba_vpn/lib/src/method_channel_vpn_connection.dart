@@ -255,6 +255,20 @@ class MethodChannelVpnConnection<S extends Object> implements VpnConnection<S> {
       await _method.invokeMethod<String>('csmLadder') ?? '';
 
   @override
+  Future<String> routeReport() async {
+    try {
+      return await _method.invokeMethod<String>('routeReport') ?? '';
+    } on MissingPluginException {
+      // Нативный обработчик этого моста может отсутствовать (старая сборка
+      // Android/iOS против нового Dart). Пустая строка читается вызывающим как
+      // «неизвестно» — и это правда: ответа нет. Бросать здесь значило бы
+      // уронить экран настроек ради отчёта, который он и так рисует как
+      // неизвестный.
+      return '';
+    }
+  }
+
+  @override
   Future<String> csmEnroll({
     String origin = '',
     String code = '',

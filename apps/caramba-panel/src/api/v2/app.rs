@@ -224,10 +224,78 @@ struct AppServer {
     id: i64,
     name: String,
     country_code: Option<String>,
+    /// Флаг ДЛЯ ПОКАЗА. Считается алгоритмически из ISO-2 ([`country_flag`]),
+    /// поэтому знает любую страну. Флаг внутри `inbounds[].proxy_name` берётся
+    /// из другой, ручной таблицы генератора Clash и для страны, которой в ней
+    /// нет, даёт `🌐`. Расхождение намеренно не сглажено: `proxy_name` обязан
+    /// побайтово совпасть с телом конфига, а показывать `🌐` вместо реального
+    /// флага — деградация без причины. Сегодня DE/CA есть в обеих таблицах.
     flag: String,
     latency_ms: Option<i32>,
     load_pct: f64,
     status: String,
+    /// Релэй, к которому узел привязан колонкой `nodes.relay_id`. Не выбор:
+    /// выбор входа живёт в `GET /relays` + `?relay_country=`. Здесь — контекст,
+    /// объясняющий суффикс `↪` в именах прокси этого узла.
+    via_relay: Option<AppRelayHop>,
+    /// Инбаунды узла — то, из чего состоит пикер протокола. `null` означает
+    /// «панель не смогла их прочитать», и тогда причина лежит в
+    /// `inbounds_error`; пустой массив означает «у узла нет ни одного
+    /// включённого инбаунда». Это разные вещи, и клиент обязан их различать.
+    inbounds: Option<Vec<AppInbound>>,
+    inbounds_error: Option<String>,
+}
+
+/// Хоп через релэй, каким его видит подписка этого узла.
+#[derive(Serialize)]
+struct AppRelayHop {
+    node_id: i64,
+    name: String,
+    country_code: Option<String>,
+    flag: String,
+    /// Строит ли клиентский рендерер настоящую цепочку через этот релэй.
+    ///
+    /// На mihomo/Clash — нет, и это проверенный факт, а не осторожность:
+    /// `generate_clash_config` принимает `_relay_nodes` и не обращается к ним,
+    /// ни `dialer-proxy`, ни группы `type: relay` в выпуске нет, а `server:`
+    /// у «релэйного» прокси — всё тот же адрес выхода. Суффикс `↪` и группа
+    /// `Auto-Relay` это ярлык. Настоящую цепочку через `detour` строит только
+    /// генератор sing-box (путь Hiddify/v2rayNG). Поле отдаётся, чтобы
+    /// приложение показало вход выключенным С ПРИЧИНОЙ, а не нарисовало
+    /// переключатель, не меняющий на проводе ни байта.
+    chained_in_config: bool,
+}
+
+/// Один включённый инбаунд узла — строка пикера протокола.
+///
+/// Тройка `protocol` / `network` / `security` разъединена намеренно:
+/// `vless/tcp/reality` и `vless/tcp/tls` это РАЗНЫЕ строки пикера, и склеить
+/// их в одно слово «vless» значит предложить пользователю выбор, который
+/// ничего не выбирает.
+#[derive(Serialize)]
+struct AppInbound {
+    /// `inbounds.id`; `null` у легаси-прокси, который генератор синтезирует из
+    /// колонок узла, когда включённых инбаундов нет вовсе.
+    id: Option<i64>,
+    /// Тег из панели — операторская идентичность строки.
+    tag: String,
+    protocol: String,
+    /// Транспорт: tcp / ws / grpc / httpupgrade / udp / xhttp.
+    network: String,
+    /// reality / tls / none.
+    security: String,
+    port: i64,
+    /// Короткая подпись из `format_proto_label` — та же, что уходит в имя
+    /// прокси в теле конфига.
+    label: String,
+    /// ТОЧНОЕ имя прокси в теле Clash-конфига, побайтово. Это ключ, которым
+    /// приложение связывает строку пикера с выбором в селекторе CARAMBA
+    /// (и с `Server.ID`, который отдаёт Go-ядро). `null`, когда прокси в теле
+    /// нет — тогда смотри `unavailable_reason`.
+    proxy_name: Option<String>,
+    available: bool,
+    /// Машиночитаемая причина недоступности; `null` у доступных.
+    unavailable_reason: Option<&'static str>,
 }
 
 /// Эмодзи-флаг по ISO-2 коду страны (без unwrap на данных из БД).
@@ -275,10 +343,47 @@ fn server_status(is_full: bool, cpu_pct: f64) -> &'static str {
     }
 }
 
-/// GET /api/v2/app/servers — список доступных пользователю exit-серверов.
+/// Попадёт ли инбаунд в тело Clash-конфига. `None` — попадёт; `Some(причина)` —
+/// нет.
+///
+/// Это зеркало веток `generate_clash_config`, и оно обязано оставаться
+/// зеркалом: строка пикера, которой в теле не соответствует ни один прокси, —
+/// это выбор, ведущий в никуда. Ровно так сегодня выглядит `naive` на узле 1:
+/// генератор кладёт его имя в группу `Auto-Relay`, но самого прокси не
+/// выпускает (у `match inbound.protocol` нет ветки `naive`), и в живом теле
+/// висит ссылка `🇩🇪 Naive ↪` на несуществующий узел.
+///
+/// Причина отдаётся клиенту, а строка не прячется: оператор включил инбаунд в
+/// панели и должен видеть, почему он не доехал, а не пустое место.
+fn clash_inbound_availability(protocol: &str, network: &str) -> Option<&'static str> {
+    // Порядок веток повторяет генератор: сначала два `continue`, потом `match`.
+    if protocol.eq_ignore_ascii_case("amneziawg") && !crate::utils::amneziawg_client_enabled() {
+        return Some("amneziawg_disabled");
+    }
+    if matches!(network, "xhttp" | "splithttp") {
+        return Some("transport_not_supported_by_clash");
+    }
+    match protocol.to_ascii_lowercase().as_str() {
+        "vless" | "vmess" | "trojan" | "shadowsocks" | "ss" | "hysteria2" | "hy2" | "tuic"
+        | "amneziawg" => None,
+        _ => Some("protocol_not_emitted_by_clash"),
+    }
+}
+
+/// GET /api/v2/app/servers — список доступных пользователю exit-серверов
+/// вместе с их инбаундами.
 ///
 /// Переиспользует пул узлов из store_service (как api/client.rs::get_active_servers),
 /// скрывает relay-инфраструктуру и перегруженные узлы.
+///
+/// Почему релэи остаются в `GET /relays`, а не приезжают сюда отдельными
+/// строками: релэй это не выход. Любой путь генерации конфига вырезает
+/// `is_relay` из списка узлов (`subscription.rs`, `filtered_nodes.retain`), так
+/// что строка «релэй как сервер» отдавала бы 404 в тот момент, когда
+/// приложение попросило бы под неё конфиг. Два пикера и остаются двумя:
+/// выход — `/servers` + `?node_id=`, вход — `/relays` + `?relay_country=`.
+/// Здесь релэй появляется только как `via_relay` — контекст выбранного узла,
+/// доступный на чтение.
 pub async fn list_servers(
     State(state): State<AppState>,
     axum::Extension(auth): axum::Extension<AuthUser>,
@@ -289,7 +394,7 @@ pub async fn list_servers(
         .await
         .unwrap_or_default();
 
-    let servers: Vec<AppServer> = nodes
+    let nodes: Vec<caramba_db::models::node::Node> = nodes
         .into_iter()
         .filter(|n| {
             // Прячем relay-узлы и перегруженные машины.
@@ -306,13 +411,56 @@ pub async fn list_servers(
                 && n.last_cpu.unwrap_or(0.0) < 95.0
                 && n.last_ram.unwrap_or(0.0) < 98.0
         })
-        .map(|n| {
+        .collect();
+
+    // Инбаунды и привязку релэя берём ровно тем же вызовом, которым их берёт
+    // путь подписки (`subscription.rs`, шаг `get_node_infos_with_relays`).
+    // Второй запрос за теми же данными означал бы второй источник истины, а
+    // расходиться с телом конфига этому списку нельзя вообще: имя прокси здесь
+    // и имя прокси там обязаны быть одной строкой.
+    //
+    // Отказ этого вызова НЕ пустой список инбаундов: пустой список означал бы
+    // «у узла нет протоколов», а это ложь. Отдаём `null` + причину.
+    let node_infos = match state
+        .subscription_service
+        .get_node_infos_with_relays(&nodes)
+        .await
+    {
+        Ok(infos) => Some(infos),
+        Err(e) => {
+            tracing::error!(err = %e, "app: не удалось прочитать инбаунды узлов для /servers");
+            None
+        }
+    };
+
+    let servers: Vec<AppServer> = nodes
+        .iter()
+        .enumerate()
+        .map(|(idx, n)| {
             let cpu = n.last_cpu.unwrap_or(0.0);
             let ram = n.last_ram.unwrap_or(0.0);
             let load = (cpu + ram) / 2.0;
             let connections = n.active_connections.unwrap_or(0);
             let is_full = n.max_users > 0 && connections >= n.max_users;
             let status = server_status(is_full, cpu).to_string();
+
+            // `get_node_infos_with_relays` сохраняет порядок входного среза,
+            // поэтому индекс — законный ключ соответствия Node ↔ NodeInfo.
+            let info = node_infos.as_ref().and_then(|infos| infos.get(idx));
+
+            let via_relay = info.and_then(|ni| ni.relay_info.as_ref()).map(|r| {
+                AppRelayHop {
+                    // relay_id заведомо Some: relay_info заполняется только по нему.
+                    node_id: n.relay_id.unwrap_or(0),
+                    name: r.name.clone(),
+                    flag: country_flag(r.country_code.as_deref().unwrap_or("")),
+                    country_code: r.country_code.clone(),
+                    chained_in_config: false,
+                }
+            });
+
+            let inbounds = info.map(|ni| build_inbound_rows(ni));
+
             AppServer {
                 id: n.id,
                 name: format!("Node #{} ({} Mbps)", n.id, n.current_speed_mbps),
@@ -321,6 +469,13 @@ pub async fn list_servers(
                 latency_ms: n.last_latency.map(|l| l as i32),
                 load_pct: load,
                 status,
+                via_relay,
+                inbounds,
+                inbounds_error: if node_infos.is_none() {
+                    Some("panel_could_not_read_inbounds".to_string())
+                } else {
+                    None
+                },
             }
         })
         .collect();
@@ -328,9 +483,337 @@ pub async fn list_servers(
     Json(servers).into_response()
 }
 
+/// Разворачивает узел в строки пикера протокола, повторяя разбор и подписи
+/// генератора Clash функция в функцию: `parse_stream_settings` →
+/// `format_proto_label` → `format_node_label`. Своего парсера
+/// `stream_settings` здесь нет и быть не должно — второй парсер это
+/// гарантированное расхождение имени с телом.
+fn build_inbound_rows(ni: &crate::singbox::subscription_generator::NodeInfo) -> Vec<AppInbound> {
+    use crate::singbox::subscription_generator::{
+        format_node_label, format_proto_label, parse_stream_settings,
+    };
+
+    let node_label = format_node_label(ni);
+    // Тот же признак, по которому генератор дописывает суффикс: наличие
+    // relay_info, а не колонка relay_id (релэй мог не найтись).
+    let relay_suffix = if ni.relay_info.is_some() { " ↪" } else { "" };
+
+    let mut rows: Vec<AppInbound> = ni
+        .inbounds
+        .iter()
+        .filter(|inbound| inbound.enable)
+        .map(|inbound| {
+            let si = parse_stream_settings(&inbound.stream_settings, ni);
+            let label = format_proto_label(&inbound.protocol, &si);
+            let reason = clash_inbound_availability(&inbound.protocol, &si.network);
+            AppInbound {
+                id: Some(inbound.id),
+                tag: inbound.tag.clone(),
+                protocol: inbound.protocol.to_ascii_lowercase(),
+                network: si.network.clone(),
+                security: si.security.clone(),
+                port: inbound.listen_port,
+                proxy_name: reason
+                    .is_none()
+                    .then(|| format!("{} {}{}", node_label, label, relay_suffix)),
+                label,
+                available: reason.is_none(),
+                unavailable_reason: reason,
+            }
+        })
+        .collect();
+
+    // Легаси-ветка генератора: когда включённых инбаундов нет вовсе, он всё
+    // равно выпускает один Reality-прокси из колонок узла. Без этой строки
+    // пикер показал бы «протоколов нет» на узле, у которого в теле конфига
+    // прокси есть.
+    if ni.inbounds.iter().all(|i| !i.enable) && ni.reality_port.is_some() {
+        rows.push(AppInbound {
+            id: None,
+            tag: "legacy-reality".to_string(),
+            protocol: "vless".to_string(),
+            network: "tcp".to_string(),
+            security: "reality".to_string(),
+            port: ni.reality_port.unwrap_or(0) as i64,
+            label: "Reality".to_string(),
+            proxy_name: Some(format!("{} Reality", node_label)),
+            available: true,
+            unavailable_reason: None,
+        });
+    }
+
+    rows
+}
+
 #[cfg(test)]
 mod tests {
-    use super::server_status;
+    use super::{build_inbound_rows, clash_inbound_availability, server_status};
+    use crate::singbox::subscription_generator::NodeInfo;
+    use caramba_db::models::network::Inbound;
+
+    /// Инбаунд с теми полями, которые читает разбор; остальные колонки к
+    /// имени прокси отношения не имеют.
+    fn inbound(id: i64, tag: &str, protocol: &str, port: i64, stream_settings: &str) -> Inbound {
+        Inbound {
+            id,
+            node_id: 1,
+            tag: tag.to_string(),
+            protocol: protocol.to_string(),
+            listen_port: port,
+            listen_ip: "0.0.0.0".to_string(),
+            settings: "{}".to_string(),
+            stream_settings: stream_settings.to_string(),
+            remark: None,
+            enable: true,
+            renew_interval_mins: 0,
+            port_range_start: 0,
+            port_range_end: 0,
+            last_rotated_at: None,
+            created_at: None,
+        }
+    }
+
+    fn node_info(country: &str, inbounds: Vec<Inbound>) -> NodeInfo {
+        NodeInfo {
+            name: "Germany".to_string(),
+            address: "85.215.196.151".to_string(),
+            reality_port: Some(443),
+            reality_sni: Some("essentialhome.live".to_string()),
+            reality_public_key: Some("3Tsh7haY915qWht_DsC4Vxunj15EBbTUo0VIIjycSDQ".to_string()),
+            reality_short_id: Some("0b4bf3f48a32ccb8".to_string()),
+            hy2_port: None,
+            hy2_sni: None,
+            frontend_url: None,
+            inbounds,
+            relay_info: None,
+            country_code: Some(country.to_string()),
+            is_relay: false,
+            config_block_ads: false,
+            config_block_porn: false,
+            config_block_torrent: false,
+        }
+    }
+
+    /// Слепок узла 1 живой панели: те же восемь включённых инбаундов с теми же
+    /// `stream_settings`, что лежат в проде, и та же привязка к релэю (node 2),
+    /// из-за которой генератор дописывает суффикс ` ↪`.
+    ///
+    /// Тест держит `/servers` и тело конфига одной строкой: он сверяет
+    /// `proxy_name` с именами, которые живая подписка
+    /// `feb7e480-314d-4834-8304-220db70684c2` печатает в `proxies:`. Разъедутся
+    /// подписи — упадёт здесь, а не в пикере пользователя.
+    #[test]
+    fn inbound_rows_carry_the_exact_proxy_names_of_the_clash_body() {
+        let inbounds = vec![
+            inbound(
+                303,
+                "Hysteria2-4b6c7b66",
+                "hysteria2",
+                11466,
+                r#"{"network":"udp","security":"tls","tlsSettings":{"serverName":"dev.portal.musikverein-maihingen.de"},"hysteria2Settings":{"ports":"11466"}}"#,
+            ),
+            inbound(
+                304,
+                "NaiveProxy-16726df0",
+                "naive",
+                15400,
+                r#"{"network":"tcp","security":"tls","tls_settings":{"server_name":"www.dekulta.de"}}"#,
+            ),
+            inbound(
+                305,
+                "TUIC-47a0b813",
+                "tuic",
+                16400,
+                r#"{"network":"udp","security":"tls","tlsSettings":{"serverName":"dev.portal.musikverein-maihingen.de"},"tuicSettings":{"congestion":"bbr"}}"#,
+            ),
+            inbound(
+                306,
+                "VLESS-gRPC-TLS-524d54b7",
+                "vless",
+                10400,
+                r#"{"network":"grpc","security":"tls","tls_settings":{"server_name":"www.dekulta.de"}}"#,
+            ),
+            inbound(
+                307,
+                "VLESS-HTTPUpgrade-TLS-4cfee905",
+                "vless",
+                13400,
+                r#"{"network":"httpupgrade","security":"tls","tls_settings":{"server_name":"www.dekulta.de"},"http_upgrade_settings":{"path":"/hu","host":"www.dekulta.de"}}"#,
+            ),
+            inbound(
+                308,
+                "VLESS-Reality-9ac11700",
+                "vless",
+                443,
+                r#"{"network":"tcp","security":"reality","reality_settings":{"show":false,"dest":"www.dekulta.de:443","xver":0,"server_names":["www.dekulta.de"],"public_key":"3Tsh7haY915qWht_DsC4Vxunj15EBbTUo0VIIjycSDQ","short_ids":["0b4bf3f48a32ccb8"]}}"#,
+            ),
+            inbound(
+                309,
+                "VLESS-TCP-TLS-9f8eb99a",
+                "vless",
+                14400,
+                r#"{"network":"tcp","security":"tls","tls_settings":{"server_name":"dev.portal.musikverein-maihingen.de"}}"#,
+            ),
+            inbound(
+                310,
+                "VLESS-WS-TLS-28a0a268",
+                "vless",
+                12400,
+                r#"{"network":"ws","security":"tls","tls_settings":{"server_name":"www.dekulta.de"},"ws_settings":{"path":"/ws","headers":{"Host":"www.dekulta.de"}}}"#,
+            ),
+        ];
+
+        let mut ni = node_info("DE", inbounds);
+        // nodes.relay_id = 2 на живом узле 1: относится к суффиксу имени, и
+        // только к нему — цепочки Clash всё равно не строит.
+        ni.relay_info = Some(Box::new(node_info("RU", vec![])));
+
+        let rows = build_inbound_rows(&ni);
+        let got: Vec<(&str, &str, &str, Option<&str>, Option<&str>)> = rows
+            .iter()
+            .map(|r| {
+                (
+                    r.protocol.as_str(),
+                    r.network.as_str(),
+                    r.security.as_str(),
+                    r.proxy_name.as_deref(),
+                    r.unavailable_reason,
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            got,
+            vec![
+                ("hysteria2", "udp", "tls", Some("🇩🇪 Speed ↪"), None),
+                // Единственная строка, под которой прокси нет — и она видна.
+                (
+                    "naive",
+                    "tcp",
+                    "tls",
+                    None,
+                    Some("protocol_not_emitted_by_clash")
+                ),
+                ("tuic", "udp", "tls", Some("🇩🇪 TUIC ↪"), None),
+                ("vless", "grpc", "tls", Some("🇩🇪 Stream ↪"), None),
+                ("vless", "httpupgrade", "tls", Some("🇩🇪 HTTP ↪"), None),
+                ("vless", "tcp", "reality", Some("🇩🇪 Stealth ↪"), None),
+                ("vless", "tcp", "tls", Some("🇩🇪 Secure ↪"), None),
+                ("vless", "ws", "tls", Some("🇩🇪 WebSocket ↪"), None),
+            ]
+        );
+    }
+
+    /// `vless/tcp/reality` и `vless/tcp/tls` обязаны остаться РАЗНЫМИ строками
+    /// пикера. Схлопни их в слово «vless» — и выбор перестанет что-либо
+    /// выбирать: у них разные порты, разное имя прокси и разная маскировка.
+    #[test]
+    fn reality_and_plain_tls_do_not_collapse_into_one_protocol_row() {
+        let ni = node_info(
+            "DE",
+            vec![
+                inbound(
+                    308,
+                    "VLESS-Reality",
+                    "vless",
+                    443,
+                    r#"{"network":"tcp","security":"reality","reality_settings":{"public_key":"k","short_ids":["s"]}}"#,
+                ),
+                inbound(
+                    309,
+                    "VLESS-TCP-TLS",
+                    "vless",
+                    14400,
+                    r#"{"network":"tcp","security":"tls","tls_settings":{"server_name":"example.org"}}"#,
+                ),
+            ],
+        );
+
+        let rows = build_inbound_rows(&ni);
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!((rows[0].security.as_str(), rows[0].port), ("reality", 443));
+        assert_eq!((rows[1].security.as_str(), rows[1].port), ("tls", 14400));
+        assert_ne!(rows[0].proxy_name, rows[1].proxy_name);
+        assert_eq!(rows[0].proxy_name.as_deref(), Some("🇩🇪 Stealth"));
+        assert_eq!(rows[1].proxy_name.as_deref(), Some("🇩🇪 Secure"));
+    }
+
+    /// Узел без включённых инбаундов: генератор всё равно выпускает один
+    /// легаси-Reality-прокси из колонок узла, и пикер обязан показать ту же
+    /// строку, а не «протоколов нет».
+    #[test]
+    fn a_node_without_inbounds_still_reports_the_legacy_reality_proxy() {
+        let rows = build_inbound_rows(&node_info("DE", vec![]));
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, None);
+        assert_eq!(rows[0].proxy_name.as_deref(), Some("🇩🇪 Reality"));
+        assert!(rows[0].available);
+    }
+
+    /// Пикер протокола не должен предлагать строку, под которую в теле конфига
+    /// нет прокси. Живой пример — `naive` на узле 1: инбаунд включён, имя
+    /// попадает в группу `Auto-Relay`, а прокси генератор не выпускает.
+    /// Здесь такая строка обязана прийти недоступной С ПРИЧИНОЙ, а не пропасть.
+    #[test]
+    fn a_protocol_the_clash_generator_cannot_emit_is_unavailable_not_hidden() {
+        assert_eq!(
+            clash_inbound_availability("naive", "tcp"),
+            Some("protocol_not_emitted_by_clash")
+        );
+        assert_eq!(
+            clash_inbound_availability("shadowtls", "tcp"),
+            Some("protocol_not_emitted_by_clash")
+        );
+    }
+
+    /// xhttp/splithttp — транспорт Xray, которого Clash Meta не знает.
+    /// Проверяется именно `network`, а не `protocol`: у такого инбаунда
+    /// протокол всё равно `vless`, и фильтр по протоколу его бы пропустил.
+    #[test]
+    fn the_xray_only_transport_is_judged_by_network_not_protocol() {
+        assert_eq!(
+            clash_inbound_availability("vless", "xhttp"),
+            Some("transport_not_supported_by_clash")
+        );
+        assert_eq!(
+            clash_inbound_availability("vless", "splithttp"),
+            Some("transport_not_supported_by_clash")
+        );
+        assert_eq!(clash_inbound_availability("vless", "tcp"), None);
+    }
+
+    /// Полный набор веток `match inbound.protocol` в `generate_clash_config`.
+    /// Тест держит зеркало зеркалом: ветку добавят — он покажет, что здесь её
+    /// ещё нет (протокол числится недоступным, хотя прокси уже выпускается).
+    #[test]
+    fn every_protocol_the_generator_has_an_arm_for_is_available() {
+        for protocol in [
+            "vless",
+            "vmess",
+            "trojan",
+            "shadowsocks",
+            "ss",
+            "hysteria2",
+            "hy2",
+            "tuic",
+        ] {
+            assert_eq!(
+                clash_inbound_availability(protocol, "tcp"),
+                None,
+                "{protocol} выпускается генератором, строка обязана быть выбираемой"
+            );
+        }
+    }
+
+    /// Регистр протокола приходит из колонки БД и не является частью решения:
+    /// `VLESS` и `vless` — один и тот же инбаунд.
+    #[test]
+    fn the_protocol_column_is_matched_case_insensitively() {
+        assert_eq!(clash_inbound_availability("VLESS", "tcp"), None);
+        assert_eq!(clash_inbound_availability("Hysteria2", "udp"), None);
+    }
 
     /// Словарь фиксирован: приложение знает только online/busy/full. Ни одно
     /// значение колонки `nodes.status` («active») наружу выйти не должно —

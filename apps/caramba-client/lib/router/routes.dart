@@ -10,6 +10,11 @@ abstract final class AppRoute {
   /// или QR). Pre-auth: доступен из unauthenticated. Query: `panel`, `code`.
   static const enroll = '/enroll';
 
+  /// Подключение панели по ссылке `caramba://connect` (диплинк, вставка или
+  /// QR). Pre-auth, как и [enroll]: ссылку открывают до всякого аккаунта.
+  /// Query: `link` — сырая ссылка целиком.
+  static const connect = '/connect';
+
   /// Автоподбор настроек при первом входе.
   static const autotune = '/autotune';
 

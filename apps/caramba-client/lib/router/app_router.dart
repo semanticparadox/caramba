@@ -12,6 +12,7 @@ import 'package:caramba_client/features/csm/documents_screen.dart';
 import 'package:caramba_client/features/csm/operator_identity_screen.dart';
 import 'package:caramba_client/features/csm/transport_ladder_screen.dart';
 import 'package:caramba_client/features/csm/what_we_send_screen.dart';
+import 'package:caramba_client/features/enroll/connect_screen.dart';
 import 'package:caramba_client/features/enroll/enroll_screen.dart';
 import 'package:caramba_client/features/home/home_screen.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
@@ -73,7 +74,12 @@ String? resolveRedirect({
   // Импорт подписки — второй pre-auth поток (`carambaconnect://import`).
   // Аккаунт для него не нужен вовсе, поэтому уводить на /login тем более
   // нельзя: на холодном старте это съедало ссылку целиком.
-  final preAuth = onEnroll || path == AppRoute.connectionImport;
+  // Подключение по ссылке (`caramba://connect`) — третий: аккаунт на панели у
+  // человека уже есть, и весь смысл ссылки в том, что вводить ничего не надо.
+  final preAuth =
+      onEnroll ||
+      path == AppRoute.connectionImport ||
+      path == AppRoute.connect;
 
   switch (stage) {
     case AuthStage.authenticated:
@@ -173,6 +179,13 @@ final routerProvider = Provider<GoRouter>((ref) {
           // незакреплённым.
           initialLinkPin: state.uri.queryParameters['k'],
         ),
+      ),
+      // Подключение панели по ссылке: `link` приходит целиком, разбор живёт в
+      // экране, а не здесь, потому что причина отказа это часть UI.
+      GoRoute(
+        path: AppRoute.connect,
+        builder: (context, state) =>
+            ConnectScreen(initialLink: state.uri.queryParameters['link']),
       ),
       GoRoute(
         path: AppRoute.autotune,

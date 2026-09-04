@@ -282,6 +282,29 @@ class CarambaVpnPlugin :
                 runOnWorker(result, "csm_ladder_failed") { csmCore().csmLadder() }
             }
 
+            "routeReport" -> {
+                // What the LAST raise applied to routing. Also a read, also off
+                // the main thread.
+                //
+                // Read from the core that RAISED — CarambaVpnService's — and not
+                // from the plugin's own cores, on which up() is never called:
+                // they would answer "no tunnel has been raised by this core
+                // instance" for the rest of the install, which is true of them
+                // and a lie about the device. Without it the settings screen has
+                // no way to tell a working ad block from an enabled and dead one,
+                // which is the whole reason the report exists.
+                //
+                // The fallback is the CSM core, reached only when nothing has
+                // raised in this process yet. Its answer is the core's OWN
+                // not_raised JSON: an empty string here would read on the Dart
+                // side as "this build has no bridge" (AppliedRoute.unsupported),
+                // and a report fabricated in Kotlin would be a fourth shape of
+                // the contract nobody verifies.
+                runOnWorker(result, "route_report_failed") {
+                    CarambaCore.raisedCore()?.routeReport() ?: csmCore().routeReport()
+                }
+            }
+
             "csmEnroll" -> {
                 // Enrolment goes THROUGH the core and up the ladder: it is the
                 // one moment trust is created, and a socket opened here would

@@ -29,13 +29,12 @@ void main() {
 
       setUpAll(() {
         lib = CarambaCoreLibrary.open(libPath!);
-        // panelURL обязателен для CarambaNew; workDir — временный, чтобы тест
-        // не трогал реальный каталог ядра.
+        // workDir — временный, чтобы тест не трогал реальный каталог ядра.
         final workDir = Directory.systemTemp
             .createTempSync('caramba-ffi-smoke')
             .path;
         handle = lib.create(
-          panelUrl: 'https://panel.invalid',
+          panelUrl: 'https://panel.example',
           workDir: workDir,
           tokenPath: '$workDir/tokens.json',
         );
@@ -47,6 +46,37 @@ void main() {
 
       test('CarambaNew returns a live handle', () {
         expect(handle, greaterThan(0));
+      });
+
+      // Гейт под [FfiVpnConnection._ensureCore]: тот отдаёт ядру ПУСТОЙ адрес
+      // панели на raw-пути, и вся честность отчёта о маршрутизации держится на
+      // том, что ядро такой адрес принимает. Раньше здесь стояла заглушка
+      // `https://panel.invalid` под комментарием «CarambaNew требует непустой
+      // panelURL и возвращает 0 на пустом» — утверждение, которого никто не
+      // проверял. Проверяем: заглушка стоила пользователям импортированной
+      // подписки блокировки рекламы целиком.
+      test('CarambaNew accepts an empty panel URL (import-only mode)', () {
+        final workDir = Directory.systemTemp
+            .createTempSync('caramba-ffi-nopanel')
+            .path;
+        final h = lib.create(
+          panelUrl: '',
+          workDir: workDir,
+          tokenPath: '$workDir/tokens.json',
+        );
+        addTearDown(() {
+          if (h != 0) lib.free(h);
+        });
+        expect(
+          h,
+          greaterThan(0),
+          reason:
+              'core must accept an empty PanelBaseURL: without that, the '
+              'raw-import path has to invent a panel that does not exist',
+        );
+        // И хэндл обязан быть ЖИВЫМ, а не просто ненулевым.
+        final status = VpnStatus<Object>.fromMap(_decode(lib.status(h)));
+        expect(status.stage, VpnStage.disconnected);
       });
 
       test('CarambaStatus reports the disconnected stage', () {

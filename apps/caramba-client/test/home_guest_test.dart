@@ -145,6 +145,52 @@ final _profile = ConnectionProfile(
   serversUpdatedMs: DateTime.now().millisecondsSinceEpoch,
 );
 
+/// Подписка живого вида: НЕСКОЛЬКО прокси на одной машине. Ровно так выглядит
+/// подписка владельца — 13 строк на две машины, потому что каждый инбаунд
+/// каждой ноды приезжает отдельным прокси.
+const _multiInbound = <ImportedServer>[
+  ImportedServer(
+    id: 'de-reality',
+    name: 'DE Stealth',
+    type: 'vless',
+    server: 'de.example',
+    port: 443,
+    country: 'DE',
+  ),
+  ImportedServer(
+    id: 'de-tls',
+    name: 'DE Secure',
+    type: 'vless',
+    server: 'de.example',
+    port: 8443,
+    country: 'DE',
+  ),
+  ImportedServer(
+    id: 'de-hy2',
+    name: 'DE Speed',
+    type: 'hysteria2',
+    server: 'de.example',
+    port: 2096,
+    country: 'DE',
+  ),
+  ImportedServer(
+    id: 'ca-reality',
+    name: 'CA Stealth',
+    type: 'vless',
+    server: 'ca.example',
+    port: 443,
+    country: 'CA',
+  ),
+  ImportedServer(
+    id: 'ca-hy2',
+    name: 'CA Speed',
+    type: 'hysteria2',
+    server: 'ca.example',
+    port: 2096,
+    country: 'CA',
+  ),
+];
+
 Widget _guestHome({
   VpnStage stage = VpnStage.connected,
   TrafficStats traffic = const TrafficStats(
@@ -153,17 +199,21 @@ Widget _guestHome({
     downTotal: 12 * 1024 * 1024,
     upTotal: 3 * 1024 * 1024,
   ),
-}) => ProviderScope(
-  overrides: [
-    vpnConnectionProvider.overrideWithValue(
-      _FakeCore(stage: stage, traffic: traffic),
-    ),
-    connectionProfilesStoreProvider.overrideWithValue(
-      _FakeProfilesStore(<ConnectionProfile>[_profile], _profile.id),
-    ),
-  ],
-  child: MaterialApp(theme: AppTheme.dark(), home: const HomeScreen()),
-);
+  ConnectionProfile? profile,
+}) {
+  final p = profile ?? _profile;
+  return ProviderScope(
+    overrides: [
+      vpnConnectionProvider.overrideWithValue(
+        _FakeCore(stage: stage, traffic: traffic),
+      ),
+      connectionProfilesStoreProvider.overrideWithValue(
+        _FakeProfilesStore(<ConnectionProfile>[p], p.id),
+      ),
+    ],
+    child: MaterialApp(theme: AppTheme.dark(), home: const HomeScreen()),
+  );
+}
 
 void _usePhoneView(WidgetTester tester) {
   tester.view
@@ -211,14 +261,21 @@ void main() {
     expect(find.text('2,0 МБ/с'), findsOneWidget);
     expect(find.text('64 КБ/с'), findsOneWidget);
 
-    // Relay остаётся ВИДИМЫМ и выключенным с причиной. Раньше строки тут не
-    // было вовсе, и это ровно тот отказ, ради которого правило написано:
-    // спрятанный переключатель неотличим от «такой настройки не бывает», и
-    // пользователь ищет её в обновлении приложения, которого не существует.
+    // Relay остаётся ВИДИМЫМ. Раньше строки тут не было вовсе, и это ровно тот
+    // отказ, ради которого правило написано: спрятанный переключатель
+    // неотличим от «такой настройки не бывает», и пользователь ищет её в
+    // обновлении приложения, которого не существует.
+    //
+    // Значение — то, что СЕЙЧАС в силе («Выкл»), а не слово «Недоступно»:
+    // «Выкл» доступен при любом источнике, и подмена значения на «Недоступно»
+    // была неправдой о самой строке. Причина недоступности ЦЕПОЧКИ приходит
+    // отдельным баннером из возможности слоя предложения
+    // (`Capabilities.relayChaining`), а не из догадки экрана.
     expect(find.text('Relay (вход)'), findsOneWidget);
-    expect(find.text('Недоступно'), findsOneWidget);
+    expect(find.text('Выкл'), findsOneWidget);
+    expect(find.text('Недоступно'), findsNothing);
     expect(
-      find.textContaining('цепочка строится только на конфиге панели'),
+      find.textContaining('цепочку через вход выразить не может'),
       findsOneWidget,
     );
 
@@ -230,6 +287,40 @@ void main() {
 
     expect(tester.takeException(), isNull);
     // Гасим односекундный таймер сессии вместе с деревом.
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('«узлов» на Home считает МАШИНЫ, а не строки конфига', (
+    tester,
+  ) async {
+    // Жалоба владельца дословно: «восемь серверов» там, где машина одна. Экран
+    // серверов от неё избавлен, а Home повторял её на плашке «Подписка»:
+    // `profile.serverCount` — это длина списка прокси, то есть по строке на
+    // каждый инбаунд каждой машины. На живой подписке это 13 при двух машинах.
+    //
+    // Здесь пять прокси на двух хостах. Плашка обязана сказать «2» — то же
+    // число и тем же словом, что экран серверов.
+    _usePhoneView(tester);
+    await tester.pumpWidget(
+      _guestHome(
+        profile: _profile.copyWith(
+          servers: _multiInbound,
+          selectedServerId: 'de-reality',
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('УЗЛОВ: 2'), findsOneWidget);
+    expect(
+      find.text('УЗЛОВ: 5'),
+      findsNothing,
+      reason: 'пять прокси это не пять узлов',
+    );
+
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

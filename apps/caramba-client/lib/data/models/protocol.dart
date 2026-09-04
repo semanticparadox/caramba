@@ -27,6 +27,28 @@ class ProtocolOption {
   /// всегда.
   final List<String> outboundTypes;
 
+  /// Тип outbound'а, ПО КОТОРОМУ ядро реально отбирает узлы, когда просят этот
+  /// протокол: `protocolClashType[id]` в
+  /// libs/caramba-core/profile/profile.go, а `applyProtocol` сравнивает его с
+  /// `m["type"]` каждого элемента `proxies`.
+  ///
+  /// От [outboundTypes] отличается назначением, и это различие — вся честность
+  /// пикера. [outboundTypes] отвечает «как ИСТОЧНИК может назвать этот
+  /// протокол» (каталог CSM пишет `shadowsocks`, тело подписки — `ss`) и
+  /// служит сопоставлению строки с инвентарём. [coreFamily] — единственная
+  /// строка, которой ядро отбирает прокси, и потому именно она задаёт, какие
+  /// строки пикера для ядра НЕРАЗЛИЧИМЫ.
+  ///
+  /// У `VLESS-Reality` и `VLESS` она одна и та же — `vless`. Ядро собирает
+  /// url-test группу `Caramba-Proto` по ВСЕМ vless-прокси и Reality среди них
+  /// не выделяет, так что выбор Reality поднимает туннель хоть на TLS-инбаунде.
+  /// Пока это так, строка обязана считать соседей по [coreFamily], а не по
+  /// своему индексу в [defaults]: иначе Reality объявляет себя единственным в
+  /// семействе и обещает точность, которой в ядре нет.
+  ///
+  /// Пусто у «Авто»: отказ от выбора семейства не имеет.
+  final String coreFamily;
+
   /// Уточнение формы, без которого опция это не она: у `VLESS-Reality` это
   /// `reality`. Проверяется ТОЛЬКО когда источник вообще сообщает уточнения
   /// (каталог CSM отдаёт `security`/`network`, подписка — один голый тип), —
@@ -42,6 +64,7 @@ class ProtocolOption {
     this.recommended = false,
     this.auto = false,
     this.outboundTypes = const <String>[],
+    this.coreFamily = '',
     this.shape,
   });
 
@@ -60,6 +83,7 @@ class ProtocolOption {
       icon: Lucide.lock,
       recommended: true,
       outboundTypes: <String>['wireguard'],
+      coreFamily: 'wireguard',
     ),
     ProtocolOption(
       id: 'VLESS-Reality',
@@ -67,6 +91,7 @@ class ProtocolOption {
       desc: 'Невидим для DPI, маскируется под настоящие сайты по TLS.',
       icon: Lucide.shield,
       outboundTypes: <String>['vless'],
+      coreFamily: 'vless',
       shape: 'reality',
     ),
     ProtocolOption(
@@ -75,6 +100,7 @@ class ProtocolOption {
       desc: 'Высокая скорость на нестабильных и мобильных сетях.',
       icon: Lucide.zap,
       outboundTypes: <String>['hysteria2'],
+      coreFamily: 'hysteria2',
     ),
     ProtocolOption(
       id: 'TUIC',
@@ -82,6 +108,7 @@ class ProtocolOption {
       desc: 'Быстрый UDP с низкой задержкой.',
       icon: Lucide.route,
       outboundTypes: <String>['tuic'],
+      coreFamily: 'tuic',
     ),
     ProtocolOption(
       id: 'Shadowsocks',
@@ -89,6 +116,7 @@ class ProtocolOption {
       desc: 'Простой и стабильный протокол.',
       icon: Lucide.globe,
       outboundTypes: <String>['ss', 'shadowsocks'],
+      coreFamily: 'ss',
     ),
     // VLESS без Reality дописан В КОНЕЦ намеренно: `CoreConfig.protocol` это
     // сохранённый ИНДЕКС в этом списке, и вставка в середину переставила бы
@@ -101,6 +129,7 @@ class ProtocolOption {
       desc: 'VLESS поверх TLS: ws, grpc, tcp или httpupgrade, без Reality.',
       icon: Lucide.shield,
       outboundTypes: <String>['vless'],
+      coreFamily: 'vless',
     ),
   ];
 }
@@ -119,36 +148,97 @@ class RoutingMode {
     required this.icon,
   });
 
+  /// Девять пресетов ядра, а не пять перепечатанных.
+  ///
+  /// Реестр ядра (`presetList` в libs/caramba-core/routing/presets.go) содержит
+  /// девять пресетов; приложение показывало пять и называло их своими словами.
+  /// Четырёх — `ir-smart`, `by-smart`, `cn-smart` и глобального `global` — для
+  /// пользователя не существовало вовсе, а `ru-smart` подписывался «Россия», из
+  /// чего нельзя было понять, что это УМНЫЙ режим, а не полный обход.
+  ///
+  /// Имена и описания взяты из реестра дословно. Факты о составе пресетов живут
+  /// в `domain/offering/route_presets.dart` (там же — что именно режет рекламу и
+  /// каким пресетам нужны внешние списки); здесь остаётся только то, что нужно
+  /// пикеру: подпись и иконка.
+  ///
+  /// Порядок НЕ переставлен: `CoreConfig.route` это сохранённый ИНДЕКС в этом
+  /// списке, и перестановка увела бы живого пользователя на соседний маршрут.
+  /// Пять прежних строк остались на местах, четыре новые дописаны в конец —
+  /// то же правило, что у [ProtocolOption.defaults]. Соответствие индексов
+  /// идентификаторам ядра зафиксировано в `kLegacyRouteIndexByCoreId`.
   static const defaults = <RoutingMode>[
     RoutingMode(
       id: 'ru-smart',
-      name: 'Россия',
-      desc: 'Напрямую по умолчанию. Через VPN только заблокированные сервисы.',
+      name: 'Россия (умный)',
+      desc:
+          'По умолчанию напрямую. Через VPN — только заблокированные сервисы '
+          '(Telegram, Instagram, X, YouTube, Discord, ChatGPT и список '
+          'заблокированного в РФ). Российские сайты и банки — напрямую.',
       icon: Lucide.shield,
     ),
     RoutingMode(
       id: 'telegram-only',
       name: 'Только Telegram',
-      desc: 'Через VPN идёт только Telegram, остальное напрямую.',
+      desc:
+          'Через VPN идёт только Telegram (приложение + домены + '
+          'IP-диапазоны). Всё остальное — напрямую.',
       icon: Lucide.send,
     ),
+    // `full` — историческое имя UI для пресета ядра `ru-full`; переименование
+    // делает kRoutingPresetWire в core_policy_mapping.dart.
     RoutingMode(
       id: 'full',
-      name: 'Полный обход',
-      desc: 'Весь трафик через VPN, кроме российских сайтов.',
+      name: 'Россия (полный обход)',
+      desc:
+          'Весь трафик через VPN, напрямую — только российские сайты, '
+          'российские IP и локальная сеть.',
       icon: Lucide.globe,
     ),
     RoutingMode(
       id: 'streaming',
-      name: 'Стриминг',
-      desc: 'Через VPN идут Netflix, YouTube и подобные сервисы.',
+      name: 'Стриминг и AI',
+      desc:
+          'По умолчанию напрямую. Через VPN — Netflix, YouTube, Spotify, '
+          'Disney+, ChatGPT (обход гео-ограничений).',
       icon: Lucide.zap,
     ),
     RoutingMode(
       id: 'adblock',
-      name: 'Блок рекламы',
-      desc: 'Маршрут не меняется, режется реклама и трекеры.',
+      name: 'Только блок рекламы',
+      desc:
+          'VPN не меняет маршрут трафика — только блокирует рекламу и трекеры '
+          'на уровне DNS/правил.',
       icon: Lucide.lock,
+    ),
+    RoutingMode(
+      id: 'ir-smart',
+      name: 'Иран (умный)',
+      desc:
+          'По умолчанию напрямую. Через VPN — заблокированные в Иране ресурсы. '
+          'Иранские сайты и IP — напрямую.',
+      icon: Lucide.shield,
+    ),
+    RoutingMode(
+      id: 'by-smart',
+      name: 'Беларусь (умный)',
+      desc:
+          'По умолчанию напрямую. Через VPN — заблокированные сервисы. '
+          'Белорусское и LAN — напрямую.',
+      icon: Lucide.shield,
+    ),
+    RoutingMode(
+      id: 'cn-smart',
+      name: 'Китай (умный)',
+      desc:
+          'Весь зарубежный трафик через VPN, китайские сайты и IP — напрямую '
+          '(классическая схема GFW).',
+      icon: Lucide.globe,
+    ),
+    RoutingMode(
+      id: 'global',
+      name: 'Полный обход',
+      desc: 'Весь трафик через VPN, напрямую — только локальная сеть.',
+      icon: Lucide.net,
     ),
   ];
 }

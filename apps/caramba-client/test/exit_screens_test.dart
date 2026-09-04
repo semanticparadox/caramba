@@ -97,6 +97,16 @@ ConnectionProfile _profile() => ConnectionProfile(
   serversUpdatedMs: DateTime.now().millisecondsSinceEpoch,
 );
 
+/// Входы в форме `GET /app/relays`, плюс псевдо-варианты Выкл/Авто, которые
+/// дописывает клиент.
+final _panelRelays = Relay.fromCountries(<Relay>[
+  Relay.fromApiJson(const <String, dynamic>{
+    'country_code': 'TR',
+    'country_name': 'Турция',
+    'node_count': 2,
+  }),
+]);
+
 Widget _app(
   Widget screen, {
   ExitInventory? catalog,
@@ -107,9 +117,11 @@ Widget _app(
     connectionProfilesStoreProvider.overrideWithValue(
       store ?? _FakeProfilesStore(<ConnectionProfile>[_profile()], 'cp_1'),
     ),
-    // Список входов приходит с панели; в тесте берём дефолтный набор, чтобы
-    // экран не зависел от сети.
-    apiRelaysProvider.overrideWith((ref) async => Relay.defaults),
+    // Список входов приходит с панели; в тесте подставляем ровно то, что
+    // отдаёт `GET /app/relays`. Прежний `Relay.defaults` для этого не годится:
+    // выдуманных стран в нём больше нет, и экран, собранный по нему, проверял
+    // бы отрисовку фикции.
+    apiRelaysProvider.overrideWith((ref) async => _panelRelays),
     if (catalog != null) csmExitCatalogProvider.overrideWithValue(catalog),
   ],
   child: MaterialApp(theme: AppTheme.dark(), home: screen),
@@ -340,8 +352,13 @@ void main() {
       expect(find.text('Amsterdam #2'), findsOneWidget);
       // Узел другой страны сюда не попал.
       expect(find.text('Frankfurt #1'), findsNothing);
-      // Тип outbound'а источник знает — значит он назван.
-      expect(find.text('VLESS'), findsNWidgets(2));
+      // Строка — МАШИНА, и она называет, сколько инбаундов предлагает. Без
+      // этого счётчика восемь прокси одной машины читались как восемь
+      // серверов — ровно то, на что жаловался владелец. Здесь у каждой машины
+      // по одному прокси, поэтому «1».
+      expect(find.text('ИНБАУНДОВ: 1'), findsNWidgets(2));
+      // Тип outbound'а источник знает — значит он назван в подписи строки.
+      expect(find.text('vless'), findsNWidgets(2));
       expect(find.text('Все страны'), findsOneWidget);
     });
 
@@ -475,44 +492,100 @@ void main() {
       expect(find.text('Авто'), findsOneWidget);
       expect(find.text('Турция'), findsOneWidget);
 
-      // Причина приходит из возможности пути, а не из литерала экрана.
-      const reason = 'цепочка строится только на конфиге панели';
+      // Причина приходит из возможности слоя предложения
+      // (`Capabilities.relayChaining`), а не из литерала экрана, и относится к
+      // ВХОДАМ ОПЕРАТОРА: цепочку не выражает источник.
+      const reason = 'цепочку через вход выразить не может';
       _expectDisabledRow(tester, 'Турция', reason);
-      _expectDisabledRow(tester, 'Выкл', reason);
 
-      // Ни одна строка не отмечена выбранной: выбирать сейчас нечего.
-      final cards = tester.widgetList<ListItemCard>(find.byType(ListItemCard));
-      expect(cards.every((c) => !c.selected), isTrue);
+      // «Выкл» и «Авто» цепочкой не являются: первый просит ядро её не
+      // строить, второй оставляет решение оператору, и оба уходят на провод
+      // пустой строкой при любом источнике. Раньше они гасились той же
+      // возможностью, и «Выкл» стоял выключенным с подписью, которая описывала
+      // работу самого «Выкл» как причину его недоступности.
+      for (final title in <String>['Выкл', 'Авто']) {
+        final opacities = tester.widgetList<Opacity>(
+          find.ancestor(of: find.text(title), matching: find.byType(Opacity)),
+        );
+        expect(
+          opacities.any((o) => o.opacity == 0.45),
+          isFalse,
+          reason: '«$title» истинен при любом источнике и гаснуть не должен',
+        );
+        final card = tester.widget<ListItemCard>(
+          find.ancestor(
+            of: find.text(title),
+            matching: find.byType(ListItemCard),
+          ),
+        );
+        expect(card.onTap, isNotNull, reason: '«$title» обязан нажиматься');
+      }
+
+      // Значение в силе видно: сохранённый индекс по умолчанию — «Выкл».
+      // Раньше `selected` был завязан на ту же возможность, и экран не мог
+      // показать НИЧЕГО.
+      final cards = <String, ListItemCard>{
+        for (final title in <String>['Выкл', 'Авто', 'Турция'])
+          title: tester.widget<ListItemCard>(
+            find.ancestor(
+              of: find.text(title),
+              matching: find.byType(ListItemCard),
+            ),
+          ),
+      };
+      expect(cards['Выкл']!.selected, isTrue);
+      expect(cards['Авто']!.selected, isFalse);
+      expect(cards['Турция']!.selected, isFalse);
     });
   });
 
   group('экран протокола', () {
-    testWidgets('протокол, которого нет во флоте, виден и объяснён', (
+    testWidgets('список — инбаунды флота, а не перечень запросов ядра', (
       tester,
     ) async {
-      final catalog = _catalogWith(const <ExitNode>[
-        ExitNode(
-          key: 'de-1',
-          name: 'DE vless',
-          countryCode: 'DE',
-          source: ExitInventorySource.csmCatalog,
-          protocol: 'vless+ws',
-        ),
-      ]);
+      // Правило владельца: «протокол это и есть выбор inbounds доступные в
+      // конфиге». Раньше экран печатал СЕМЬ строк из `ProtocolOption.defaults`
+      // независимо от того, что раздаёт источник, и помечал лишние
+      // недоступными. Строка про AmneziaWG на подписке без единого
+      // wireguard-прокси — это выдумка, и её быть не должно вовсе.
       _useTallView(tester);
-      await tester.pumpWidget(_app(const ProtocolScreen(), catalog: catalog));
+      await tester.pumpWidget(_app(const ProtocolScreen()));
       await _settle(tester);
 
+      // В теле три прокси на трёх машинах: два vless и один hysteria2.
       expect(find.text('VLESS'), findsOneWidget);
-      _expectDisabledRow(
-        tester,
+      expect(find.text('Hysteria2'), findsOneWidget);
+      // Отказ от выбора верен при любом флоте и остаётся.
+      expect(find.text('Авто'), findsOneWidget);
+
+      // Ничего из того, чего в теле нет, экран больше не перечисляет.
+      for (final absent in <String>[
         'AmneziaWG',
-        'Ни один узел источника не раздаёт этот протокол',
+        'TUIC',
+        'Shadowsocks',
+        'VLESS · Reality',
+      ]) {
+        expect(find.text(absent), findsNothing, reason: absent);
+      }
+    });
+
+    testWidgets('узел не закреплён — область названа, а не выдана за узел', (
+      tester,
+    ) async {
+      _useTallView(tester);
+      await tester.pumpWidget(_app(const ProtocolScreen()));
+      await _settle(tester);
+
+      expect(
+        find.textContaining('Сервер не закреплён'),
+        findsOneWidget,
+        reason: 'список всего флота нельзя выдавать за инбаунды одного узла',
       );
-      _expectDisabledRow(
-        tester,
-        'Hysteria2',
-        'Ни один узел источника не раздаёт этот протокол',
+      // Импортированное тело называет только вид прокси: транспорт и TLS в нём
+      // схлопнуты, и об этом сказано ДО списка.
+      expect(
+        find.textContaining('не различает транспорт и TLS'),
+        findsOneWidget,
       );
     });
   });

@@ -138,16 +138,25 @@ class _ProfileCard extends ConsumerWidget {
     );
   }
 
-  /// Вторая строка карточки: для подписки это число узлов и когда список
+  /// Вторая строка карточки: для подписки это число ПРОКСИ и когда список
   /// обновляли, для аккаунта панели — её URL.
+  ///
+  /// Именно прокси, а не узлов. `profile.serverCount` — длина списка прокси в
+  /// теле подписки, то есть по строке на каждый инбаунд каждой машины: у живой
+  /// подписки это 13 на две машины. Считать их не запрещено — запрещено
+  /// называть их узлами, потому что «узлов» на экране серверов и на Home
+  /// означает машины, и одно слово с двумя значениями и породило жалобу
+  /// владельца про «восемь серверов». Машину отсюда не посчитать: группировка
+  /// живёт в слое предложения и строится для АКТИВНОГО профиля, а карточка
+  /// рисуется для каждого.
   String _subtitle() {
     if (!profile.isRaw) {
       return profile.source.isEmpty ? 'Аккаунт панели' : profile.source;
     }
     final count = profile.serverCount;
-    final nodes = count == 0 ? 'узлы не загружены' : 'узлов: $count';
+    final proxies = count == 0 ? 'прокси не загружены' : 'прокси: $count';
     final updated = _agoText(profile.serversUpdatedMs);
-    return updated == null ? nodes : '$nodes · обновлено $updated';
+    return updated == null ? proxies : '$proxies · обновлено $updated';
   }
 
   void _openMenu(BuildContext context, WidgetRef ref) {

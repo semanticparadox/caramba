@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/protocol.dart';
+import 'package:caramba_client/domain/offering/availability.dart'
+    show OfferingStatus;
 import 'package:caramba_client/state/core_config_state.dart';
 import 'package:caramba_client/state/exit_inventory_state.dart';
 import 'package:caramba_client/widgets/lucide.dart';
@@ -44,17 +46,28 @@ enum ProtocolUnavailableReason {
   sourceSilent,
 }
 
-/// Доступность протокола: либо доступен, либо недоступен С ПРИЧИНОЙ.
+/// Доступность протокола: доступен, недоступен с причиной — или НЕИЗВЕСТЕН с
+/// причиной.
+///
+/// Третье состояние появилось потому, что второго не хватало. Молчащий источник
+/// раньше давал `available` на каждую строку («источник ничего не исключил —
+/// значит всё разрешено»), и приложение обещало AmneziaWG на флоте без единого
+/// wireguard-узла. Обратное решение не лучше: `unavailable` по молчанию
+/// выключило бы рабочие протоколы. Молчание — это [OfferingStatus.unknown]:
+/// строка остаётся нажимаемой, но помечена как непроверенная.
 class ProtocolAvailability {
+  final OfferingStatus status;
+
   /// `null` — доступен.
   final ProtocolUnavailableReason? reason;
 
   /// Уточнение (форма, которой не хватило; имя источника). Может быть `null`.
   final String? detail;
 
-  const ProtocolAvailability._(this.reason, this.detail);
+  const ProtocolAvailability._(this.status, this.reason, this.detail);
 
   static const ProtocolAvailability available = ProtocolAvailability._(
+    OfferingStatus.available,
     null,
     null,
   );
@@ -62,9 +75,22 @@ class ProtocolAvailability {
   const ProtocolAvailability.unavailable(
     ProtocolUnavailableReason reason, {
     String? detail,
-  }) : this._(reason, detail);
+  }) : this._(OfferingStatus.unavailable, reason, detail);
 
-  bool get isAvailable => reason == null;
+  /// Источник про эту строку ничего не сказал.
+  const ProtocolAvailability.unknown(
+    ProtocolUnavailableReason reason, {
+    String? detail,
+  }) : this._(OfferingStatus.unknown, reason, detail);
+
+  /// Можно ли нажать. «Неизвестно» — можно: запрет по молчанию источника отнял
+  /// бы рабочий выбор ровно так же, как разрешение по молчанию его выдумывало.
+  bool get isAvailable => status != OfferingStatus.unavailable;
+
+  /// Подтвердил ли источник это утверждение.
+  bool get isVerified => status != OfferingStatus.unknown;
+
+  bool get isUnknown => status == OfferingStatus.unknown;
 
   /// Готовый текст причины. Он живёт рядом с самой причиной, чтобы «недоступно»
   /// нигде не осталось без ответа на вопрос «почему».
@@ -93,11 +119,12 @@ class ProtocolAvailability {
   @override
   bool operator ==(Object other) =>
       other is ProtocolAvailability &&
+      other.status == status &&
       other.reason == reason &&
       other.detail == detail;
 
   @override
-  int get hashCode => Object.hash(reason, detail);
+  int get hashCode => Object.hash(status, reason, detail);
 }
 
 /// Одна строка экрана протоколов.
@@ -154,12 +181,26 @@ class ProtocolInventory {
   /// Почему сверить не удалось; `null` — сверено.
   final ProtocolAvailability? unverified;
 
+  /// Узел, по которому список отфильтрован. `null` — узел не закреплён, и
+  /// список описывает ВЕСЬ флот.
+  ///
+  /// Правило владельца: «протокол это и есть выбор inbounds, доступных в
+  /// конфиге, а сервер должен быть выбор из нод» — то есть протоколы
+  /// принадлежат конкретной машине. Пока узел не выбран, честный ответ это «что
+  /// бывает во флоте», и он обязан быть назван именно так, а не выдан за «что
+  /// применится».
+  final String? scopedNodeKey;
+
   const ProtocolInventory({
     required this.source,
     required this.choices,
     required this.verified,
     this.unverified,
+    this.scopedNodeKey,
   });
+
+  /// Список относится к одному узлу, а не ко всему флоту.
+  bool get isScopedToNode => scopedNodeKey != null;
 
   /// Строка по индексу опции; `null` — такой строки нет.
   ProtocolChoice? byIndex(int index) {
@@ -170,25 +211,52 @@ class ProtocolInventory {
   }
 }
 
-/// Инвентарь протоколов активного источника.
+/// Инвентарь протоколов активного источника, отфильтрованный ЗАКРЕПЛЁННЫМ
+/// узлом.
 final protocolInventoryProvider = Provider<ProtocolInventory>((ref) {
   final options = ref.watch(protocolsProvider);
   final inventory = ref.watch(exitInventoryProvider);
-  return buildProtocolInventory(options, inventory);
+  return buildProtocolInventory(
+    options,
+    inventory,
+    onlyNodeKey: inventory.selectedNodeKey,
+  );
 });
 
 /// Чистая сборка инвентаря: отделена от провайдера, чтобы проверяться без
 /// поднятия ProviderContainer и всей цепочки профилей.
+///
+/// [onlyNodeKey] — ключ закреплённого узла. Узел найден — считаем по нему
+/// одному: восемь инбаундов одной машины это её протоколы, а не протоколы
+/// флота. Узел не закреплён (или ключ не нашёлся, например после смены плана)
+/// — считаем по всем узлам, и [ProtocolInventory.scopedNodeKey] остаётся
+/// `null`, чтобы экран назвал область честно.
 ProtocolInventory buildProtocolInventory(
   List<ProtocolOption> options,
+  ExitInventory inventory, {
+  String? onlyNodeKey,
+}) {
+  final scoped = onlyNodeKey == null
+      ? null
+      : inventory.nodes.where((n) => n.key == onlyNodeKey).toList();
+  if (scoped != null && scoped.isNotEmpty) {
+    return _buildFrom(options, inventory, scoped, onlyNodeKey);
+  }
+  return _buildFrom(options, inventory, inventory.nodes, null);
+}
+
+ProtocolInventory _buildFrom(
+  List<ProtocolOption> options,
   ExitInventory inventory,
+  List<ExitNode> sourceNodes,
+  String? scopedNodeKey,
 ) {
   // Токены узла: `vless`, но и `vless+ws+reality` из каталога CSM. Режем по
   // всему, что не буква и не цифра, — форма записи принадлежит источнику, и
   // разбирать её как грамматику значило бы завести ещё одно место, где она
   // описана.
   final perNode = <Set<String>>[];
-  for (final node in inventory.nodes) {
+  for (final node in sourceNodes) {
     final tokens = _tokens(node.protocol);
     if (tokens.isNotEmpty) perNode.add(tokens);
   }
@@ -197,20 +265,36 @@ ProtocolInventory buildProtocolInventory(
     final ProtocolUnavailableReason reason;
     if (inventory.source == ExitInventorySource.none) {
       reason = ProtocolUnavailableReason.noProfile;
-    } else if (inventory.nodes.isEmpty) {
+    } else if (sourceNodes.isEmpty) {
       reason = ProtocolUnavailableReason.sourceEmpty;
     } else {
       reason = ProtocolUnavailableReason.sourceSilent;
     }
-    // Сверить не по чему — значит НИЧЕГО не исключено. Выключать весь список
-    // из-за молчания источника было бы враньём наоборот: панельный `/servers`
-    // не сообщает протоколы, а узлы на нём при этом рабочие.
+    // Молчание источника это НЕИЗВЕСТНО, а не разрешение. Раньше здесь стояло
+    // `available` на каждой строке — «источник ничего не исключил, значит можно
+    // всё», — и пикер обещал протоколы, которых на узле нет; выбор применялся,
+    // ядро не находило нужного outbound'а и молча оставалось на прежнем.
+    // Выключить список тоже нельзя: узлы при этом рабочие. Поэтому строки
+    // остаются нажимаемыми, но помечены непроверенными, а причина названа.
+    final unknown = reason == ProtocolUnavailableReason.noProfile
+        ? ProtocolAvailability.unavailable(reason)
+        : ProtocolAvailability.unknown(reason);
     return ProtocolInventory(
       source: inventory.source,
       verified: false,
-      unverified: ProtocolAvailability.unavailable(reason),
+      unverified: unknown,
+      scopedNodeKey: scopedNodeKey,
       choices: <ProtocolChoice>[
-        for (var i = 0; i < options.length; i++) _choiceOf(options[i], i),
+        for (var i = 0; i < options.length; i++)
+          _choiceOf(
+            options[i],
+            i,
+            // «Авто» остаётся доступным при любом источнике: это отказ от
+            // выбора, а не утверждение о флоте.
+            availability: options[i].outboundTypes.isEmpty
+                ? ProtocolAvailability.available
+                : unknown,
+          ),
       ],
     );
   }
@@ -305,6 +389,7 @@ ProtocolInventory buildProtocolInventory(
     source: inventory.source,
     choices: List<ProtocolChoice>.unmodifiable(choices),
     verified: true,
+    scopedNodeKey: scopedNodeKey,
   );
 }
 

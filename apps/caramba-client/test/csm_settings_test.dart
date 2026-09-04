@@ -35,6 +35,18 @@ Map<int, CsmPolicyEntry> _pol(
     e.key.wire: CsmPolicyEntry(e.value.$1, e.value.$2),
 };
 
+/// Входы в той форме, в какой их отдаёт панель (`GET /app/relays` + два
+/// псевдо-варианта клиента). Выдуманного набора `Relay.defaults` со странами,
+/// которых у оператора нет, здесь больше нет; индексы прежние: 0 — Выкл,
+/// 1 — Авто, 2 — страна.
+final _panelRelays = Relay.fromCountries(<Relay>[
+  Relay.fromApiJson(const <String, dynamic>{
+    'country_code': 'TR',
+    'country_name': 'Турция',
+    'node_count': 2,
+  }),
+]);
+
 void main() {
   group('7.5 трёхсторонняя семантика патча', () {
     test('ключ, которого нет в want, означает «не менять»', () {
@@ -732,12 +744,13 @@ void main() {
           killSwitch: false,
           ipv6: true,
         ),
+        relays: _panelRelays,
       );
 
       expect(ProtocolOption.defaults[next.protocol].id, 'TUIC');
       // Ядро зовёт этот пресет `ru-full`, UI зовёт его `full`.
       expect(RoutingMode.defaults[next.route].id, 'full');
-      expect(Relay.defaults[next.relay].country, 'TR');
+      expect(_panelRelays[next.relay].country, 'TR');
       expect(CoreOption.stacks[next.stack].id, 'gvisor');
       expect(CoreOption.mtu[next.mtu].id, '1420');
       expect(next.killSwitch, isFalse);
@@ -749,20 +762,20 @@ void main() {
 
       // Пустая строка это «оператор решает» -> Авто.
       expect(
-        Relay
-            .defaults[coreConfigFromPolicy(
+        _panelRelays[coreConfigFromPolicy(
               base,
               const CorePolicy(relay: ''),
+              relays: _panelRelays,
             ).relay]
             .isAuto,
         isTrue,
       );
       // `--` это явное «без релея» -> Выкл.
       expect(
-        Relay
-            .defaults[coreConfigFromPolicy(
+        _panelRelays[coreConfigFromPolicy(
               base,
               const CorePolicy(relay: kCsmNoRelay),
+              relays: _panelRelays,
             ).relay]
             .isOff,
         isTrue,

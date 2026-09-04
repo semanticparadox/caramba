@@ -51,7 +51,20 @@
             <!-- INTEGRATION.md step 3b: custom-scheme deep links. Parsed and
                  routed in Dart (lib/router/deep_links.dart on app_links); the OS
                  only delivers the URI if the scheme is registered here.
-                 carambaconnect://enroll?panel=<https-url>&code=<invite> -->
+
+                 Two schemes on purpose. `caramba://connect?d=<armor>` is the
+                 self-describing invite the panel bot hands out now; it is what
+                 removes the invite-code screen nobody could complete. The older
+                 `carambaconnect://` actions stay registered forever beside it:
+                 links already sent to people must keep opening the app, and a
+                 dead deep link is indistinguishable from a hung app. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="caramba" android:host="connect" />
+            </intent-filter>
+            <!-- carambaconnect://enroll?panel=<https-url>&code=<invite> -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

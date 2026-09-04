@@ -5,7 +5,9 @@ import 'package:go_router/go_router.dart';
 import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/server.dart';
+import 'package:caramba_client/domain/offering/offering_providers.dart';
 import 'package:caramba_client/features/servers/country_nodes_view.dart';
+import 'package:caramba_client/features/servers/fleet_alignment.dart';
 import 'package:caramba_client/features/settings/reconnect_banner.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
@@ -121,6 +123,11 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
               else
                 _CountryList(
                   inventory: inventory,
+                  // Счётчик узлов у страны берётся из предложения, когда оно
+                  // описывает тот же источник: в теле подписки «узлов» ровно
+                  // столько, сколько прокси, а машин — меньше, и именно
+                  // машины пользователь считает серверами.
+                  machineCounts: _machineCounts(inventory),
                   onAuto: () => _pickCountry(null),
                   onOpen: (cc) => setState(() => _country = cc),
                 ),
@@ -163,6 +170,20 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
         const SizedBox(height: AppSpace.s5),
       ],
     ];
+  }
+
+  /// Сколько МАШИН в каждой стране по данным предложения; пусто — предложение
+  /// этот источник не ведёт, и счётчиком остаётся число узлов инвентаря.
+  Map<String, int> _machineCounts(ExitInventory inventory) {
+    final offering = ref.watch(offeringProvider);
+    if (!fleetSourcesAgree(inventory.source, offering.source)) {
+      return const <String, int>{};
+    }
+    final out = <String, int>{};
+    for (final e in offering.exits) {
+      out[e.countryCode] = (out[e.countryCode] ?? 0) + 1;
+    }
+    return out;
   }
 
   Future<void> _refresh(ExitInventorySource source) {
@@ -285,11 +306,16 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
 /// инвентаря (доступные раньше недоступных, внутри — по лучшему пингу).
 class _CountryList extends StatelessWidget {
   final ExitInventory inventory;
+
+  /// Число машин по коду страны; пусто — считаем узлами инвентаря.
+  final Map<String, int> machineCounts;
+
   final VoidCallback onAuto;
   final void Function(String countryCode) onOpen;
 
   const _CountryList({
     required this.inventory,
+    required this.machineCounts,
     required this.onAuto,
     required this.onOpen,
   });
@@ -309,6 +335,7 @@ class _CountryList extends StatelessWidget {
         for (final l in inventory.locations)
           _CountryRow(
             location: l,
+            nodeCount: machineCounts[l.countryCode] ?? l.nodeCount,
             selected: l.countryCode == inventory.selectedCountry,
             onTap: l.isAvailable ? () => onOpen(l.countryCode) : null,
           ),
@@ -322,11 +349,16 @@ class _CountryList extends StatelessWidget {
 /// цели для нажатия.
 class _CountryRow extends StatelessWidget {
   final ExitLocation location;
+
+  /// Сколько МАШИН в стране (не прокси).
+  final int nodeCount;
+
   final bool selected;
   final VoidCallback? onTap;
 
   const _CountryRow({
     required this.location,
+    required this.nodeCount,
     required this.selected,
     this.onTap,
   });
@@ -353,7 +385,7 @@ class _CountryRow extends StatelessWidget {
         title: location.displayName,
         subtitle: off ? location.availability.message : null,
         selected: selected,
-        titleBadges: [Tag('узлов: ${location.nodeCount}')],
+        titleBadges: [Tag('узлов: $nodeCount')],
         onTap: onTap,
         trailing: Text(
           location.bestPingMs == null ? '-' : '${location.bestPingMs} мс',

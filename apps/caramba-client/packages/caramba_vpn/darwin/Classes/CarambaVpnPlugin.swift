@@ -227,12 +227,19 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
             // applied. It carries the trusted catalog's resource projection,
             // without which the client cannot notice the narrowing that arrives
             // in the catalog rather than in a setting (02-SPEC.md 7.7.1).
-            csmRead(code: "csm_state_failed", ladder: false, result: result)
+            csmRead(kind: .state, code: "csm_state_failed", result: result)
 
         case "csmLadder":
             // The attempt history is local and never reported to the operator
             // (02-SPEC.md 7.10); the transport screen must show it (INV-17).
-            csmRead(code: "csm_ladder_failed", ladder: true, result: result)
+            csmRead(kind: .ladder, code: "csm_ladder_failed", result: result)
+
+        case "routeReport":
+            // What the LAST raise applied to routing. Also a read: no socket,
+            // nothing applied. Without it the settings screen cannot tell a
+            // working ad block from an enabled and dead one, which is the whole
+            // reason the report exists.
+            routeReport(result: result)
 
         case "csmEnroll":
             // Enrolment goes through the core and up the ladder: it is the one
@@ -362,22 +369,54 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
         #endif
     }
 
-    /// Runs a read-only CSM call on the tools queue and returns its JSON.
+    /// The read-only core calls that take nothing and give one JSON back.
+    private enum CoreReadKind {
+        case state
+        case ladder
+        case routeReport
+    }
+
+    /// What the LAST raise applied to routing.
+    ///
+    /// The report belongs to the core that RAISED, and on Apple platforms that
+    /// core lives in the network extension, in another process. It crosses the
+    /// App Group for the same reason the loopback address does; the extension
+    /// writes it after `up` and again at teardown.
+    ///
+    /// The app-process core is reached only when the container carries nothing —
+    /// no raise since install, or no App Group configured at all. Its answer is
+    /// the core's OWN not_raised JSON: returning an empty string would read on
+    /// the Dart side as "this build has no bridge"
+    /// (`AppliedRoute.unsupported`), and a report assembled here would be a
+    /// fourth shape of a contract nobody verifies.
+    private func routeReport(result: @escaping FlutterResult) {
+        let shared = CarambaSharedState.readRouteReport()
+        if !shared.isEmpty {
+            result(shared)
+            return
+        }
+        csmRead(kind: .routeReport, code: "route_report_failed", result: result)
+    }
+
+    /// Runs a read-only core call on the tools queue and returns its JSON.
     ///
     /// The client type only exists when the framework is linked, so the call
     /// itself lives under the same guard as every other core call here and the
-    /// selector is a flag rather than a closure over that type.
-    private func csmRead(code: String, ladder: Bool, result: @escaping FlutterResult) {
+    /// selector is a plain enum rather than a closure over that type.
+    private func csmRead(kind: CoreReadKind, code: String, result: @escaping FlutterResult) {
         #if canImport(Caramba)
         toolsQueue.async { [weak self] in
             guard let self = self else { return }
             do {
                 let client = try self.csmClient()
                 let out: String
-                if ladder {
+                switch kind {
+                case .ladder:
                     out = try client.csmLadder()
-                } else {
+                case .state:
                     out = try client.csmState()
+                case .routeReport:
+                    out = try client.routeReport()
                 }
                 DispatchQueue.main.async { result(out) }
             } catch {
