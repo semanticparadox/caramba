@@ -1,6 +1,6 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use console::style;
-use dialoguer::{theme::ColorfulTheme, Input, Password};
+use dialoguer::{Input, Password, theme::ColorfulTheme};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -97,11 +97,7 @@ fn normalize_domain_like(value: &str) -> Option<String> {
         raw = head.to_string();
     }
     raw = raw.trim_end_matches('/').to_string();
-    if raw.is_empty() {
-        None
-    } else {
-        Some(raw)
-    }
+    if raw.is_empty() { None } else { Some(raw) }
 }
 
 fn parse_db_password_from_url(database_url: &str) -> Option<String> {
@@ -497,6 +493,12 @@ pub fn generate_caddyfile(config: &InstallConfig) -> String {
         "/downloads/*".to_string(),
         "/install.sh".to_string(),
         "/nodes/*".to_string(),
+        // Списки правил маршрутизации, которые панель раздаёт клиентам: блок
+        // рекламы и страновые списки. Клиент берёт их по адресу panel_url, то
+        // есть через этот же хост, и без пути здесь Caddy отвечает 404 — при
+        // том что панель отдаёт файлы на своём порту и в логах всё зелено.
+        // Выглядит как поломка в панели, а на деле маршрут просто не открыт.
+        "/rulesets/*".to_string(),
         admin_path.clone(),
         format!("{}/*", admin_path),
     ];
