@@ -10,6 +10,7 @@ mod api;
 mod bot;
 mod bot_manager;
 mod cli;
+mod connect_link;
 pub mod handlers;
 mod license;
 mod scripts;

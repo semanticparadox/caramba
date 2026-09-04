@@ -154,7 +154,7 @@ async fn issue_refresh_token(
 /// Выпускает пару (access + refresh) для пользователя — единый путь выпуска
 /// токенов, общий для login_email / login_telegram / login_code. Гарантирует,
 /// что все способы входа отдают идентичный success-JSON (см. `token_pair`).
-async fn issue_session(
+pub(crate) async fn issue_session(
     state: &AppState,
     user_id: i64,
     headers: &HeaderMap,

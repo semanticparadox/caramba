@@ -1553,12 +1553,106 @@ pub async fn message_handler(
             }
 
             MenuAction::Login => {
-                // Одноразовый код для входа в standalone-приложение (Flutter + Go-ядро).
+                // Сначала ссылка: она не требует от человека ввода вообще.
+                send_connect_link(&bot, &state, msg.chat.id, tg_id).await;
+                // Следом — прежний одноразовый 6-значный код. Он остаётся
+                // запасным путём: ссылка бесполезна там, где приложение не
+                // перехватывает схему caramba:// (десктоп, старая сборка).
                 send_login_code(&bot, &state, msg.chat.id, tg_id).await;
             }
         }
     }
     Ok::<_, teloxide::RequestError>(())
+}
+
+/// Отправляет ссылку `caramba://connect?d=...` — приглашение приложения в панель.
+///
+/// ЗАЧЕМ. Приложение до сих пор умело только спросить «введите код приглашения»
+/// или показать заглушку QR, а кодов на панели не было ни одного: экран нельзя
+/// было пройти. Ссылка снимает ввод целиком — человек её открывает, и приложение
+/// само знает, куда идти и от кого пришло приглашение.
+///
+/// ТЕКСТ ЗДЕСЬ, А НЕ В `translations.rs`, потому что ключи там генерируются одной
+/// таблицей на оба языка и эта функция — единственный их потребитель; вынос
+/// раздробил бы одно сообщение на четыре записи в чужом файле. Формулировка
+/// намеренно называет вещи своими именами: ссылка НЕ зашифрована, и человек
+/// должен это знать, раз уж от него зависит, кому она попадёт.
+///
+/// Сбой выпуска (не настроен panel_url, недоступна БД) даёт короткое честное
+/// сообщение, а не «ссылку-заглушку»: неработающая ссылка молча уводит
+/// приложение не туда, и человек видит непонятный сетевой сбой вместо причины.
+pub async fn send_connect_link(bot: &Bot, state: &AppState, chat_id: ChatId, tg_id: i64) {
+    let lang = crate::bot::utils::lang_by_tg_id(state, tg_id).await;
+
+    let user_id = match state.store_service.get_user_by_tg_id(tg_id).await {
+        Ok(Some(u)) => u.id,
+        Ok(None) => {
+            // До /start аккаунта нет, привязывать устройство не к чему.
+            error!("connect link: no panel user for tg_id {}", tg_id);
+            let _ = bot
+                .send_message(chat_id, connect_link_failed_text(lang))
+                .await;
+            return;
+        }
+        Err(e) => {
+            error!("connect link: user lookup failed: {}", e);
+            let _ = bot
+                .send_message(chat_id, connect_link_failed_text(lang))
+                .await;
+            return;
+        }
+    };
+
+    let _ = bot
+        .send_message(chat_id, connect_link_message(state, user_id, lang).await)
+        .parse_mode(ParseMode::Html)
+        .await
+        .map_err(|e| error!("Failed to send connect link: {}", e));
+}
+
+/// Готовый HTML-блок со ссылкой-приглашением. Отдельно от отправки, потому что
+/// у ссылки два места: собственное сообщение (кнопка входа в приложение) и
+/// врезка рядом со ссылкой на подписку — а текст обязан быть один и тот же.
+///
+/// Сбой не возвращает `Result`: вызывающему нечего с ним делать, кроме как
+/// показать ту же строку, а полная причина уже в логе.
+pub async fn connect_link_message(state: &AppState, user_id: i64, lang: Lang) -> String {
+    let link = match crate::api::v2::app_enroll::issue_connect_link(state, user_id).await {
+        Ok(l) => l,
+        Err(e) => {
+            error!("connect link: issue failed for user {}: {:#}", user_id, e);
+            return connect_link_failed_text(lang).to_string();
+        }
+    };
+
+    match lang {
+        Lang::Ru => format!(
+            "🔗 <b>Ссылка для приложения Caramba Connect</b>\n\n<code>{}</code>\n\n\
+             Нажмите на ссылку, чтобы скопировать её, и вставьте в приложение — \
+             оно подключится к панели само, больше вводить ничего не нужно.\n\
+             Ссылка одноразовая и живёт 30 минут. Она не зашифрована: кто её получит, \
+             тот и подключится, — не пересылайте.",
+            escape_html(&link)
+        ),
+        Lang::En => format!(
+            "🔗 <b>Link for the Caramba Connect app</b>\n\n<code>{}</code>\n\n\
+             Tap the link to copy it, then paste it into the app — it connects to the \
+             panel on its own, nothing else to type.\n\
+             The link is one-time and lasts 30 minutes. It is not encrypted: whoever gets \
+             it can use it, so don't forward it.",
+            escape_html(&link)
+        ),
+    }
+}
+
+/// Сообщение о неудачном выпуске ссылки. Причину человеку не показываем (это
+/// либо настройка оператора, либо сбой БД — и то, и другое чинит не он), но в
+/// логе она есть полностью.
+fn connect_link_failed_text(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Ru => "Не удалось выпустить ссылку для приложения. Попробуйте позже.",
+        Lang::En => "Could not issue the app connect link. Please try again later.",
+    }
 }
 
 /// Генерирует одноразовый 6-значный код для входа в приложение и отправляет его

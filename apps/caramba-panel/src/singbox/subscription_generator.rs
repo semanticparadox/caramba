@@ -88,30 +88,30 @@ impl NodeInfo {
 // ─── Helper: Parse stream_settings JSON ───────────────────────────────────────
 
 /// Parsed transport/security info from an inbound's stream_settings JSON
-struct StreamInfo {
-    network: String,  // tcp, ws, grpc, xhttp, quic
-    security: String, // reality, tls, none
-    sni: String,
-    public_key: String, // Reality only
-    short_id: String,   // Reality only
-    fingerprint: String,
-    ws_path: String,      // WebSocket path
-    grpc_service: String, // gRPC serviceName
-    flow: String,         // xtls-rprx-vision (Reality+TCP only)
+pub(crate) struct StreamInfo {
+    pub(crate) network: String,  // tcp, ws, grpc, xhttp, quic
+    pub(crate) security: String, // reality, tls, none
+    pub(crate) sni: String,
+    pub(crate) public_key: String, // Reality only
+    pub(crate) short_id: String,   // Reality only
+    pub(crate) fingerprint: String,
+    pub(crate) ws_path: String,      // WebSocket path
+    pub(crate) grpc_service: String, // gRPC serviceName
+    pub(crate) flow: String,         // xtls-rprx-vision (Reality+TCP only)
 
     // XHTTP / Advanced settings
-    packet_encoding: Option<String>, // packet-up / packetaddr
-    x_padding_bytes: Option<String>, // 500-1200
+    pub(crate) packet_encoding: Option<String>, // packet-up / packetaddr
+    pub(crate) x_padding_bytes: Option<String>, // 500-1200
     #[allow(dead_code)] // WIP: xmux/mux settings not yet emitted into configs
-    xmux: Option<Value>, // JSON object for mux settings
+    pub(crate) xmux: Option<Value>, // JSON object for mux settings
 
     // Hysteria 2
-    hy2_ports: Option<String>, // Port hopping range e.g. "20000-50000"
-    hy2_obfs: Option<String>,  // Obfs password
+    pub(crate) hy2_ports: Option<String>, // Port hopping range e.g. "20000-50000"
+    pub(crate) hy2_obfs: Option<String>,  // Obfs password
 
     // TUIC v5
-    tuic_congestion_control: Option<String>,
-    tuic_zero_rtt_handshake: Option<bool>,
+    pub(crate) tuic_congestion_control: Option<String>,
+    pub(crate) tuic_zero_rtt_handshake: Option<bool>,
 }
 
 fn is_placeholder_sni(sni: &str) -> bool {
@@ -153,13 +153,13 @@ fn country_flag(code: Option<&str>) -> &'static str {
 }
 
 /// Country flag emoji only — node name omitted since flag is sufficient
-fn format_node_label(node: &NodeInfo) -> String {
+pub(crate) fn format_node_label(node: &NodeInfo) -> String {
     country_flag(node.country_code.as_deref()).to_string()
 }
 
 /// Compact protocol + transport label — user-friendly names instead of
 /// protocol jargon.
-fn format_proto_label(protocol: &str, si: &StreamInfo) -> String {
+pub(crate) fn format_proto_label(protocol: &str, si: &StreamInfo) -> String {
     match protocol.to_ascii_lowercase().as_str() {
         "vless" => match si.network.as_str() {
             "tcp" => match si.security.as_str() {
@@ -495,7 +495,7 @@ fn ensure_relay_outbound(
     Some(r_tag)
 }
 
-fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
+pub(crate) fn parse_stream_settings(raw: &str, node: &NodeInfo) -> StreamInfo {
     // 1. Parse into strongly-typed struct for robust alias handling (SNI, Settings, etc.)
     let settings: caramba_db::models::network::StreamSettings =
         serde_json::from_str(raw).unwrap_or_default();
@@ -1143,8 +1143,12 @@ pub fn generate_clash_config(
 ) -> Result<String> {
     let mut proxies = Vec::new();
 
-    let mut direct_names: Vec<String> = vec![];
-    let mut relay_names: Vec<String> = vec![];
+    // Единственный источник правды о составе групп — `proxies`. Здесь копится
+    // только ПРИЗНАК пути (идёт ли выход через релей) для имён, которые
+    // генератор рассматривал. Само членство в группах строится ниже фильтром
+    // по фактически выпущенным прокси, поэтому имя, под которым прокси не
+    // выпустился, физически не может попасть ни в одну группу.
+    let mut relay_path_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for node in nodes {
         // Skip pure infrastructure relay nodes.
@@ -1186,11 +1190,10 @@ pub fn generate_clash_config(
                     continue;
                 }
 
-                // Track name for group building.
+                // Это признак пути, а не запись в группу: выпустит ли match
+                // ниже прокси с этим именем, здесь ещё неизвестно.
                 if is_relay_path {
-                    relay_names.push(name.clone());
-                } else {
-                    direct_names.push(name.clone());
+                    relay_path_names.insert(name.clone());
                 }
 
                 match inbound.protocol.as_str() {
@@ -1413,14 +1416,38 @@ pub fn generate_clash_config(
                         }
                         proxies.push(proxy);
                     }
-                    _ => {}
+                    // mihomo не знает исходящего `naive`: разбор `type:` в
+                    // adapter/parser.go перечисляет ss/ssr/socks5/http/vmess/
+                    // vless/snell/trojan/hysteria/hysteria2/wireguard/tuic/
+                    // shadowquic/gost-relay/ssh/mieru/anytls/… — ветки `naive`
+                    // среди них нет. Подменить его на `http` тоже нельзя:
+                    // adapter/outbound/http.go шлёт CONNECT строкой
+                    // "HTTP/1.1", без ALPN h2 и без набивки, а naive-сервер
+                    // ждёт именно HTTP/2 CONNECT. Поэтому инбаунд опускается —
+                    // ровно как его опускает каталог CSM (csm/catalog_store.rs,
+                    // NAIVE_NOT_IN_CLASH; 02-SPEC.md 4.4.1 требует, чтобы тело
+                    // Clash и каталог описывали один и тот же набор прокси).
+                    "naive" => {
+                        tracing::debug!(
+                            node = %node.name,
+                            inbound = inbound.id,
+                            "clash: naive пропущен, у mihomo нет такого исходящего"
+                        );
+                    }
+                    other => {
+                        tracing::debug!(
+                            node = %node.name,
+                            inbound = inbound.id,
+                            protocol = %other,
+                            "clash: протокол вне словаря генератора, прокси не выпущен"
+                        );
+                    }
                 }
             }
         }
         // Legacy fallback
         else if node.reality_port.is_some() {
             let legacy_name = format!("{} Reality", format_node_label(node));
-            direct_names.push(legacy_name.clone());
             proxies.push(json!({
                 "name": legacy_name,
                 "type": "vless",
@@ -1441,7 +1468,6 @@ pub fn generate_clash_config(
         // Legacy Hysteria2
         if let Some(hy2_port) = node.hy2_port.filter(|_| !node.is_relay) {
             let hy2_legacy_name = format!("{} hy2", format_node_label(node));
-            direct_names.push(hy2_legacy_name.clone());
             proxies.push(json!({
                 "name": hy2_legacy_name,
                 "type": "hysteria2",
@@ -1457,6 +1483,29 @@ pub fn generate_clash_config(
     let all_names: Vec<String> = proxies
         .iter()
         .filter_map(|p| p["name"].as_str().map(|s| s.to_string()))
+        .collect();
+
+    // Членство в группах выводится ИЗ `all_names`, то есть из уже выпущенных
+    // прокси. Раньше здесь стояли два параллельных списка, которые
+    // наполнялись ДО match по протоколу: `naive` попадал в Auto-Relay, не
+    // существуя в `proxies:`, а mihomo такую группу отвергает целиком. Теперь
+    // оба множества — подмножества `all_names`, и разойтись с `proxies:` они
+    // не могут.
+    //
+    // Ключ — имя прокси, а уникальности имён генератор не гарантирует
+    // (02-SPEC.md 4.5: уникализатора, как в sing-box `unique_tag`, тут нет).
+    // При совпадении имён обе копии попадут в одну корзину; для mihomo
+    // дубликат имени и так фатален, так что чинить это надо уникализатором,
+    // а не здесь.
+    let relay_names: Vec<String> = all_names
+        .iter()
+        .filter(|n| relay_path_names.contains(*n))
+        .cloned()
+        .collect();
+    let direct_names: Vec<String> = all_names
+        .iter()
+        .filter(|n| !relay_path_names.contains(*n))
+        .cloned()
         .collect();
 
     // Build proxy groups.
@@ -1921,4 +1970,286 @@ pub fn generate_singbox_config(
     }
 
     Ok(serde_json::to_string_pretty(&config)?)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod clash_group_tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    fn inbound(
+        id: i64,
+        protocol: &str,
+        port: i64,
+        stream: &str,
+    ) -> caramba_db::models::network::Inbound {
+        caramba_db::models::network::Inbound {
+            id,
+            node_id: 1,
+            tag: format!("in{id}"),
+            protocol: protocol.into(),
+            listen_port: port,
+            listen_ip: "::".into(),
+            settings: "{}".into(),
+            stream_settings: stream.into(),
+            remark: None,
+            enable: true,
+            renew_interval_mins: 0,
+            port_range_start: 0,
+            port_range_end: 0,
+            last_rotated_at: None,
+            created_at: None,
+        }
+    }
+
+    fn node(name: &str, cc: &str, inbounds: Vec<caramba_db::models::network::Inbound>) -> NodeInfo {
+        NodeInfo {
+            name: name.into(),
+            address: "198.51.100.7".into(),
+            reality_port: None,
+            reality_sni: None,
+            reality_public_key: None,
+            reality_short_id: None,
+            hy2_port: None,
+            hy2_sni: None,
+            frontend_url: None,
+            inbounds,
+            relay_info: None,
+            country_code: Some(cc.into()),
+            is_relay: false,
+            config_block_ads: false,
+            config_block_porn: false,
+            config_block_torrent: false,
+        }
+    }
+
+    fn keys() -> UserKeys {
+        UserKeys {
+            user_uuid: "ebea4631-da5d-4a15-808c-ba126a2b4e16".into(),
+            hy2_password: "-46:ebea4631da5d4a15808cba126a2b4e16".into(),
+            _awg_private_key: None,
+        }
+    }
+
+    /// Генератор не читает подписку, поэтому берётся минимально валидная.
+    fn sub() -> Subscription {
+        serde_json::from_value(json!({
+            "id": 1,
+            "user_id": 46,
+            "plan_id": 1,
+            "status": "active",
+            "used_traffic": 0,
+            "subscription_uuid": "feb7e480-314d-4834-8304-220db70684c2",
+            "created_at": "2026-09-02T00:00:00Z",
+            "expires_at": "2026-12-02T00:00:00Z",
+        }))
+        .expect("подписка-заглушка")
+    }
+
+    /// Фикстура повторяет узел 1 живого тенанта: восемь включённых инбаундов,
+    /// один из которых `naive` (id 304, порт 15400), и весь узел стоит за
+    /// релеем — то есть все имена уходят в корзину Auto-Relay.
+    fn node_one_behind_a_relay() -> NodeInfo {
+        let tls =
+            r#"{"network":"tcp","security":"tls","tls_settings":{"server_name":"www.dekulta.de"}}"#;
+        let mut exit = node(
+            "de1",
+            "de",
+            vec![
+                inbound(
+                    303,
+                    "hysteria2",
+                    11466,
+                    r#"{"network":"udp","security":"tls","tlsSettings":{"serverName":"dev.portal.example"}}"#,
+                ),
+                inbound(304, "naive", 15400, tls),
+                inbound(
+                    305,
+                    "tuic",
+                    16400,
+                    r#"{"network":"udp","security":"tls","tlsSettings":{"serverName":"dev.portal.example"},"tuicSettings":{"congestion":"bbr"}}"#,
+                ),
+                inbound(
+                    306,
+                    "vless",
+                    10400,
+                    r#"{"network":"grpc","security":"tls","tls_settings":{"server_name":"www.dekulta.de"}}"#,
+                ),
+                inbound(
+                    307,
+                    "vless",
+                    13400,
+                    r#"{"network":"httpupgrade","security":"tls","tls_settings":{"server_name":"www.dekulta.de"},"http_upgrade_settings":{"path":"/hu","host":"www.dekulta.de"}}"#,
+                ),
+                inbound(
+                    308,
+                    "vless",
+                    443,
+                    r#"{"network":"tcp","security":"reality","reality_settings":{"server_names":["www.dekulta.de"],"public_key":"3Tsh7haY915qWht_DsC4Vxunj15EBbTUo0VIIjycSDQ","short_ids":["0b4bf3f48a32ccb8"]}}"#,
+                ),
+                inbound(309, "vless", 14400, tls),
+                inbound(
+                    310,
+                    "vless",
+                    12400,
+                    r#"{"network":"ws","security":"tls","tls_settings":{"server_name":"www.dekulta.de"},"ws_settings":{"path":"/ws"}}"#,
+                ),
+            ],
+        );
+        let mut relay = node(
+            "ru-relay",
+            "ru",
+            vec![inbound(1, "hysteria2", 8443, r#"{"network":"udp"}"#)],
+        );
+        relay.address = "141.98.191.214".into();
+        relay.is_relay = true;
+        exit.relay_info = Some(Box::new(relay));
+        exit
+    }
+
+    fn parse(yaml: &str) -> (Vec<String>, Vec<(String, Vec<String>)>) {
+        let doc: Value = serde_yaml::from_str(yaml).expect("тело Clash — валидный YAML");
+        let names = doc["proxies"]
+            .as_array()
+            .expect("есть proxies:")
+            .iter()
+            .map(|p| p["name"].as_str().expect("у прокси есть имя").to_string())
+            .collect();
+        let groups = doc["proxy-groups"]
+            .as_array()
+            .expect("есть proxy-groups:")
+            .iter()
+            .map(|g| {
+                (
+                    g["name"].as_str().expect("у группы есть имя").to_string(),
+                    g["proxies"]
+                        .as_array()
+                        .expect("у группы есть список")
+                        .iter()
+                        .map(|m| m.as_str().expect("участник — строка").to_string())
+                        .collect(),
+                )
+            })
+            .collect();
+        (names, groups)
+    }
+
+    /// Главная проба: каждый участник каждой группы обязан разрешаться —
+    /// либо в выпущенный прокси, либо в другую группу этого же тела.
+    ///
+    /// До правки `naive` давал ровно этот дефект: имя «🇩🇪 Naive ↪» стояло в
+    /// Auto-Relay живой подписки, а прокси под ним не существовало, потому что
+    /// имена копились ДО match по протоколу.
+    #[test]
+    fn every_group_member_resolves_to_an_emitted_proxy() {
+        let exit = node_one_behind_a_relay();
+        let yaml = generate_clash_config(&sub(), std::slice::from_ref(&exit), &keys(), &[])
+            .expect("генератор выпускает конфиг");
+        let (names, groups) = parse(&yaml);
+
+        let proxy_set: HashSet<&str> = names.iter().map(|s| s.as_str()).collect();
+        let group_set: HashSet<&str> = groups.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(!groups.is_empty(), "группы вообще выпущены");
+
+        for (group, members) in &groups {
+            assert!(
+                !members.is_empty(),
+                "группа {group} пуста, mihomo её отвергнет"
+            );
+            for m in members {
+                assert!(
+                    proxy_set.contains(m.as_str()) || group_set.contains(m.as_str()),
+                    "группа {group} ссылается на «{m}», которого нет ни в proxies:, ни среди групп.\n{yaml}"
+                );
+            }
+        }
+    }
+
+    /// `naive` опускается целиком: ни прокси, ни имени в группах. Выбор
+    /// зафиксирован тестом, потому что у mihomo нет исходящего `naive`
+    /// (adapter/parser.go), а каталог CSM опускает его тем же правилом.
+    #[test]
+    fn naive_appears_neither_as_a_proxy_nor_as_a_group_member() {
+        let exit = node_one_behind_a_relay();
+        let yaml = generate_clash_config(&sub(), std::slice::from_ref(&exit), &keys(), &[])
+            .expect("генератор выпускает конфиг");
+        let (names, groups) = parse(&yaml);
+
+        // Восемь инбаундов минус naive.
+        assert_eq!(
+            names.len(),
+            7,
+            "выпущены все инбаунды кроме naive: {names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| n.contains("Naive")),
+            "naive не должен выпускаться прокси: {names:?}"
+        );
+        for (group, members) in &groups {
+            assert!(
+                !members.iter().any(|m| m.contains("Naive")),
+                "имя naive осталось в группе {group}: {members:?}"
+            );
+        }
+    }
+
+    /// Обратная сторона того же инварианта: узел, у которого ВСЕ инбаунды
+    /// генератору не по зубам, не должен рождать ни пустую группу, ни
+    /// висячего участника. Раньше `has_relay` считался по параллельному
+    /// списку имён и такая нода выпускала Auto-Relay из одних призраков.
+    #[test]
+    fn a_node_with_only_undialable_inbounds_produces_no_ghost_group() {
+        let mut exit = node(
+            "de1",
+            "de",
+            vec![inbound(
+                304,
+                "naive",
+                15400,
+                r#"{"network":"tcp","security":"tls"}"#,
+            )],
+        );
+        let mut relay = node(
+            "ru-relay",
+            "ru",
+            vec![inbound(1, "hysteria2", 8443, r#"{"network":"udp"}"#)],
+        );
+        relay.is_relay = true;
+        exit.relay_info = Some(Box::new(relay));
+
+        let direct = node(
+            "nl1",
+            "nl",
+            vec![inbound(
+                400,
+                "vless",
+                443,
+                r#"{"network":"tcp","security":"reality","reality_settings":{"server_names":["www.dekulta.de"],"public_key":"pk","short_ids":["00"]}}"#,
+            )],
+        );
+
+        let yaml = generate_clash_config(&sub(), &[exit, direct], &keys(), &[])
+            .expect("генератор выпускает конфиг");
+        let (names, groups) = parse(&yaml);
+
+        assert_eq!(names.len(), 1, "выпущен только дозвонимый выход: {names:?}");
+        assert!(
+            !groups.iter().any(|(n, _)| n == "Auto-Relay"),
+            "Auto-Relay выпущена без единого прокси-цепочки: {groups:?}"
+        );
+        let proxy_set: HashSet<&str> = names.iter().map(|s| s.as_str()).collect();
+        let group_set: HashSet<&str> = groups.iter().map(|(n, _)| n.as_str()).collect();
+        for (group, members) in &groups {
+            for m in members {
+                assert!(
+                    proxy_set.contains(m.as_str()) || group_set.contains(m.as_str()),
+                    "группа {group} ссылается на «{m}», которого нет"
+                );
+            }
+        }
+    }
 }

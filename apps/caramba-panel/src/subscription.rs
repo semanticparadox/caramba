@@ -201,6 +201,34 @@ where
     }
 }
 
+/// Moves the pinned node to the front of the served list, leaving every other
+/// node in place. An ordering hint, not a selection — nothing is removed.
+///
+/// It exists because the pin stopped narrowing the body: the proxies the user
+/// last chose should still be the first ones their client lists. What it
+/// deliberately cannot do is pick for them. `generate_clash_config` puts the
+/// `Auto-All` url-test group at the head of the CARAMBA selector, so a client
+/// with no saved selection still latency-tests the whole fleet; only the group
+/// builder could make the pin the default, and it owns the groups, not this
+/// file.
+///
+/// A pin naming a node the subscription cannot reach (removed from the plan
+/// group, or a relay) is silently a no-op — an unreachable preference must not
+/// cost the user the rest of the fleet.
+fn promote_pinned_node<T, F>(nodes: &mut Vec<T>, pinned_node_id: Option<i64>, node_id_of: F)
+where
+    F: Fn(&T) -> i64,
+{
+    let Some(pinned) = pinned_node_id else {
+        return;
+    };
+    let Some(pos) = nodes.iter().position(|node| node_id_of(node) == pinned) else {
+        return;
+    };
+    let node = nodes.remove(pos);
+    nodes.insert(0, node);
+}
+
 pub async fn subscription_handler(
     Path(uuid): Path<String>,
     Query(params): Query<SubParams>,
@@ -709,7 +737,7 @@ function copyLink(){{
 
     // Fetch and filter nodes (Refactored Phase 1.8: Use Plan Groups)
     // Fallback to all active nodes if plan bindings are temporarily missing.
-    let mut nodes_raw = match state.store_service.get_user_nodes(sub.user_id).await {
+    let nodes_raw = match state.store_service.get_user_nodes(sub.user_id).await {
         Ok(nodes) if !nodes.is_empty() => nodes,
         Ok(_) => match state.store_service.get_active_nodes().await {
             Ok(nodes) => nodes,
@@ -728,65 +756,68 @@ function copyLink(){{
         return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response();
     }
 
-    // Determine effective node_id: explicit URL param > pinned server from TMA > none.
-    // When a user selects a server in TMA, sub.node_id is set.  The subscription
-    // URL from the client app does NOT always carry ?node_id=, so we fall back
-    // to the persisted pin.  This ensures "one subscription = one server".
+    // `?node_id=` is the ONLY thing that narrows the body. The stored pin
+    // (`sub.node_id`) no longer does.
     //
-    // The precedence is deliberate and unchanged, and it bounds what
-    // `PUT /api/v2/app/subscriptions/{id}/selection` can actually do. That
-    // endpoint writes the STORED selection; it does not steer a tunnel whose
-    // config request carries `?node_id=`. The Go core sends that parameter on
-    // every panel-path fetch, so for the app the exit is decided by the
-    // parameter the core puts in the URL, and the stored value is only what
-    // gets used when the parameter is absent. Making the selection endpoint
-    // authoritative over a live tunnel would mean the core dropping `?node_id=`
-    // — a core-side change, not a panel one.
-    let effective_node_id = params.node_id.or(sub.node_id);
+    // What the old `params.node_id.or(sub.node_id)` protected, and why each
+    // reason has run out:
+    //
+    //  * Response size. The auto-narrow below it was commented "prevents dumping
+    //    40+ outbounds"; the real fleet is 3 nodes / 15 enabled inbounds, of
+    //    which 13 render as Clash proxies (~5 KB). The Go core's own ceiling is
+    //    `subscription.MaxProfileBytes` = 4 MiB. Nothing was being protected.
+    //  * "One subscription = one server" for clients that cannot add a query
+    //    parameter (Happ, Hiddify, a bare URL in any Clash client). This one WAS
+    //    real, and giving it up is the deliberate cost of this change: for those
+    //    clients the pin stops steering and becomes a preference the picker in
+    //    their own app overrides. See the ordering hint below for what is left
+    //    of it, and the `/servers` + selection endpoints for where the choice
+    //    now lives.
+    //
+    // It also hid a fleet from every client at once, which is the bug being
+    // fixed: a subscription whose plan permits three nodes served exactly one,
+    // so the app's server picker had one row and its protocol picker showed the
+    // inbounds of that single machine as if they were servers.
+    //
+    // One failure mode disappears for free: a pin pointing at a node that has
+    // since left the plan group used to filter the list down to nothing and
+    // 404 the whole subscription. Only an explicit `?node_id=` can do that now,
+    // and there a 404 is the honest answer — the caller asked for one node.
+    let requested_node_id = params.node_id;
 
-    let mut filtered_nodes =
-        filter_nodes_for_subscription(nodes_raw.clone(), effective_node_id, |n| n.id);
-
-    if filtered_nodes.is_empty() && effective_node_id.is_none() {
-        filtered_nodes = std::mem::take(&mut nodes_raw);
-    }
+    let mut filtered_nodes = filter_nodes_for_subscription(nodes_raw, requested_node_id, |n| n.id);
 
     // Always remove pure relay infrastructure nodes – they are not
     // user-facing destinations, only inter-node transport hops.
     filtered_nodes.retain(|n| !n.is_relay);
 
     if filtered_nodes.is_empty() {
-        return (StatusCode::NOT_FOUND, "Requested server not found").into_response();
+        // Two distinct causes share this status, so the body has to separate
+        // them: a client that asked for a node it may not have needs a
+        // different next step than a plan whose whole node group is relays.
+        let reason = match requested_node_id {
+            Some(nid) => format!(
+                "Requested server {} is not an exit node available to this subscription",
+                nid
+            ),
+            None => "No exit servers available to this subscription".to_string(),
+        };
+        return (StatusCode::NOT_FOUND, reason).into_response();
     }
 
-    // Auto-select first (nearest) server for new users who haven't chosen yet.
-    // Prevents dumping 40+ outbounds to the client on first subscription fetch.
-    if effective_node_id.is_none()
-        && filtered_nodes.len() > 1
-        && let Some(first) = filtered_nodes.first()
-    {
-        let auto_id = first.id;
-        filtered_nodes.retain(|n| n.id == auto_id);
-        // The narrowing above is unconditional (it is what keeps the response
-        // small); only the *persistence* of that guess is suppressed. When the
-        // app owns the selection, `node_id = NULL` means "operator's choice,
-        // re-evaluated every fetch" — pinning it here would silently turn the
-        // user's explicit reset back into a pin the app would then display.
-        if !app_owns_selection(&state, sub.id).await {
-            persist_node_if_unset(&state, sub.id, auto_id).await;
-            tracing::info!(
-                "Auto-selected node {} for new subscription {}",
-                auto_id,
-                sub.id
-            );
-        }
+    if requested_node_id.is_none() {
+        promote_pinned_node(&mut filtered_nodes, sub.node_id, |n| n.id);
     }
 
     // Persist last explicitly selected node so UI/miniapp can show where the user
     // last pulled config from. Write-on-GET only: it must never overwrite a stored
-    // choice, so it is doubly gated (app marker + `node_id IS NULL`). `?node_id=`
-    // keeps working as a filter regardless — see `effective_node_id` above.
-    if let Some(selected_node_id) = params.node_id
+    // choice, so it is doubly gated (app marker + `node_id IS NULL`).
+    //
+    // The write survives the change above, but its meaning narrowed with it: the
+    // column is now "what the user last picked", read by the app and the mini-app
+    // for display and by the ordering hint, and it no longer decides what a
+    // parameter-less fetch receives.
+    if let Some(selected_node_id) = requested_node_id
         && filtered_nodes.iter().any(|n| n.id == selected_node_id)
         && !app_owns_selection(&state, sub.id).await
     {
@@ -847,7 +878,13 @@ function copyLink(){{
         .clone()
         .or_else(|| sub.relay_country.clone());
 
-    let cache_node_id = effective_node_id.unwrap_or(0);
+    // Keyed on the FILTER, not on any stored value: `?node_id=1` and a bare URL
+    // now produce different bodies for the same subscription, so they must not
+    // share an entry. The pin joins the key too — it no longer selects nodes,
+    // but it still orders them, and an entry cached before a `PUT .../selection`
+    // would otherwise keep serving the old order for the rest of the TTL.
+    let cache_node_id = requested_node_id.unwrap_or(0);
+    let cache_pin = sub.node_id.unwrap_or(0);
     let cache_variant = params.variant.as_deref().unwrap_or("default");
     let cache_cc = client_cc.as_deref().unwrap_or("XX");
     let cache_relay = effective_relay
@@ -855,8 +892,8 @@ function copyLink(){{
         .map(|r| r.to_ascii_uppercase())
         .unwrap_or_else(|| "auto".to_string());
     let cache_key = format!(
-        "sub_config_v5:{}:{}:{}:{}:{}:{}",
-        uuid, client_type, cache_node_id, cache_variant, cache_cc, cache_relay
+        "sub_config_v6:{}:{}:{}:{}:{}:{}:{}",
+        uuid, client_type, cache_node_id, cache_pin, cache_variant, cache_cc, cache_relay
     );
 
     if let Ok(Some(cached_config)) = state.redis.get(&cache_key).await {
@@ -1022,7 +1059,7 @@ function copyLink(){{
 
 #[cfg(test)]
 mod tests {
-    use super::{filter_nodes_for_subscription, normalize_relay_param};
+    use super::{filter_nodes_for_subscription, normalize_relay_param, promote_pinned_node};
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     struct TestNode {
@@ -1068,5 +1105,36 @@ mod tests {
         let filtered = filter_nodes_for_subscription(nodes, Some(2), |node| node.id);
 
         assert_eq!(filtered, vec![TestNode { id: 2 }]);
+    }
+
+    /// Закреплённый узел поднимается наверх и НИ ОДИН не выпадает. Это и есть
+    /// граница между «подсказкой порядка» и прежним поведением, где пин
+    /// вырезал весь остальной флот из тела подписки.
+    #[test]
+    fn a_pin_reorders_the_fleet_and_never_shortens_it() {
+        let mut nodes = vec![TestNode { id: 1 }, TestNode { id: 2 }, TestNode { id: 5 }];
+
+        promote_pinned_node(&mut nodes, Some(5), |node| node.id);
+
+        assert_eq!(
+            nodes,
+            vec![TestNode { id: 5 }, TestNode { id: 1 }, TestNode { id: 2 }]
+        );
+    }
+
+    /// Пин на узел, которого в списке нет (выведен из группы плана, либо это
+    /// relay и его уже отфильтровали), — это не ошибка и не повод отдать
+    /// пустое тело: недостижимое предпочтение просто игнорируется.
+    #[test]
+    fn an_unreachable_pin_costs_nothing() {
+        let original = vec![TestNode { id: 1 }, TestNode { id: 5 }];
+
+        let mut nodes = original.clone();
+        promote_pinned_node(&mut nodes, Some(42), |node| node.id);
+        assert_eq!(nodes, original);
+
+        let mut nodes = original.clone();
+        promote_pinned_node(&mut nodes, None, |node| node.id);
+        assert_eq!(nodes, original);
     }
 }
