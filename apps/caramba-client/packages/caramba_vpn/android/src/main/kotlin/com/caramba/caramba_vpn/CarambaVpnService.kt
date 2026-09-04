@@ -102,8 +102,18 @@ class CarambaVpnService : VpnService() {
             stopSelf()
             return
         }
-        tunInterface = pfd
-        val fd = pfd.fd
+        // Дескриптор ОТДАЁТСЯ ядру, а не одалживается.
+        //
+        // Раньше сервис оставлял себе ParcelFileDescriptor и передавал ядру
+        // pfd.fd. Владельцев становилось два: ядро закрывает дескриптор в Down(),
+        // а stopTunnel закрывал его же второй раз — и Android убивал процесс
+        // целиком («fdsan: double-close of file descriptor», SIGABRT). То есть
+        // приложение падало каждый раз, когда человек нажимал «отключить».
+        //
+        // detachFd снимает владение с ParcelFileDescriptor: дальше дескриптор
+        // закрывает ровно тот, кому его отдали.
+        val fd = pfd.detachFd()
+        tunInterface = null
 
         // Hand off to the Go core on a background thread (network + handshake).
         running.set(true)
@@ -222,10 +232,8 @@ class CarambaVpnService : VpnService() {
         CarambaVpnBus.publishLoopbackProxy("")
         connectedSinceMs = 0L
 
-        try {
-            tunInterface?.close()
-        } catch (_: Throwable) {
-        }
+        // Закрывать дескриптор здесь НЕЛЬЗЯ: владение ушло вместе с detachFd,
+        // и ядро уже закрыло его в down() выше. Второй close ронял процесс.
         tunInterface = null
 
         publishTraffic(CarambaTrafficSnapshot.ZERO)
@@ -237,7 +245,9 @@ class CarambaVpnService : VpnService() {
 
     override fun onDestroy() {
         // Revoked from settings, swiped away, or system reclaim: tear down cleanly.
-        if (running.get() || tunInterface != null) {
+        // `tunInterface` больше не признак поднятого туннеля: дескриптор отдан
+        // ядру через detachFd и здесь всегда null. Живость определяет `running`.
+        if (running.get() || core != null) {
             stopTunnel(CarambaStage.DISCONNECTED, null)
         }
         super.onDestroy()

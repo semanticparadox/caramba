@@ -29,8 +29,22 @@ import 'package:caramba_client/vpn/vpn_service.dart';
 /// клиент, продолжающий носить bearer прежнего оператора, это ровно та ошибка,
 /// от которой ключевание и спасает.
 final tokenStoreProvider = Provider<TokenStore>((ref) {
-  final profile = ref.watch(activeConnectionProfileProvider);
-  final pid = profile?.csm?.pin.pid ?? '';
+  // Следим за pid, а НЕ за профилем целиком, и это не оптимизация.
+  //
+  // У ConnectionProfile нет сравнения на равенство, поэтому Riverpod считает
+  // новым любой его copyWith — снимок замера, выбранный узел, состояние
+  // протокола, кэш брендинга. Раньше отсюда шла цепочка: любая запись в профиль
+  // пересоздавала хранилище токенов, за ним ApiClient, за ним AuthNotifier;
+  // новый нотифаер стартует со стадии «неизвестно», роутер уводит на гостевую
+  // главную, потом обратно на автонастройку — а та в конце пишет в профиль
+  // результат замера и запускает круг заново. Приложение вечно «подбирало
+  // настройки» и не давало ни подключиться, ни выйти.
+  //
+  // Тенантность меняет ровно pid: на него и подписываемся.
+  final pid = ref.watch(
+    activeConnectionProfileProvider.select((p) => p?.csm?.pin.pid ?? ''),
+  );
+  final profile = ref.read(activeConnectionProfileProvider);
   final TokenStore store;
   try {
     store = TokenStore(pid: pid);
@@ -73,8 +87,12 @@ final apiClientProvider = Provider<ApiClient>((ref) {
   // не принадлежит ни одному оператору, пока пользователь его не выбрал.
   // kApiBaseUrl остаётся только для брендированной сборки конкретной панели и
   // в публичной сборке пуст.
-  final profile = ref.watch(activeConnectionProfileProvider);
-  final panelUrl = (profile?.panelUrl ?? '').trim();
+  // Тоже по полю, а не по объекту: см. комментарий в tokenStoreProvider —
+  // подписка на весь профиль превращала любую запись в нём в пересоздание
+  // сессии и замыкала цикл перерисовки.
+  final panelUrl = ref.watch(
+    activeConnectionProfileProvider.select((p) => (p?.panelUrl ?? '').trim()),
+  );
   final client = ApiClient(
     tokens: ref.watch(tokenStoreProvider),
     baseUrl: panelUrl.isNotEmpty ? panelUrl : null,

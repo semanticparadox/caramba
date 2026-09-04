@@ -266,14 +266,23 @@ var (
 	// DefaultDomesticNameservers — домашняя половина раскола для стран, где
 	// зарубежный DoH недоступен. Используется для direct-nameserver и
 	// proxy-server-nameserver.
-	DefaultDomesticNameservers = []string{"https://common.dns.yandex.net/dns-query"}
+	//
+	// Адрес именно ЧИСЛОВОЙ, и это не стилистика. Здесь стояло
+	// `https://common.dns.yandex.net/dns-query` — хост, которого не существует
+	// (NXDOMAIN). Внутри туннеля резолвер по имени сам нуждается в резолвинге,
+	// и mihomo не мог разрешить ни одного имени, идущего напрямую: туннель
+	// поднимался, значок ключа загорался, а сайты не открывались. Снаружи это
+	// выглядит как «не удаётся подключиться».
+	//
+	// IP-форма убирает саму зависимость от начального резолвинга.
+	DefaultDomesticNameservers = []string{"https://77.88.8.8/dns-query"}
 )
 
 // domesticResolvers — домашний резолвер по ISO-коду страны. Список намеренно
 // короткий: сюда попадает только то, что подтверждено полевыми данными.
 var domesticResolvers = map[string][]string{
-	"RU": {"https://common.dns.yandex.net/dns-query"},
-	"BY": {"https://common.dns.yandex.net/dns-query"},
+	"RU": {"https://77.88.8.8/dns-query"},
+	"BY": {"https://77.88.8.8/dns-query"},
 	"CN": {"https://doh.pub/dns-query"},
 }
 
@@ -704,6 +713,14 @@ func applyDNS(doc map[string]any, p Policy) {
 	if len(d.FallbackNameservers) > 0 {
 		dns["fallback"] = d.FallbackNameservers
 	}
+	// Начальные резолверы — ТОЛЬКО числовые адреса.
+	//
+	// DoH, заданный именем (например dns.quad9.net), сам требует разрешения
+	// имени, и разрешать его нечем: без этого списка mihomo берёт собственные
+	// умолчания, среди которых китайские резолверы, недостижимые оттуда, где
+	// работает продукт. Каталог оператора может заменить резолверы своими, но
+	// пока его нет, начальная точка обязана быть самодостаточной.
+	dns["default-nameserver"] = []string{"77.88.8.8", "9.9.9.9", "1.1.1.1"}
 	// Национальный раскол резолверов. direct-nameserver обслуживает имена,
 	// которые идут напрямую (домашние сайты, банки, госуслуги), а
 	// proxy-server-nameserver — имена самих узлов, которые приходится

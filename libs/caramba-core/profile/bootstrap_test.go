@@ -1,6 +1,8 @@
 package profile
 
 import (
+	"net"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -121,9 +123,34 @@ func TestDNSSplitEmitted(t *testing.T) {
 		}
 	}
 	got, _ := dns["direct-nameserver"].([]any)
-	if s, _ := got[0].(string); !strings.Contains(s, "yandex") {
-		t.Fatalf("домашний резолвер РФ = %q", s)
+	if s, _ := got[0].(string); !resolverHostIsLiteralIP(s) {
+		t.Fatalf("домашний резолвер РФ задан именем, а не адресом: %q", s)
 	}
+	// Начальные резолверы обязаны быть в секции и обязаны быть числовыми.
+	def, _ := dns["default-nameserver"].([]any)
+	if len(def) == 0 {
+		t.Fatal("default-nameserver пуст: DoH по имени будет нечем разрешить")
+	}
+	for _, v := range def {
+		if s, _ := v.(string); net.ParseIP(s) == nil {
+			t.Fatalf("default-nameserver содержит не адрес: %q", s)
+		}
+	}
+}
+
+// resolverHostIsLiteralIP: адрес резолвера задан числом, а не именем.
+//
+// Инвариант, а не придирка. Резолвер, записанный именем, внутри туннеля сам
+// нуждается в разрешении имени, и разрешать его нечем. Прежний тест требовал
+// лишь наличия подстроки «yandex» и потому спокойно пропустил
+// `https://common.dns.yandex.net/dns-query` — хост, которого не существует:
+// туннель поднимался, а ни одно имя, идущее напрямую, не открывалось.
+func resolverHostIsLiteralIP(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return net.ParseIP(u.Hostname()) != nil
 }
 
 // TestDomesticResolversFallback: неизвестная страна не остаётся без резолвера.
@@ -131,8 +158,13 @@ func TestDomesticResolversFallback(t *testing.T) {
 	if got := DomesticResolvers("ZZ"); len(got) == 0 {
 		t.Fatal("неизвестная страна осталась без резолвера")
 	}
-	if got := DomesticResolvers("ru"); len(got) == 0 || !strings.Contains(got[0], "yandex") {
-		t.Fatalf("регистр кода страны учтён неверно: %v", got)
+	lower := DomesticResolvers("ru")
+	upper := DomesticResolvers("RU")
+	if len(lower) == 0 || len(upper) == 0 || lower[0] != upper[0] {
+		t.Fatalf("регистр кода страны учтён неверно: %v против %v", lower, upper)
+	}
+	if !resolverHostIsLiteralIP(lower[0]) {
+		t.Fatalf("домашний резолвер задан именем, а не адресом: %q", lower[0])
 	}
 }
 
