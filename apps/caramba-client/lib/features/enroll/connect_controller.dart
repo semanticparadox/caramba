@@ -14,6 +14,8 @@
 /// оставлять в списке подключений мёртвую запись, за которой ничего нет.
 library;
 
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/features/enroll/connect_link.dart';
@@ -168,7 +170,12 @@ class ConnectNotifier extends StateNotifier<ConnectState> {
   /// то, что экран обязан был сказать (например, что подписки у аккаунта нет и
   /// почему). Момент перехода выбирает экран: сразу, когда сказать нечего, и
   /// по кнопке, когда есть.
-  void finish() => _ref.invalidate(authProvider);
+  void finish() {
+    // Сбрасывать здесь провайдер авторизации нельзя: роутер на него подписан, а
+    // подписка в Riverpod — зависимость, и сброс пересоздавал ВЕСЬ роутер под
+    // живым деревом. См. AuthNotifier.adoptSession.
+    unawaited(_ref.read(authProvider.notifier).adoptSession());
+  }
 
   /// Заводит профиль панели и кладёт в него сессию. Передачу общему auth-слою
   /// делает [finish] отдельно, по решению экрана.

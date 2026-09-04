@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/data/api_client.dart';
@@ -291,7 +293,9 @@ class EnrollNotifier extends StateNotifier<EnrollState> {
       state = state.copyWith(stage: EnrollStage.done, clearError: true);
       await Future<void>.delayed(const Duration(milliseconds: 1200));
       if (!mounted) return;
-      _ref.invalidate(authProvider);
+      // Не сброс провайдера, а приём сессии тем же экземпляром: сброс утаскивал
+      // за собой роутер. См. AuthNotifier.adoptSession.
+      unawaited(_ref.read(authProvider.notifier).adoptSession());
     } on ApiException catch (e) {
       if (!mounted) return;
       state = state.copyWith(

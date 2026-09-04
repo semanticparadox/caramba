@@ -373,6 +373,12 @@ final routerProvider = Provider<GoRouter>((ref) {
 /// Bridges [authProvider] + first-run changes into a [Listenable] go_router
 /// can refresh on.
 class _AuthRefresh extends ChangeNotifier {
+  /// Пробуждение роутера уже запланировано на этот тик: несколько провайдеров
+  /// меняются одной пачкой, и будить его по разу на каждый — лишние проходы
+  /// редиректа с промежуточными состояниями.
+  bool _notifyScheduled = false;
+  bool _disposed = false;
+
   late final ProviderSubscription<AuthState> _authSub;
   late final ProviderSubscription<bool> _firstRunSub;
   late final ProviderSubscription<bool> _bootSub;
@@ -403,15 +409,44 @@ class _AuthRefresh extends ChangeNotifier {
   }
 
   void _onAuth(AuthState? prev, AuthState next) {
-    if (prev?.stage != next.stage) notifyListeners();
+    if (prev?.stage != next.stage) _notifySoon();
   }
 
   void _onFlag(bool? prev, bool next) {
-    if (prev != next) notifyListeners();
+    if (prev != next) _notifySoon();
+  }
+
+  /// Будит роутер ПОСЛЕ того, как рассылка провайдера закончилась.
+  ///
+  /// Синхронный `notifyListeners` здесь разрушал приложение. Цепочка такая:
+  /// `authProvider` рассылает новое состояние, обходя свой список слушателей;
+  /// наш слушатель дёргает роутер; тот синхронно перестраивает дерево; новые
+  /// экраны подписываются на `authProvider`, а уходящие отписываются — и список
+  /// меняется прямо посреди обхода. `StateNotifier` падал с «Concurrent
+  /// modification during iteration», кадр обрывался на полпути, в дереве
+  /// оставались ДВА навигатора с одним глобальным ключом, и дальше Flutter кидал
+  /// «Duplicate GlobalKey» на каждом кадре. Снаружи это выглядело так, будто
+  /// приложение вечно «подбирает настройки»: два экрана друг на друге и
+  /// бесконечная перерисовка, из которой нельзя выйти.
+  ///
+  /// Микрозадача разрывает именно это: к моменту пробуждения роутера рассылка
+  /// уже завершилась, и подписки можно менять безнаказанно. Задержка на один
+  /// тик безвредна — редирект всё равно считает состояние заново и читает его
+  /// свежим.
+  void _notifySoon() {
+    if (_notifyScheduled) return;
+    _notifyScheduled = true;
+    Future<void>.microtask(() {
+      _notifyScheduled = false;
+      // Контейнер мог закрыться между уведомлением и микрозадачей.
+      if (_disposed) return;
+      notifyListeners();
+    });
   }
 
   @override
   void dispose() {
+    _disposed = true;
     _authSub.close();
     _firstRunSub.close();
     _bootSub.close();
