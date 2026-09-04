@@ -46,10 +46,14 @@ every platform and bridges to the Go core. The contract is fixed by
 `lib/vpn/vpn_service.dart`:
 
 - MethodChannel `com.caramba/vpn`
-  - `configure({panelUrl, subscriptionUuid, accessToken})`: authorize the core
-    before the first connect. Maps to gomobile `NewClient(panelUrl, ...)` plus
-    `SetSubscriptionID(subscriptionUuid)` and the JWT. `subscriptionUuid` is the
-    canonical key; every platform also accepts the legacy `subscriptionId`.
+  - `configure({panelUrl, subscriptionUuid, accessToken, refreshToken,
+    accessExpiryUnix})`: authorize the core before the first connect. Maps to
+    gomobile `NewClient(panelUrl, ...)` plus `SetSubscriptionID(subscriptionUuid)`
+    and the whole JWT session. `subscriptionUuid` is the canonical key; every
+    platform also accepts the legacy `subscriptionId`. The refresh token and the
+    expiry are what let the core renew on its own: the access token lasts ~15
+    minutes and the core outlives the app that handed it over (see the plugin
+    README, "Auth and config seam").
   - `connect({serverId, serverName, countryCode})`: raise the tunnel. Maps to
     `SetTunFd(fd)` (mobile only) then `Up(serverId)`.
   - `disconnect()`: maps to `Down()`.

@@ -369,16 +369,46 @@ func (c *Core) CsmLadderJSON() (string, error) {
 	if l == nil {
 		return "", fmt.Errorf("api: лестница недоступна")
 	}
+	// Выборщик здесь не обязателен: список ступеней существует и до
+	// регистрации. Без него доставившая ступень неизвестна, и так и
+	// сообщается.
+	f, _ := c.csmFetcher()
+	userProxy := ""
+	delivered := ""
+	if f != nil {
+		st := f.Store().State()
+		userProxy = st.LadderProxy
+		if st.FetchedAt > 0 {
+			delivered = st.LastRung.Name()
+		}
+	}
+	// Состояние локального Tor обновляется ровно здесь, когда экран
+	// транспортов его спрашивает. Внутри Ensure стоит и выключатель (R5
+	// выключена — пробы нет), и срок годности ответа, поэтому опрос экрана раз
+	// в три секунды не превращается в пробу раз в три секунды.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	tor := transport.EnsureTorFallback(ctx, l, userProxy)
 	return toJSONString(struct {
 		Rungs      []transport.RungState `json:"rungs"`
 		History    []transport.Attempt   `json:"history"`
 		Thresholds transport.Thresholds  `json:"thresholds"`
 		BackoffMs  int64                 `json:"backoff_ms"`
+		// Tor это состояние резервного пути ступени R5 через локальный Tor.
+		// Он ВСЕГДА в ответе: "не искали" и "не нашли" это разные строки на
+		// экране, и обе обязаны быть произносимы (инвариант 17).
+		Tor transport.TorStatus `json:"tor"`
+		// Delivered это имя ступени, принесшей последнюю ПРИНЯТУЮ директиву.
+		// Пусто означает, что не приносила ещё ни одна; это не то же самое,
+		// что R0.
+		Delivered string `json:"delivered,omitempty"`
 	}{
 		Rungs:      l.State(),
 		History:    l.History(),
 		Thresholds: l.Thresholds(),
 		BackoffMs:  func() int64 { d, _ := l.Backoff(); return d.Milliseconds() }(),
+		Tor:        tor,
+		Delivered:  delivered,
 	})
 }
 

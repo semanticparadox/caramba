@@ -223,35 +223,38 @@ void main() {
   tearDown(() => messenger.setMockMethodCallHandler(secureStorage, null));
 
   group('панельный REST', () {
-    test('страны собираются из /servers и сортируются по лучшему пингу', () async {
-      final c = await _boot(
-        profiles: <ConnectionProfile>[_panelProfile()],
-        servers: _servers,
-      );
-      final inv = c.read(exitInventoryProvider);
+    test(
+      'страны собираются из /servers и сортируются по лучшему пингу',
+      () async {
+        final c = await _boot(
+          profiles: <ConnectionProfile>[_panelProfile()],
+          servers: _servers,
+        );
+        final inv = c.read(exitInventoryProvider);
 
-      expect(inv.source, ExitInventorySource.panelRest);
-      expect(inv.loading, isFalse);
-      expect(inv.error, isNull);
-      // Доступные страны раньше недоступных; узлы без страны — в хвосте своей
-      // группы, даже когда их пинг лучший.
-      expect(inv.locations.map((l) => l.countryCode).toList(), <String>[
-        'DE',
-        'CA',
-        '',
-        'RU',
-      ]);
+        expect(inv.source, ExitInventorySource.panelRest);
+        expect(inv.loading, isFalse);
+        expect(inv.error, isNull);
+        // Доступные страны раньше недоступных; узлы без страны — в хвосте своей
+        // группы, даже когда их пинг лучший.
+        expect(inv.locations.map((l) => l.countryCode).toList(), <String>[
+          'DE',
+          'CA',
+          '',
+          'RU',
+        ]);
 
-      final de = inv.locationOf('de')!;
-      expect(de.displayName, 'Германия');
-      expect(de.nodeCount, 2);
-      // Лучший пинг считается ТОЛЬКО по доступным узлам: 30 мс переполненного
-      // узла обещали бы скорость, которой пользователь не получит.
-      expect(de.bestPingMs, 40);
-      expect(de.isAvailable, isTrue);
-      // Панельный /servers протоколы не отдаёт — пусто, а не выдуманный набор.
-      expect(de.protocols, isEmpty);
-    });
+        final de = inv.locationOf('de')!;
+        expect(de.displayName, 'Германия');
+        expect(de.nodeCount, 2);
+        // Лучший пинг считается ТОЛЬКО по доступным узлам: 30 мс переполненного
+        // узла обещали бы скорость, которой пользователь не получит.
+        expect(de.bestPingMs, 40);
+        expect(de.isAvailable, isTrue);
+        // Панельный /servers протоколы не отдаёт — пусто, а не выдуманный набор.
+        expect(de.protocols, isEmpty);
+      },
+    );
 
     test(
       'страна без живых узлов остаётся в списке с названной причиной',
@@ -460,7 +463,7 @@ void main() {
             displayName: 'Нидерланды',
             nodeCount: 2,
             source: ExitInventorySource.csmCatalog,
-            bestPingMs: 22,
+            bestLatency: Latency.fromOperator(22),
           ),
         ],
         nodes: <ExitNode>[
@@ -617,19 +620,22 @@ void main() {
       expect(headline.divergenceMessage, isEmpty);
     });
 
-    test('без единого узла заголовком остаётся намерение пользователя', () async {
-      // Выдача пуста: трафик никуда не идёт, врать нечем, и закреплённая
-      // страна — единственное, что вообще можно сказать.
-      final c = await _boot(
-        profiles: <ConnectionProfile>[_panelProfile(country: 'DE')],
-        servers: const <Server>[],
-        core: _RecordingCore(),
-      );
+    test(
+      'без единого узла заголовком остаётся намерение пользователя',
+      () async {
+        // Выдача пуста: трафик никуда не идёт, врать нечем, и закреплённая
+        // страна — единственное, что вообще можно сказать.
+        final c = await _boot(
+          profiles: <ConnectionProfile>[_panelProfile(country: 'DE')],
+          servers: const <Server>[],
+          core: _RecordingCore(),
+        );
 
-      final headline = c.read(exitHeadlineProvider);
-      expect(headline.title, 'Германия');
-      expect(headline.diverged, isFalse);
-    });
+        final headline = c.read(exitHeadlineProvider);
+        expect(headline.title, 'Германия');
+        expect(headline.diverged, isFalse);
+      },
+    );
 
     test('недоступный узел не выбирается и отдаёт СВОЮ причину', () async {
       final c = await _boot(
@@ -792,64 +798,67 @@ void main() {
       expect(core.rawServerId, 'de-1');
     });
 
-    test('обновление подписки снимает страну, узлов которой в ней не осталось', () async {
-      // Тот же разъезд, что и на панельном пути, только триггер уже: «Обновить
-      // подписку» вернула состав без DE. Пин на de-1 снимался и раньше, а
-      // страна оставалась — и разрешать её было НЕ ВО ЧТО: connectRaw уходил с
-      // пустым именем прокси, то есть в любой узел на выбор ядра, пока выбор
-      // «Германия» продолжал числиться за профилем.
-      const ca = ImportedServer(
-        id: 'ca-1',
-        name: 'CA',
-        type: 'vless',
-        server: 'a',
-        port: 443,
-        country: 'CA',
-      );
-      const de = ImportedServer(
-        id: 'de-1',
-        name: 'DE',
-        type: 'vless',
-        server: 'b',
-        port: 443,
-        country: 'DE',
-      );
-      final core = _RecordingCore();
-      final store = _MemoryStore()
-        ..profiles = <ConnectionProfile>[
-          _rawProfile(
-            servers: const <ImportedServer>[ca, de],
-            country: 'DE',
-            pinned: 'de-1',
-          ),
-        ]
-        ..activeId = 'cp_raw';
-      final c = await _boot(
-        profiles: <ConnectionProfile>[],
-        store: store,
-        core: core,
-      );
-      expect(c.read(selectedExitCountryProvider), 'DE');
+    test(
+      'обновление подписки снимает страну, узлов которой в ней не осталось',
+      () async {
+        // Тот же разъезд, что и на панельном пути, только триггер уже: «Обновить
+        // подписку» вернула состав без DE. Пин на de-1 снимался и раньше, а
+        // страна оставалась — и разрешать её было НЕ ВО ЧТО: connectRaw уходил с
+        // пустым именем прокси, то есть в любой узел на выбор ядра, пока выбор
+        // «Германия» продолжал числиться за профилем.
+        const ca = ImportedServer(
+          id: 'ca-1',
+          name: 'CA',
+          type: 'vless',
+          server: 'a',
+          port: 443,
+          country: 'CA',
+        );
+        const de = ImportedServer(
+          id: 'de-1',
+          name: 'DE',
+          type: 'vless',
+          server: 'b',
+          port: 443,
+          country: 'DE',
+        );
+        final core = _RecordingCore();
+        final store = _MemoryStore()
+          ..profiles = <ConnectionProfile>[
+            _rawProfile(
+              servers: const <ImportedServer>[ca, de],
+              country: 'DE',
+              pinned: 'de-1',
+            ),
+          ]
+          ..activeId = 'cp_raw';
+        final c = await _boot(
+          profiles: <ConnectionProfile>[],
+          store: store,
+          core: core,
+        );
+        expect(c.read(selectedExitCountryProvider), 'DE');
 
-      await c
-          .read(connectionProfilesProvider.notifier)
-          .setImported(
-            'cp_raw',
-            rawConfig: 'proxies: []',
-            format: 'clash',
-            servers: const <ImportedServer>[ca],
-          );
+        await c
+            .read(connectionProfilesProvider.notifier)
+            .setImported(
+              'cp_raw',
+              rawConfig: 'proxies: []',
+              format: 'clash',
+              servers: const <ImportedServer>[ca],
+            );
 
-      expect(store.profiles.single.selectedServerId, isNull);
-      expect(store.profiles.single.selectedExitCountry, isNull);
-      expect(c.read(selectedExitCountryProvider), isNull);
-      expect(c.read(selectedExitLocationProvider), isNull);
+        expect(store.profiles.single.selectedServerId, isNull);
+        expect(store.profiles.single.selectedExitCountry, isNull);
+        expect(c.read(selectedExitCountryProvider), isNull);
+        expect(c.read(selectedExitLocationProvider), isNull);
 
-      // Показано «Авто» — и в ядро уходит «Авто». Разъехаться теперь нечему.
-      expect(await c.read(vpnProvider.notifier).connect(), isTrue);
-      expect(core.connectedRaw, isTrue);
-      expect(core.rawServerId, isNull);
-    });
+        // Показано «Авто» — и в ядро уходит «Авто». Разъехаться теперь нечему.
+        expect(await c.read(vpnProvider.notifier).connect(), isTrue);
+        expect(core.connectedRaw, isTrue);
+        expect(core.rawServerId, isNull);
+      },
+    );
 
     test('страна переживает обновление, если её узел в составе есть', () async {
       // Снимать страну на КАЖДОМ обновлении значило бы терять выбор на ровном

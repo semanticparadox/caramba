@@ -85,6 +85,17 @@ class CsmLadderSync {
           csmTransportFactsFromRungs(rungs);
     }
 
+    // Резервный путь R5 через локальный Tor и ступень, принесшая последнюю
+    // принятую конфигурацию. Оба поля ядро отдаёт всегда; их отсутствие в
+    // ответе это сборка ядра старше этого экрана, и тогда состояние остаётся
+    // «не искали», а не выдумывается.
+    _ref.read(csmTorStatusProvider.notifier).state = csmTorStatusFromCoreJson(
+      decoded['tor'],
+    );
+    _ref.read(csmDeliveredRungProvider.notifier).state = csmRungFromCoreName(
+      decoded['delivered'],
+    );
+
     final history = decoded['history'];
     if (history is! List) {
       return CsmLadderSyncOutcome.malformed;
@@ -232,3 +243,100 @@ bool _rungHasPath(Map<Object?, Object?> entry) {
   }
   return '${entry['reason'] ?? ''}' == 'user_disabled';
 }
+
+/// Что ядро знает про локальный Tor на этом устройстве.
+///
+/// Словарь закрытый и повторяет `transport.TorState`. «Не искали» это отдельное
+/// состояние, а не вежливая форма «не нашли»: экран обязан уметь произнести обе
+/// строки, иначе выключенный резерв и отсутствующий Orbot выглядят одинаково.
+enum CsmTorState {
+  /// Ступень R5 выключена, поэтому локальный порт не проверяли.
+  unknown,
+
+  /// Локальный SOCKS5 отвечает, адрес подставлен в R5.
+  ready,
+
+  /// Искали и не нашли. Причина лежит в [CsmTorStatus.detail].
+  absent,
+
+  /// Ступень занята прокси, который ввёл сам пользователь.
+  superseded,
+
+  /// На этой платформе стороннее приложение не отдаёт SOCKS на петлю.
+  unsupported,
+}
+
+/// Состояние резервного пути R5 через локальный Tor.
+///
+/// ВАЖНО про то, чего этот путь не даёт. Через Tor берётся только подписка и
+/// конфигурация; трафик туннеля через него не идёт, и сеанс VPN от этого
+/// анонимным не становится. Экран обязан говорить ровно это, а не «анонимно».
+class CsmTorStatus {
+  const CsmTorStatus({
+    this.state = CsmTorState.unknown,
+    this.addr = '',
+    this.detail = '',
+    this.checkedAtSec = 0,
+  });
+
+  static const CsmTorStatus none = CsmTorStatus();
+
+  final CsmTorState state;
+
+  /// Адрес, который реально стоит в ступени. Непуст только при [ready].
+  final String addr;
+
+  /// Причина словами ядра. Строк оператора здесь нет (INV-10).
+  final String detail;
+
+  /// Момент последней пробы, unix-секунды. Ноль означает «пробы не было», и
+  /// это не то же самое, что «не нашли».
+  final int checkedAtSec;
+}
+
+/// Разбирает блок `tor` ответа ядра. Отсутствие блока даёт [CsmTorStatus.none]:
+/// сборка ядра, которая про резервный путь не знает, не имеет права выглядеть
+/// как устройство без Orbot.
+CsmTorStatus csmTorStatusFromCoreJson(Object? raw) {
+  if (raw is! Map) {
+    return CsmTorStatus.none;
+  }
+  return CsmTorStatus(
+    state: switch ('${raw['state'] ?? ''}') {
+      'ready' => CsmTorState.ready,
+      'absent' => CsmTorState.absent,
+      'superseded' => CsmTorState.superseded,
+      'unsupported' => CsmTorState.unsupported,
+      _ => CsmTorState.unknown,
+    },
+    addr: '${raw['addr'] ?? ''}',
+    detail: '${raw['detail'] ?? ''}',
+    checkedAtSec: (raw['checked_at'] as num?)?.toInt() ?? 0,
+  );
+}
+
+/// Ступень по машинному имени из ядра (`RungID.Name`).
+///
+/// Возвращает `null` для пустой строки и для имён, которых этот экран не знает
+/// (`onion` собран, но не реализован). Нарисовать вместо неизвестного имени
+/// первую попавшуюся ступень значило бы соврать про то, что принесло
+/// конфигурацию.
+CsmRung? csmRungFromCoreName(Object? raw) => switch ('${raw ?? ''}') {
+  'cached' => CsmRung.cached,
+  'direct' => CsmRung.direct,
+  'mirrors' => CsmRung.mirrors,
+  'doh' => CsmRung.doh,
+  'tunnel' => CsmRung.tunnel,
+  'proxy' => CsmRung.userProxy,
+  'out_of_band' => CsmRung.outOfBand,
+  _ => null,
+};
+
+/// Состояние резервного пути через Tor, поднятое из ядра.
+final csmTorStatusProvider = StateProvider<CsmTorStatus>(
+  (ref) => CsmTorStatus.none,
+);
+
+/// Ступень, принесшая последнюю ПРИНЯТУЮ конфигурацию. `null` означает, что не
+/// приносила ещё ни одна: это честное «неизвестно», а не R0.
+final csmDeliveredRungProvider = StateProvider<CsmRung?>((ref) => null);

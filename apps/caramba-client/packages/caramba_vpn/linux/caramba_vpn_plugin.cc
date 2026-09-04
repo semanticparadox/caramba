@@ -46,6 +46,12 @@ struct _CarambaVpnPlugin {
   gchar* panel_url;
   gchar* subscription_id;
   gchar* access_token;
+  // Остаток сессии. access живёт ~15 минут, и без refresh ядру нечем его
+  // продлить: через четверть часа каждый его запрос к панели получал 401 без
+  // пути назад. access_expiry_unix — unix-секунды; 0 означает «не знаю», и
+  // тогда ядро берёт срок из claim exp самого JWT.
+  gchar* refresh_token;
+  int64_t access_expiry_unix;
   gboolean configured;
 
   // ABI v2: политика и способ захвата, заданные до создания ядра. Применяются
@@ -58,6 +64,9 @@ struct _CarambaVpnPlugin {
 G_DEFINE_TYPE(CarambaVpnPlugin, caramba_vpn_plugin, g_object_get_type())
 
 // --- helpers -----------------------------------------------------------------
+
+// Определено ниже: ensure_core зовёт его раньше по тексту файла.
+static gboolean push_seam(CarambaVpnPlugin* self);
 
 // take_string copies an FFI-owned C string and frees it via CarambaFreeString.
 // Returns a newly allocated string (free with g_free), or NULL.
@@ -156,17 +165,10 @@ static gboolean ensure_core(CarambaVpnPlugin* self) {
     emit_stage(self, "error", "exarobot core init failed");
     return FALSE;
   }
-  if (!self->configured && self->ffi.Configure != NULL &&
+  if (!self->configured &&
       ((self->panel_url != NULL && self->panel_url[0] != '\0') ||
        (self->access_token != NULL && self->access_token[0] != '\0'))) {
-    drop_string(self, self->ffi.Configure(
-                          self->handle,
-                          self->panel_url != NULL ? self->panel_url : "",
-                          self->subscription_id != NULL ? self->subscription_id
-                                                        : "",
-                          self->access_token != NULL ? self->access_token
-                                                     : ""));
-    self->configured = TRUE;
+    self->configured = push_seam(self);
   }
   // ABI v2: политика и режим захвата применяются сразу после создания ядра,
   // до любого Up. Отсутствующий символ (старый бинарь) молча пропускаем —
@@ -176,24 +178,55 @@ static gboolean ensure_core(CarambaVpnPlugin* self) {
   return TRUE;
 }
 
+// push_seam отдаёт сохранённый шов уже существующему ядру.
+//
+// Символ ABI v4 несёт refresh и срок, трёхаргументный — ни того, ни другого.
+// Откатиться на него, держа в руках refresh, значит молча отдать ядру сессию,
+// которую оно не сможет продлить: поломка всплывёт через 15 минут и совсем не
+// здесь. Поэтому откат допустим ТОЛЬКО когда терять нечего.
+static gboolean push_seam(CarambaVpnPlugin* self) {
+  const gchar* panel = self->panel_url != NULL ? self->panel_url : "";
+  const gchar* sub =
+      self->subscription_id != NULL ? self->subscription_id : "";
+  const gchar* access = self->access_token != NULL ? self->access_token : "";
+  const gchar* refresh = self->refresh_token != NULL ? self->refresh_token : "";
+  if (self->ffi.ConfigureSession != NULL) {
+    drop_string(self, self->ffi.ConfigureSession(self->handle, panel, sub,
+                                                 access, refresh,
+                                                 self->access_expiry_unix));
+    return TRUE;
+  }
+  if (self->ffi.Configure != NULL && refresh[0] == '\0') {
+    drop_string(self, self->ffi.Configure(self->handle, panel, sub, access));
+    return TRUE;
+  }
+  if (self->ffi.Configure != NULL) {
+    emit_stage(self, "error",
+               "exarobot core is too old for the session seam (rebuild it)");
+  }
+  return FALSE;
+}
+
 // caramba_configure stores the auth/config seam and pushes it into the core if
 // it already exists (re-configure after a token refresh).
 static void caramba_configure(CarambaVpnPlugin* self, const gchar* panel_url,
                               const gchar* subscription_id,
-                              const gchar* access_token) {
+                              const gchar* access_token,
+                              const gchar* refresh_token,
+                              int64_t access_expiry_unix) {
   g_clear_pointer(&self->panel_url, g_free);
   g_clear_pointer(&self->subscription_id, g_free);
   g_clear_pointer(&self->access_token, g_free);
+  g_clear_pointer(&self->refresh_token, g_free);
   self->panel_url = g_strdup(panel_url != NULL ? panel_url : "");
   self->subscription_id =
       g_strdup(subscription_id != NULL ? subscription_id : "");
   self->access_token = g_strdup(access_token != NULL ? access_token : "");
+  self->refresh_token = g_strdup(refresh_token != NULL ? refresh_token : "");
+  self->access_expiry_unix = access_expiry_unix;
   self->configured = FALSE;
-  if (self->handle != 0 && self->ffi.Configure != NULL) {
-    drop_string(self, self->ffi.Configure(self->handle, self->panel_url,
-                                          self->subscription_id,
-                                          self->access_token));
-    self->configured = TRUE;
+  if (self->handle != 0) {
+    self->configured = push_seam(self);
   }
 }
 
@@ -537,6 +570,8 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
     const gchar* panel_url = NULL;
     const gchar* subscription_id = NULL;
     const gchar* access_token = NULL;
+    const gchar* refresh_token = NULL;
+    int64_t access_expiry_unix = 0;
     if (args != NULL && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
       FlValue* v = fl_value_lookup_string(args, "panelUrl");
       if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_STRING) {
@@ -555,8 +590,20 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
       if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_STRING) {
         access_token = fl_value_get_string(v);
       }
+      // Отсутствуют у вызывающего, собранного до сессионного шва: пустой
+      // refresh деградирует к прежнему 15-минутному поведению, а не роняет
+      // вызов.
+      v = fl_value_lookup_string(args, "refreshToken");
+      if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_STRING) {
+        refresh_token = fl_value_get_string(v);
+      }
+      v = fl_value_lookup_string(args, "accessExpiryUnix");
+      if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_INT) {
+        access_expiry_unix = fl_value_get_int(v);
+      }
     }
-    caramba_configure(self, panel_url, subscription_id, access_token);
+    caramba_configure(self, panel_url, subscription_id, access_token,
+                      refresh_token, access_expiry_unix);
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(NULL));
   } else if (g_strcmp0(method, "connect") == 0) {
     const gchar* server_id = NULL;
@@ -774,6 +821,7 @@ static void caramba_vpn_plugin_dispose(GObject* object) {
   g_clear_pointer(&self->panel_url, g_free);
   g_clear_pointer(&self->subscription_id, g_free);
   g_clear_pointer(&self->access_token, g_free);
+  g_clear_pointer(&self->refresh_token, g_free);
   g_clear_pointer(&self->policy_json, g_free);
   g_clear_pointer(&self->tunnel_mode, g_free);
   G_OBJECT_CLASS(caramba_vpn_plugin_parent_class)->dispose(object);
@@ -795,6 +843,8 @@ static void caramba_vpn_plugin_init(CarambaVpnPlugin* self) {
   self->panel_url = NULL;
   self->subscription_id = NULL;
   self->access_token = NULL;
+  self->refresh_token = NULL;
+  self->access_expiry_unix = 0;
   self->configured = FALSE;
   self->policy_json = NULL;
   self->tunnel_mode = NULL;

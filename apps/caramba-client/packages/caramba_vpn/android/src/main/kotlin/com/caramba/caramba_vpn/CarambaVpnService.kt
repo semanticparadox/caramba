@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -150,6 +151,8 @@ class CarambaVpnService : VpnService() {
                     tokenPath = File(workDir(), "tokens.json").absolutePath,
                     subscriptionId = seam.subscriptionId,
                     accessToken = seam.accessToken,
+                    refreshToken = seam.refreshToken,
+                    accessExpiryUnix = seam.accessExpiryUnix,
                 )
             }
             core = c
@@ -183,6 +186,10 @@ class CarambaVpnService : VpnService() {
             connectedSinceMs = System.currentTimeMillis()
             pollLoop(c)
         } catch (t: Throwable) {
+            // The Go error is otherwise visible only as the UI's `detail`, which
+            // the dial renders as a generic "check your network". A failed raise
+            // has to be diagnosable from `adb logcat` on a device we do not hold.
+            Log.e("CarambaVpnService", "tunnel raise failed", t)
             publishStatus(CarambaStage.ERROR, t.message ?: "tunnel failed to start")
             stopTunnel(CarambaStage.ERROR, t.message)
         }
@@ -389,6 +396,13 @@ class CarambaVpnService : VpnService() {
         val subUrl: String,
         val subscriptionId: String,
         val accessToken: String,
+        // The rest of the session. The access token is good for ~15 minutes and
+        // this service can outlive the app that handed it over by hours, so
+        // without the refresh half the core is authenticated only until the
+        // first renewal it cannot perform. Expiry is unix seconds; 0 means
+        // "unknown" and lets the core read the JWT's own exp claim.
+        val refreshToken: String,
+        val accessExpiryUnix: Long,
         // ABI v2 policy + capture mode, written by setPolicy() / setTunnelMode()
         // on the plugin. Applied to the core BEFORE up().
         val policyJson: String,
@@ -403,6 +417,8 @@ class CarambaVpnService : VpnService() {
             subUrl = p.getString(CarambaVpnKeys.SUB_URL, "") ?: "",
             subscriptionId = p.getString(CarambaVpnKeys.SUBSCRIPTION_ID, "") ?: "",
             accessToken = p.getString(CarambaVpnKeys.ACCESS_TOKEN, "") ?: "",
+            refreshToken = p.getString(CarambaVpnKeys.REFRESH_TOKEN, "") ?: "",
+            accessExpiryUnix = p.getLong(CarambaVpnKeys.ACCESS_EXPIRY, 0L),
             policyJson = p.getString(CarambaVpnKeys.PREF_POLICY_JSON, "") ?: "",
             // Android owns the TUN fd, so "tun" stays the default here; "proxy"
             // is honoured for the rare no-TUN debugging case.

@@ -3,12 +3,25 @@
 /// Соответствует Rust-структуре `AppServer` в
 /// `apps/caramba-panel/src/api/v2/app.rs`:
 /// ```json
-/// { "id": 7, "name": "Node #7 (...)", "country_code": "NL",
+/// { "id": 7, "name": "Node #7 (...)", "country_code": "NL", "flag": "🇳🇱",
 ///   "latency_ms": 42, "load_pct": 18.5, "status": "online" }
 /// ```
 ///
-/// Страна отображается через mono-код (CodeChip(countryCode)) — флаг-эмодзи
-/// панели намеренно не маппится в модель (ANTI-SLOP: коды стран, не флаги).
+/// РЕШЕНИЕ ПО ФЛАГАМ ПЕРЕСМОТРЕНО (владелец продукта, сентябрь 2026:
+/// «должны быть флаги стран где сервер»). Здесь стояло обратное: панель
+/// присылает `flag`, а модель его не читала — страна показывалась только
+/// mono-кодом (ANTI-SLOP: коды стран, не флаги).
+///
+/// Что из прежнего довода осталось в силе и потому не отменено:
+///   * код страны остаётся В МОДЕЛИ единственным идентификатором. По нему
+///     группируется список, ищется имя страны и разрешается выбор; флаг — это
+///     РИСУНОК кода, а не второй источник истины, и уехать они не могут;
+///   * неизвестная страна не получает флага. Панель подставляет `US` узлу без
+///     `country_code` (`country_flag(...unwrap_or("US"))`) и потому уверенно
+///     присылает 🇺🇸 там, где страны нет вовсе; такой флаг — это как раз
+///     «уверенно неправильно», против чего был прежний довод. Поэтому
+///     [flag] здесь только ПРОНОСИТСЯ, а годен он к показу или нет, решает
+///     `flagOf` в `exit_location.dart` — и только вместе с непустым кодом.
 class Server {
   /// `nodes.id`.
   final int id;
@@ -18,6 +31,13 @@ class Server {
 
   /// ISO-2 код страны (`NL`, `DE`, ...), может быть `null`.
   final String? countryCode;
+
+  /// Флаг-эмодзи, как его прислала панель. Пусто — ключа в ответе не было.
+  ///
+  /// Сырое значение: панель отдаёт `🌐` для кода, которого не знает, и 🇺🇸
+  /// для узла БЕЗ страны. Ни то, ни другое здесь не чинится — вопрос «что
+  /// показать» решает `flagOf`, у которого есть и код, и это поле.
+  final String flag;
 
   /// Пинг в миллисекундах; `null` => таймаут/неизвестно.
   final int? pingMs;
@@ -46,6 +66,7 @@ class Server {
     required this.id,
     required this.name,
     this.countryCode,
+    this.flag = '',
     this.pingMs,
     this.load = 0,
     this.status = 'online',
@@ -68,6 +89,7 @@ class Server {
     id: (json['id'] as num).toInt(),
     name: (json['name'] as String?) ?? 'Server',
     countryCode: json['country_code'] as String?,
+    flag: (json['flag'] as String?) ?? '',
     pingMs: (json['latency_ms'] as num?)?.toInt(),
     load: (json['load_pct'] as num?)?.toDouble() ?? 0,
     status: (json['status'] as String?) ?? 'online',
@@ -78,6 +100,7 @@ class Server {
     'id': id,
     'name': name,
     'country_code': countryCode,
+    'flag': flag,
     'latency_ms': pingMs,
     'load_pct': load,
     'status': status,
@@ -87,6 +110,7 @@ class Server {
     id: id,
     name: name,
     countryCode: countryCode,
+    flag: flag,
     pingMs: pingMs ?? this.pingMs,
     load: load ?? this.load,
     status: status ?? this.status,

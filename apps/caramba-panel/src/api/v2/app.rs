@@ -18,12 +18,26 @@ use sqlx::Row;
 /// Определяет базовый URL для ссылок подписки (subscription_domain → panel_url →
 /// Host-заголовок). Логика дублирует api/client.rs::resolve_subscription_base_url,
 /// но локальна, чтобы не делать ту функцию публичной.
-async fn resolve_base_url(state: &AppState, headers: &HeaderMap) -> String {
+///
+/// `client_cc` — страна, которую панель увидела у ЭТОГО клиента (`None` —
+/// не определилась). От неё зависит первое звено: домен зеркала подписки
+/// выдаётся только тем, кого зеркало обслуживает
+/// (см. `subscription::mirror_serves_country`). Всем остальным выдаётся адрес
+/// панели, и их клиент забирает конфиг одним запросом — без 308 и без крюка
+/// через страну зеркала. Это и есть то, ради чего 308 перестал быть безусловным:
+/// убрать не только редирект, но и повод для него.
+async fn resolve_base_url(
+    state: &AppState,
+    headers: &HeaderMap,
+    client_cc: Option<&str>,
+) -> String {
     let sub_domain = state
         .settings
         .get_or_default("subscription_domain", "")
         .await;
-    let base_domain = if !sub_domain.is_empty() {
+    let use_mirror =
+        !sub_domain.is_empty() && crate::subscription::mirror_serves_country(state, client_cc).await;
+    let base_domain = if use_mirror {
         sub_domain
     } else {
         let panel = state.settings.get_or_default("panel_url", "").await;
@@ -144,7 +158,21 @@ pub async fn get_subscription(
         None => return (StatusCode::NOT_FOUND, "No subscription found").into_response(),
     };
 
-    let base_url = resolve_base_url(&state, &headers).await;
+    // Та же цепочка, что и в `subscription::subscription_handler`: заголовок
+    // обратного прокси, иначе GeoIP по адресу клиента. Одна функция на оба
+    // пути — разъехавшись, они выдали бы клиенту URL одного домена, а тело
+    // отдали бы с другого.
+    let client_ip = crate::subscription::extract_client_ip(&headers);
+    let header_cc = headers
+        .get("x-country-code")
+        .or_else(|| headers.get("cf-ipcountry"))
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.trim().to_uppercase())
+        .filter(|cc| cc.len() == 2 && cc != "XX" && cc != "T1");
+    let client_cc =
+        crate::subscription::resolve_client_country(&state, &client_ip, header_cc.as_deref()).await;
+
+    let base_url = resolve_base_url(&state, &headers, client_cc.as_deref()).await;
     let uuid = &sub.sub.subscription_uuid;
 
     let used_gb = sub.sub.used_traffic as f64 / 1024.0 / 1024.0 / 1024.0;
@@ -215,6 +243,17 @@ pub async fn get_subscription(
         "singbox_url": format!("{}/sub/{}?client=singbox", base_url, uuid),
         "v2ray_url": format!("{}/sub/{}?client=v2ray", base_url, uuid),
         "subscription_url": format!("{}/sub/{}", base_url, uuid),
+        // Страна, которую панель увидела у этого клиента; `null` — не
+        // определилась (нет MaxMind-базы, не ответил внешний сервис, приватный
+        // адрес). Клиент своей страны не знает ниоткуда больше: геобазы он не
+        // носит, а спрашивать её у пользователя значит спрашивать о том, что
+        // сервер и так видит.
+        //
+        // Нужна ему для двух решений, у которых сегодня зашита Россия: пресет
+        // маршрутизации по умолчанию и домашний резолвер. `null` обязан
+        // оставаться `null` — подставленная сюда страна увела бы человека в
+        // чужой национальный режим молча.
+        "client_country": client_cc,
     }))
     .into_response()
 }

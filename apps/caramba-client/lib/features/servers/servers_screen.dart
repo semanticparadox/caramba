@@ -2,19 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/exit_location.dart';
-import 'package:caramba_client/data/models/server.dart';
 import 'package:caramba_client/domain/offering/offering_providers.dart';
 import 'package:caramba_client/features/servers/country_nodes_view.dart';
 import 'package:caramba_client/features/servers/fleet_alignment.dart';
 import 'package:caramba_client/features/settings/reconnect_banner.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
-import 'package:caramba_client/state/core_error.dart';
 import 'package:caramba_client/state/exit_inventory_state.dart';
 import 'package:caramba_client/state/probe_state.dart';
-import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/state/servers_state.dart';
 import 'package:caramba_client/state/vpn_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
@@ -46,18 +42,19 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
   /// Открытая страна (второй уровень); `null` — список стран.
   String? _country;
 
-  bool _probing = false;
-  String? _probeError;
-
   /// Последняя НЕсостоявшаяся синхронизация выбора с панелью. Локально выбор
   /// применён всегда, поэтому это не ошибка действия, а состояние режима, и
   /// живёт оно баннером, а не тостом с красным словом.
   ExitAvailability? _syncNote;
 
+  /// Автозамер уже запускался на этом открытии экрана.
+  bool _autoProbed = false;
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
     final inventory = ref.watch(exitInventoryProvider);
+    _maybeAutoProbe(inventory);
     final location = _country == null ? null : inventory.locationOf(_country);
     // Страна могла исчезнуть из выдачи, пока её экран открыт: возвращаемся к
     // списку, а не показываем пустой второй уровень.
@@ -103,8 +100,7 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
                 ),
                 const SizedBox(height: AppSpace.s4),
               ],
-              if (inventory.source == ExitInventorySource.importedSub)
-                ..._probeHeader(),
+              ..._probeHeader(inventory),
               if (inventory.loading && inventory.isEmpty)
                 const _Loading()
               else if (inventory.error != null && inventory.isEmpty)
@@ -114,7 +110,6 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
               else if (drilled)
                 CountryNodesView(
                   location: location,
-                  probing: _probing,
                   onBack: () => setState(() => _country = null),
                   onSelect: (node) => node == null
                       ? _pickCountry(location.countryCode)
@@ -138,38 +133,66 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
     );
   }
 
-  /// Шапка импортированной подписки: имя профиля, замер задержек и время
-  /// последнего замера. У панели задержки приходят с сервером, мерить нечего.
-  List<Widget> _probeHeader() {
+  /// Шапка замера — теперь в ОБОИХ режимах.
+  ///
+  /// Раньше она стояла только под импортированной подпиской, с доводом «у
+  /// панели задержки приходят с сервером, мерить нечего». Довод был неверен:
+  /// панель присылает RTT самого узла до его цели по heartbeat, то есть
+  /// расстояние узла, а не пользователя. Пользователь просил свой пинг, и
+  /// мерить его есть чем — тем же `probe`, что и в импорте.
+  List<Widget> _probeHeader(ExitInventory inventory) {
     final c = context.c;
     final profile = ref.watch(activeConnectionProfileProvider);
     if (profile == null) return const <Widget>[];
+    final run = ref.watch(probeRunProvider);
+    final measuredAt = ref.watch(clientLatencyAtProvider);
+    final nothingToMeasure = inventory.nodes.isEmpty;
+
     return <Widget>[
-      Text(
-        profile.displayName.isEmpty
-            ? 'Узлы импортированной подписки'
-            : 'Узлы подписки «${profile.displayName}»',
-        style: AppType.bodyMd.copyWith(color: c.textMed),
-      ),
-      const SizedBox(height: AppSpace.s4),
-      GhostButton(
-        label: _probing ? 'Меряю задержки' : 'Замерить задержки',
-        icon: Lucide.gauge,
-        onPressed: (_probing || profile.servers.isEmpty) ? null : _probe,
-      ),
-      if (profile.lastProbe?.updatedAt != null) ...[
-        const SizedBox(height: AppSpace.s2),
+      if (inventory.source == ExitInventorySource.importedSub) ...[
         Text(
-          'Последний замер: ${_timeText(profile.lastProbe!.updatedAt!)}',
-          style: AppType.bodySm.copyWith(color: c.textLow),
+          profile.displayName.isEmpty
+              ? 'Узлы импортированной подписки'
+              : 'Узлы подписки «${profile.displayName}»',
+          style: AppType.bodyMd.copyWith(color: c.textMed),
         ),
+        const SizedBox(height: AppSpace.s4),
       ],
+      GhostButton(
+        label: run.measuring ? 'Меряю задержки' : 'Замерить свой пинг',
+        icon: Lucide.gauge,
+        onPressed: (run.measuring || nothingToMeasure) ? null : _probe,
+      ),
+      const SizedBox(height: AppSpace.s2),
+      Text(
+        measuredAt == null
+            // Пока своего замера не было, числа в списке принадлежат оператору,
+            // и сказать это надо один раз словами, а не только подписью у цифр.
+            ? 'Пока не мерили: показаны задержки, которые сообщил оператор.'
+            : 'Ваш замер: ${_timeText(measuredAt)}',
+        style: AppType.bodySm.copyWith(color: c.textLow),
+      ),
       const SizedBox(height: AppSpace.s5),
-      if (_probeError != null) ...[
-        InlineError(message: _probeError!, onRetry: _probe),
+      if (run.error != null) ...[
+        InlineError(message: run.error!, onRetry: _probe),
         const SizedBox(height: AppSpace.s5),
       ],
     ];
+  }
+
+  /// Запускает замер один раз на открытие экрана, когда узлы уже есть, а своих
+  /// чисел ещё нет.
+  ///
+  /// Именно «после того как узлы показаны», а не «вместо того»: список рисуется
+  /// из инвентаря немедленно, а замер добавляет к нему числа по мере готовности.
+  void _maybeAutoProbe(ExitInventory inventory) {
+    if (_autoProbed || inventory.nodes.isEmpty) return;
+    if (ref.read(probeRunProvider).measuring) return;
+    if (ref.read(clientLatencyProvider).isNotEmpty) return;
+    _autoProbed = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(probeRunProvider.notifier).measure();
+    });
   }
 
   /// Сколько МАШИН в каждой стране по данным предложения; пусто — предложение
@@ -273,33 +296,11 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
     return false;
   }
 
-  /// Замер идёт через ядро: подписка сначала отдаётся ему на разбор, затем
-  /// `probe`. Результат ложится на профиль и переживает перезапуск.
-  Future<void> _probe() async {
-    final profile = ref.read(activeConnectionProfileProvider);
-    if (profile == null) return;
-    setState(() {
-      _probing = true;
-      _probeError = null;
-    });
-    try {
-      final results = await probeProfile(
-        ref.read(vpnConnectionProvider),
-        profile,
-      );
-      await ref
-          .read(connectionProfilesProvider.notifier)
-          .setProbe(profile.id, ProbeSnapshot.fromResults(results));
-      if (!mounted) return;
-      setState(() => _probing = false);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _probing = false;
-        _probeError = coreErrorText(e) ?? 'Не удалось замерить задержки.';
-      });
-    }
-  }
+  /// Замер идёт через ядро (`ProbeRunNotifier`): подписка при необходимости
+  /// сначала отдаётся ему на разбор, затем `probe`. Ход замера и результат
+  /// живут в состоянии, а не в этом виджете, потому что числа нужны и строкам
+  /// списка, и инвентарю — они не принадлежат экрану.
+  Future<void> _probe() => ref.read(probeRunProvider.notifier).measure();
 }
 
 /// Первый уровень: страны выхода. «Авто» сверху, затем страны в порядке
@@ -365,32 +366,24 @@ class _CountryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.c;
     final off = !location.isAvailable;
-    final bucket = location.bestPingMs == null ? null : location.pingBucket;
-    final color = switch (bucket) {
-      PingBucket.good => c.success,
-      PingBucket.fair => c.warning,
-      PingBucket.poor => c.danger,
-      PingBucket.timeout => c.danger,
-      null => c.textLow,
-    };
 
     return Opacity(
       opacity: off ? 0.45 : 1,
       child: ListItemCard(
-        leading: CodeChip(
-          location.isUnknownCountry ? '··' : location.countryCode,
+        // Флаг ставится рядом с кодом, а не вместо него: код — идентификатор
+        // страны, флаг — её глиф. Страна, которую источник не назвал твёрдо,
+        // получает нейтральный глиф, а не флаг наугад.
+        leading: FlagChip(
+          flag: location.flag,
+          code: location.isUnknownCountry ? '' : location.countryCode,
         ),
         title: location.displayName,
         subtitle: off ? location.availability.message : null,
         selected: selected,
         titleBadges: [Tag('узлов: $nodeCount')],
         onTap: onTap,
-        trailing: Text(
-          location.bestPingMs == null ? '-' : '${location.bestPingMs} мс',
-          style: AppType.monoSm.copyWith(color: color),
-        ),
+        trailing: LatencyReadout(location.bestLatency),
       ),
     );
   }

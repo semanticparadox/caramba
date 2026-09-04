@@ -852,7 +852,21 @@ func (l *Ladder) attempt(ctx context.Context, exch Exchange, t Target, req *http
 				err = ErrBudgetExceeded
 			} else {
 				budget.ChargeRequest(hopBytes)
-				resp2, herr := exch.Do(attemptCtx, t, hopReq)
+				// Цель перехода это ДРУГОЙ хост, и обмен обязан идти под ЕГО
+				// именем: SNI и проверка цепочки берутся из Target, а не из
+				// URL. С целью исходной попытки переход набирал релей с SNI
+				// панели; у релея сертификата на имя панели нет и быть не
+				// должно, он отвечал alert на первом рукопожатии, и переход,
+				// ради которого написана эта ветка, не выполнялся никогда.
+				// Ступень и прокси остаются прежними: переход это часть той
+				// же попытки. Имя зеркала и литеральный адрес относились к
+				// прежнему хосту, поэтому снимаются; пины берутся по цели.
+				hopT := t
+				hopT.Host = hop.To.Hostname()
+				hopT.SNI = ""
+				hopT.Addr = ""
+				hopT.Pins = l.pinsFor(hopT.Host)
+				resp2, herr := exch.Do(attemptCtx, hopT, hopReq)
 				if herr != nil {
 					err = herr
 				} else {
@@ -919,6 +933,14 @@ func classify(err error) (Outcome, string, string) {
 		}
 	}
 	return OutcomeVerify, "", err.Error()
+}
+
+// pinsFor отдаёт SPKI пины хоста под замком: attempt работает без него, а
+// карта пинов переписывается ApplyCatalog.
+func (l *Ladder) pinsFor(host string) [][]byte {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.pins[host]
 }
 
 // selectTargets выбирает цели одной ступени на один цикл, 02-SPEC.md 8.4.

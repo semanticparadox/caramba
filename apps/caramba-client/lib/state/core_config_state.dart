@@ -6,8 +6,44 @@ import 'package:caramba_client/data/models/protocol.dart';
 import 'package:caramba_client/data/prefs_store.dart';
 import 'package:caramba_client/data/models/relay.dart';
 import 'package:caramba_client/data/models/split_app.dart';
+import 'package:caramba_client/domain/offering/route_presets.dart';
 import 'package:caramba_client/state/account_state.dart';
 import 'package:caramba_client/state/providers.dart';
+
+/// Индекс глобального пресета `global` в [RoutingMode.defaults].
+///
+/// Продублирован числом намеренно: [kLegacyRouteIndexByCoreId] это карта, и
+/// чтение из неё пришлось бы дополнять запасным значением — а единственное
+/// «безопасное» запасное здесь это 0, то есть ровно тот российский пресет, от
+/// которого мы уходим. Расхождение ловит тест, а не молчаливый `?? 0`.
+const int kGlobalRouteIndex = 8;
+
+/// Пресет маршрутизации по умолчанию для пользователя из страны [iso].
+///
+/// Правило: национальный пресет получает тот, кто в этой стране находится;
+/// все остальные — глобальный `global` (весь трафик в туннель, напрямую только
+/// локальная сеть).
+///
+/// Раньше умолчанием у ВСЕХ был индекс 0, то есть `ru-smart`. Для человека вне
+/// России это не «настройка по вкусу», а выключенный VPN: у `ru-smart`
+/// финальное действие DIRECT, и в туннель уходит только то, что заблокировано
+/// в РФ. Владелец платил за туннель, туннель поднимался — и почти весь трафик
+/// шёл мимо него.
+///
+/// [iso] == null или пусто означает «страна неизвестна». Такой пользователь
+/// получает `global`, а не национальный режим какой-либо страны: угадать здесь
+/// значит молча увести человека в чужой набор правил.
+int defaultRouteIndexForCountry(String? iso) {
+  final cc = (iso ?? '').trim().toUpperCase();
+  if (cc.length != 2) return kGlobalRouteIndex;
+  for (final p in kCoreRoutePresets) {
+    if (p.countryCode == cc) {
+      final index = kLegacyRouteIndexByCoreId[p.id];
+      if (index != null) return index;
+    }
+  }
+  return kGlobalRouteIndex;
+}
 
 /// Выбор пользователя по конфигурации ядра (caramba-core `Policy`). Один срез
 /// состояния под Home config-rows и экран Настройки. Хранит индексы выбранных
@@ -21,6 +57,17 @@ import 'package:caramba_client/state/providers.dart';
 class CoreConfig {
   final int protocol; // индекс в ProtocolOption.defaults (0 = Авто)
   final int route; // индекс в RoutingMode.defaults
+
+  /// Пользователь выбирал маршрут САМ (открыл пикер и нажал), а не получил
+  /// умолчание.
+  ///
+  /// Без этого флага «маршрут по умолчанию» и «маршрут, выбранный человеком»
+  /// неразличимы: [toJson] пишет все поля сразу, поэтому у любого, кто хоть раз
+  /// тронул любую настройку, в prefs лежит `route: 0` — и осознанный выбор
+  /// `ru-smart`, и никогда не открывавшийся пикер выглядят одинаково.
+  /// Флаг разделяет эти два случая, и только он даёт право подставить маршрут
+  /// по стране: чужой явный выбор трогать нельзя.
+  final bool routeChosen;
   final int relay; // индекс в Relay.defaults (0 = Выкл)
   final int stack; // индекс в CoreOption.stacks
   final int dns; // индекс в CoreOption.dns
@@ -39,9 +86,18 @@ class CoreConfig {
   /// домены работают на всех платформах и должны переживать редактирование.
   final String bypassDomains;
 
+  /// Умолчание [route] — [kGlobalRouteIndex], а НЕ 0.
+  ///
+  /// 0 это `ru-smart`, национальный режим одной конкретной страны. Ставить его
+  /// всем — это и есть та самая ошибка: пока страна пользователя неизвестна,
+  /// единственный честный ответ «вести весь трафик через туннель», а не
+  /// «считать, что человек в России». Как только страна станет известна,
+  /// [CoreConfigNotifier.adoptUserCountry] заменит это значение на подходящее
+  /// — в том числе вернёт `ru-smart` россиянину.
   const CoreConfig({
     this.protocol = 0,
-    this.route = 0,
+    this.route = kGlobalRouteIndex,
+    this.routeChosen = false,
     this.relay = 0,
     this.stack = 0,
     this.dns = 0,
@@ -68,6 +124,7 @@ class CoreConfig {
   CoreConfig copyWith({
     int? protocol,
     int? route,
+    bool? routeChosen,
     int? relay,
     int? stack,
     int? dns,
@@ -82,6 +139,7 @@ class CoreConfig {
   }) => CoreConfig(
     protocol: protocol ?? this.protocol,
     route: route ?? this.route,
+    routeChosen: routeChosen ?? this.routeChosen,
     relay: relay ?? this.relay,
     stack: stack ?? this.stack,
     dns: dns ?? this.dns,
@@ -98,6 +156,7 @@ class CoreConfig {
   Map<String, dynamic> toJson() => {
     'protocol': protocol,
     'route': route,
+    'route_chosen': routeChosen,
     'relay': relay,
     'stack': stack,
     'dns': dns,
@@ -117,13 +176,30 @@ class CoreConfig {
   /// сократиться между версиями, а выход за границы уронил бы экраны.
   factory CoreConfig.fromJson(Map<String, dynamic> json) {
     const d = CoreConfig();
+    // Маршрут читается по СТАРОМУ умолчанию 0, а не по новому: у записи,
+    // сделанной прежней версией, ключа `route_chosen` нет, и подставить туда
+    // `global` значило бы молча сменить маршрут живому пользователю — в том
+    // числе россиянину, у которого `ru-smart` работает правильно.
+    final storedRoute = _idx(json['route'], RoutingMode.defaults.length, 0);
     return CoreConfig(
       protocol: _idx(
         json['protocol'],
         ProtocolOption.defaults.length,
         d.protocol,
       ),
-      route: _idx(json['route'], RoutingMode.defaults.length, d.route),
+      route: storedRoute,
+      // Миграция записи без `route_chosen`.
+      //
+      // При старой схеме ненулевой индекс мог появиться ТОЛЬКО из пикера:
+      // умолчанием был 0. Значит `route != 0` это доказанный выбор человека, и
+      // он неприкосновенен. А `route == 0` неразличимо: это либо выбранный
+      // `ru-smart`, либо никогда не тронутый пикер. Неоднозначность решается в
+      // пользу страны — там, где она известна, россиянин остаётся на
+      // `ru-smart`, а американец наконец уходит с него.
+      //
+      // До того как страна станет известна, значение остаётся прежним (0), то
+      // есть апгрейд сам по себе не меняет поведение ни у кого.
+      routeChosen: _bool(json['route_chosen'], storedRoute != 0),
       // Список relay приходит с панели и может быть любой длины: здесь только
       // отсекаем отрицательные значения, кламп по длине делает провайдер.
       relay: _idx(json['relay'], 1 << 20, d.relay),
@@ -179,7 +255,32 @@ class CoreConfigNotifier extends StateNotifier<CoreConfig> {
   }
 
   void setProtocol(int i) => state = state.copyWith(protocol: i);
-  void setRoute(int i) => state = state.copyWith(route: i);
+
+  /// Выбор маршрута человеком. Помечает [CoreConfig.routeChosen], после чего
+  /// [adoptUserCountry] к этому полю больше не прикасается — даже если
+  /// выбранный режим «не подходит» стране, где человек находится. Он мог
+  /// выбрать его специально.
+  void setRoute(int i) => state = state.copyWith(route: i, routeChosen: true);
+
+  /// Сообщает, в какой стране находится пользователь (ISO-2, как её увидела
+  /// панель: поле `client_country` в `GET /api/v2/app/subscription` или
+  /// заголовок `x-client-country` на теле подписки). `null` или пустая строка —
+  /// «панель не определила», и тогда НИЧЕГО не меняется: неизвестность не повод
+  /// перекладывать чужой маршрут.
+  ///
+  /// Меняет маршрут только пока [CoreConfig.routeChosen] == false, и не
+  /// поднимает этот флаг: следующий, более точный ответ панели (человек
+  /// переехал, GeoIP наконец ответил) должен уметь поправить умолчание ещё раз.
+  /// Ручной выбор при этом всегда сильнее.
+  void adoptUserCountry(String? iso) {
+    final cc = (iso ?? '').trim();
+    if (cc.length != 2) return;
+    if (state.routeChosen) return;
+    final next = defaultRouteIndexForCountry(cc);
+    if (next == state.route) return;
+    state = state.copyWith(route: next);
+  }
+
   void setRelay(int i) => state = state.copyWith(relay: i);
   void setStack(int i) => state = state.copyWith(stack: i);
   void setDns(int i) => state = state.copyWith(dns: i);

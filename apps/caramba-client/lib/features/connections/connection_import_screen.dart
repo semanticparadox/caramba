@@ -65,6 +65,75 @@ enum _PanelOffer {
   none,
 }
 
+// ---------------------------------------------------------------------------
+// АДРЕС ПАНЕЛИ НА ЭТОМ ЭКРАНЕ НЕ ПОКАЗЫВАЕТСЯ. Почему — ниже, по обоим местам,
+// где он показывался раньше. Общее правило одно: адрес панели живёт там, где он
+// ПРОВЕРЯЕМ и по нему принимается решение (экран подтверждения `caramba://
+// connect`, см. connect_screen.dart), и нигде больше. Здесь он не проверяем и
+// решения не несёт: пользователь сам вставил эту ссылку секунду назад.
+// ---------------------------------------------------------------------------
+
+/// Заголовок листа «за этой подпиской стоит панель».
+///
+/// Раньше строка была `'Это подписка панели ${panel.displayName}'`, а
+/// `displayName` при пустом брендинге подставлял хост. То есть у оператора,
+/// который не заполнил бренд (а это состояние по умолчанию), заголовок печатал
+/// адрес его панели крупным шрифтом.
+///
+/// Что этот адрес здесь доказывал: ничего. Строку в поле ввода набрал сам
+/// пользователь, приложение возвращает её ему же. Настоящая проверка адреса
+/// стоит одним экраном дальше, на подтверждении ссылки подключения, куда ведут
+/// обе кнопки этого листа.
+///
+/// Имя бренда — заявление оператора, но здесь оно и не выдаётся за большее: это
+/// ярлык вопроса «подключать ли панель», а не поле, по которому человек решает,
+/// кому доверить устройство.
+String panelOfferTitle(PanelProbeResult panel) {
+  final brand = panel.brandName;
+  if (brand.isEmpty) return 'Это подписка панели Caramba';
+  return 'Это подписка панели $brand';
+}
+
+/// Имя сохраняемого профиля подписки.
+///
+/// САМАЯ ДОРОГАЯ УТЕЧКА АДРЕСА БЫЛА ИМЕННО ТУТ, и она была не экранной, а
+/// постоянной: при пустом имени функция возвращала `uri.host`, имя уходило в
+/// `ConnectionProfile.displayName`, и адрес панели навсегда поселялся в строке
+/// «Подписка» на главном экране, в списке подключений и на экране входа. Ни
+/// одно из этих мест ничего им не подтверждает — там он просто написан.
+///
+/// [fromCore] отбрасывается, когда совпадает с хостом источника: панели нередко
+/// называют подписку своим доменом, и тогда «имя из конфига» это тот же адрес,
+/// зашедший другой дверью. Настоящее имя («Caramba Free») проходит как есть —
+/// вырезать его значило бы прятать то, что оператор сам напечатал.
+///
+/// Одинаковые имена нумеруются: два профиля «Подписка» человек не различит, а
+/// различать их надо — это разные конфигурации.
+String subscriptionProfileName({
+  required String typed,
+  String? fromCore,
+  String? sourceHost,
+  Iterable<String> taken = const <String>[],
+}) {
+  final own = typed.trim();
+  if (own.isNotEmpty) return own;
+
+  final core = fromCore?.trim() ?? '';
+  final host = sourceHost?.trim() ?? '';
+  if (core.isNotEmpty && core.toLowerCase() != host.toLowerCase()) return core;
+
+  const base = 'Подписка';
+  final used = {for (final n in taken) n.trim()};
+  if (!used.contains(base)) return base;
+  // Границы хватает с запасом: кандидатов здесь `used.length + 2`, занятых
+  // имён `used.length`, поэтому свободное найдётся раньше конца.
+  for (var n = 2; n <= used.length + 2; n++) {
+    final candidate = '$base $n';
+    if (!used.contains(candidate)) return candidate;
+  }
+  return base;
+}
+
 /// Экран импорта подписки: вставка URL или сырого текста, QR или файл, плюс
 /// выбор формата (auto по умолчанию).
 ///
@@ -381,7 +450,12 @@ class _ConnectionImportScreenState
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Это подписка панели ${panel.displayName}',
+                panelOfferTitle(panel),
+                // Имя бренда приходит извне и длину его никто не обещал.
+                // Заголовок — не строка «подпись / значение», подделать им
+                // соседнее поле нельзя, но развернуться на пол-листа он может.
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: AppType.titleLg.copyWith(color: c.textHi),
               ),
               const SizedBox(height: AppSpace.s3),
@@ -445,7 +519,15 @@ class _ConnectionImportScreenState
     final profile = ConnectionProfile(
       id: 'cp_${now.millisecondsSinceEpoch}',
       type: ProfileType.rawSub,
-      displayName: _defaultName(source, preview.name),
+      displayName: subscriptionProfileName(
+        typed: _nameController.text,
+        fromCore: preview.name,
+        sourceHost: Uri.tryParse(source)?.host,
+        taken: ref
+            .read(connectionProfilesProvider)
+            .profiles
+            .map((p) => p.displayName),
+      ),
       source: source,
       rawConfig: raw,
       format: _format.wire,
@@ -491,15 +573,6 @@ class _ConnectionImportScreenState
       return;
     }
     _close(context);
-  }
-
-  String _defaultName(String source, String? fromCore) {
-    final typed = _nameController.text.trim();
-    if (typed.isNotEmpty) return typed;
-    if (fromCore != null && fromCore.trim().isNotEmpty) return fromCore.trim();
-    final uri = Uri.tryParse(source);
-    if (uri != null && uri.host.isNotEmpty) return uri.host;
-    return 'Подписка';
   }
 
   Future<void> _scanQr() async {

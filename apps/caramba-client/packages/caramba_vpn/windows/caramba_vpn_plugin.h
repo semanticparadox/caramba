@@ -21,6 +21,7 @@
 #include <flutter/plugin_registrar_windows.h>
 
 #include <atomic>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -55,12 +56,23 @@ class CarambaVpnPlugin : public flutter::Plugin {
       const flutter::MethodCall<flutter::EncodableValue>& call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
 
-  // configure(panelUrl, subscriptionUuid|subscriptionId, accessToken): store
-  // the auth/config seam and push it into the core (CarambaConfigure). Called
-  // before the first connect; idempotent.
+  // configure(panelUrl, subscriptionUuid|subscriptionId, accessToken,
+  // refreshToken, accessExpiryUnix): store the auth/config seam and push it into
+  // the core (CarambaConfigureSession). Called before the first connect;
+  // idempotent.
+  //
+  // The refresh token is part of the seam because the access token is good for
+  // ~15 minutes and the core is what has to keep working afterwards; without it
+  // every panel call the core makes after that window gets an unrecoverable 401.
   void Configure(const std::string& panel_url,
                  const std::string& subscription_id,
-                 const std::string& access_token);
+                 const std::string& access_token,
+                 const std::string& refresh_token,
+                 int64_t access_expiry_unix);
+  // Pushes the stored seam into the existing core handle, preferring the ABI v4
+  // symbol and falling back to the 3-arg one only when there is no refresh token
+  // to lose. Returns false when the core exports neither.
+  bool PushSeam();
   // connect(serverId, serverName, countryCode): ensure the core handle, set
   // tunFd = -1, bring the tunnel up, and start the poll loop.
   void Connect(const std::string& server_id);
@@ -137,6 +149,8 @@ class CarambaVpnPlugin : public flutter::Plugin {
   std::string panel_url_;
   std::string subscription_id_;
   std::string access_token_;
+  std::string refresh_token_;
+  int64_t access_expiry_unix_ = 0;
   bool configured_ = false;
 
   // ABI v2 seam captured from setPolicy() / setTunnelMode() before the core

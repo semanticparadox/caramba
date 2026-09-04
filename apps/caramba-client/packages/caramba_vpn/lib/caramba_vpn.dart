@@ -78,6 +78,11 @@ class CarambaVpn {
   ///   `SetSubscriptionID`. Пусто — ядро тянет UUID у панели лениво.
   /// * [accessToken] — действующий JWT access-токен; кладётся в token-store
   ///   ядра, чтобы запросы конфига/подписки шли авторизованными.
+  /// * [refreshToken] — долгоживущий refresh той же сессии. ПЕРЕДАВАТЬ, когда
+  ///   он есть: access живёт ~15 минут, и без refresh ядро не сможет продлить
+  ///   сессию, пока приложение выгружено (см. [VpnConfig]).
+  /// * [accessExpiry] — когда истекает [accessToken]; `null` оставляет ядру
+  ///   разобрать claim `exp` самого JWT.
   ///
   /// На провод уходит ключ `subscriptionUuid` — тот же, что шлёт
   /// `VpnConfig.toArgs()`. Нативные стороны принимают и устаревший
@@ -89,12 +94,19 @@ class CarambaVpn {
     required String panelUrl,
     required String subscriptionId,
     required String accessToken,
+    String refreshToken = '',
+    DateTime? accessExpiry,
   }) {
-    return _channel.invokeMethod<void>(_configureMethod, <String, String>{
-      'panelUrl': panelUrl,
-      'subscriptionUuid': subscriptionId,
-      'accessToken': accessToken,
-    });
+    return _channel.invokeMethod<void>(
+      _configureMethod,
+      VpnConfig(
+        panelUrl: panelUrl,
+        subscriptionUuid: subscriptionId,
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        accessExpiry: accessExpiry,
+      ).toArgs(),
+    );
   }
 
   /// Какой бэкенд выбрать на текущей платформе.

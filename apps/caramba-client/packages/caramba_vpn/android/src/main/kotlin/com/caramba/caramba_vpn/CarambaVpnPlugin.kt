@@ -69,6 +69,24 @@ class CarambaVpnPlugin :
     // in CarambaVpnService.
     private var tools: CarambaCore? = null
 
+    /**
+     * The seam [tools] was built with, as one string. Compared on every call so
+     * a login or a token rotation rebuilds the client instead of leaving it
+     * measuring the previous account's nodes.
+     */
+    private var toolsSeam: String = ""
+
+    /**
+     * Whether an imported subscription is loaded into [tools].
+     *
+     * The metadata core is shared by both paths, and `Core.Probe` measures an
+     * imported config in preference to the panel's. Without this flag a probe
+     * on the panel path would measure the nodes of a subscription imported
+     * earlier in the session and label them as the operator's — the exact kind
+     * of wrong number this work exists to remove.
+     */
+    private var toolsHasImport: Boolean = false
+
     // The CSM/1 core client and the AndroidKeyStore holder of the device
     // identity. Both live in the plugin process for the lifetime of the engine:
     // the device identity is a long-lived identifier and must not be rebuilt per
@@ -135,6 +153,10 @@ class CarambaVpnPlugin :
         CarambaVpnBus.setLoopbackListener(null)
         tools?.close()
         tools = null
+        // The fingerprint goes with the client it described: left behind, it
+        // would match an unchanged seam and short-circuit the rebuild.
+        toolsSeam = ""
+        toolsHasImport = false
         csm?.close()
         csm = null
         device = null
@@ -156,6 +178,11 @@ class CarambaVpnPlugin :
                     subscriptionId = call.argument<String>(CarambaVpnKeys.SUBSCRIPTION_UUID)
                         ?: call.argument<String>(CarambaVpnKeys.SUBSCRIPTION_ID) ?: "",
                     accessToken = call.argument<String>(CarambaVpnKeys.ACCESS_TOKEN) ?: "",
+                    // Absent from a caller built before the session seam existed;
+                    // an empty refresh degrades to the old 15-minute behaviour
+                    // instead of failing the call.
+                    refreshToken = call.argument<String>(CarambaVpnKeys.REFRESH_TOKEN) ?: "",
+                    accessExpiryUnix = call.argument<Number>(CarambaVpnKeys.ACCESS_EXPIRY)?.toLong() ?: 0L,
                 )
                 result.success(null)
             }
@@ -202,7 +229,13 @@ class CarambaVpnPlugin :
                 val raw = call.argument<String>(CarambaVpnKeys.RAW_CONFIG) ?: ""
                 val format = call.argument<String>(CarambaVpnKeys.RAW_FORMAT) ?: ""
                 runOnWorker(result, "import_failed") {
-                    toolsCore().importSubscription(raw, format)
+                    val core = toolsCore()
+                    val json = core.importSubscription(raw, format)
+                    // The imported config now outranks the panel's inside this
+                    // core; `configure` is what tells us the panel path is back
+                    // in play, and it needs to know there is something to clear.
+                    synchronized(this) { toolsHasImport = true }
+                    json
                 }
             }
 
@@ -446,20 +479,59 @@ class CarambaVpnPlugin :
      * and probe. It lives in the plugin process and keeps its own work dir, so a
      * probe never disturbs a running tunnel (whose core lives in the service).
      *
+     * It is built WITH the persisted panel seam. Without it the core has no
+     * panel URL and no token, so on the panel path `probe` had no config to
+     * measure and no way to get one before the first `up`; it answered with an
+     * empty server list, which the app could only read as "the operator has no
+     * nodes". The imported path is unaffected: an empty seam builds exactly the
+     * client it built before.
+     *
+     * The seam is re-read on every call and the client is rebuilt when it
+     * changed, because it changes AFTER this core may already exist — a login,
+     * a token rotation or a switch of operator all arrive through `configure`,
+     * and a client built before one of them would keep measuring the previous
+     * account's nodes (or answering 401) until the app restarts.
+     *
      * Synchronized: it is called from the worker thread, and two concurrent
      * generic-mode calls must not build two clients over the same work dir.
      */
     @Synchronized
     private fun toolsCore(): CarambaCore {
+        val prefs = appContext.getSharedPreferences(CarambaVpnKeys.PREFS, Context.MODE_PRIVATE)
+        val panelUrl = prefs.getString(CarambaVpnKeys.PANEL_URL, "") ?: ""
+        val subUrl = prefs.getString(CarambaVpnKeys.SUB_URL, "") ?: ""
+        val subscriptionId = prefs.getString(CarambaVpnKeys.SUBSCRIPTION_ID, "") ?: ""
+        val accessToken = prefs.getString(CarambaVpnKeys.ACCESS_TOKEN, "") ?: ""
+        val refreshToken = prefs.getString(CarambaVpnKeys.REFRESH_TOKEN, "") ?: ""
+        val accessExpiry = prefs.getLong(CarambaVpnKeys.ACCESS_EXPIRY, 0L)
+        // EVERY field of the seam belongs in this identity. A client built
+        // before a rotation keeps measuring with the previous session, and a
+        // field left out of the list is a rotation the probe never notices.
+        val seam = listOf(panelUrl, subUrl, subscriptionId, accessToken, refreshToken, accessExpiry.toString())
+            .joinToString(" ")
+
         val existing = tools
-        if (existing != null) return existing
+        if (existing != null && seam == toolsSeam) return existing
+        toolsHasImport = false
+        // The stale client is dropped, not closed: closing calls into the Go
+        // core, and a concurrent probe may still be inside it. It holds no fd
+        // and never raised a tunnel, so letting it go is enough.
+        tools = null
+
         val dir = File(appContext.filesDir, "caramba-core-tools")
         if (!dir.exists()) dir.mkdirs()
         val created = CarambaCore.createTools(
             workDir = dir.absolutePath,
             tokenPath = File(dir, "tokens.json").absolutePath,
+            panelUrl = panelUrl,
+            subUrl = subUrl,
+            subscriptionId = subscriptionId,
+            accessToken = accessToken,
+            refreshToken = refreshToken,
+            accessExpiryUnix = accessExpiry,
         )
         tools = created
+        toolsSeam = seam
         return created
     }
 
@@ -501,6 +573,8 @@ class CarambaVpnPlugin :
             tokenPath = File(dir, "tokens.json").absolutePath,
             subscriptionId = prefs.getString(CarambaVpnKeys.SUBSCRIPTION_ID, "") ?: "",
             accessToken = prefs.getString(CarambaVpnKeys.ACCESS_TOKEN, "") ?: "",
+            refreshToken = prefs.getString(CarambaVpnKeys.REFRESH_TOKEN, "") ?: "",
+            accessExpiryUnix = prefs.getLong(CarambaVpnKeys.ACCESS_EXPIRY, 0L),
             bridge = CarambaDeviceKeyBridge(deviceKeys()),
         )
         csm = created
@@ -577,16 +651,23 @@ class CarambaVpnPlugin :
         subUrl: String,
         subscriptionId: String,
         accessToken: String,
+        refreshToken: String,
+        accessExpiryUnix: Long,
     ) {
         // Persist the seam so CarambaVpnService can read it even when the system
         // restarts the service in a fresh process. Stored in the app's private
-        // prefs (MODE_PRIVATE) — not world-readable.
+        // prefs (MODE_PRIVATE) — not world-readable. The refresh token rides
+        // along for the same reason the access token does, and because without
+        // it a restarted service comes back holding a session it cannot renew
+        // — see CarambaVpnKeys.PREFS for why that trade is the right one.
         appContext.getSharedPreferences(CarambaVpnKeys.PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(CarambaVpnKeys.PANEL_URL, panelUrl)
             .putString(CarambaVpnKeys.SUB_URL, subUrl)
             .putString(CarambaVpnKeys.SUBSCRIPTION_ID, subscriptionId)
             .putString(CarambaVpnKeys.ACCESS_TOKEN, accessToken)
+            .putString(CarambaVpnKeys.REFRESH_TOKEN, refreshToken)
+            .putLong(CarambaVpnKeys.ACCESS_EXPIRY, accessExpiryUnix)
             .apply()
         // The CSM core caches the seam it was built with, and the settings write
         // authorizes with the account token from that core's own store. A core
@@ -594,6 +675,32 @@ class CarambaVpnPlugin :
         // restarts, so it is dropped and rebuilt on the next CSM call. The device
         // identity survives: it lives in the AndroidKeyStore, not in the core.
         dropCsmCore()
+        dropImportedTools()
+    }
+
+    /**
+     * Drops the metadata core when it holds an imported subscription.
+     *
+     * Called from `configure`, and only `configure`: the raw path never sends
+     * it (`connectRaw` explicitly forgets the panel seam), so its arrival means
+     * the panel path is in play. `Core.Probe` prefers an imported config over
+     * the panel's, so a core left carrying one would answer a panel-path probe
+     * with the nodes of somebody else's subscription.
+     *
+     * A core WITHOUT an import is kept: it holds the fetched panel profile, and
+     * dropping it would send every probe back to the subscription service over
+     * the network for a body it already has.
+     *
+     * The reference is dropped, not closed: closing calls into the Go core, and
+     * this runs on the platform thread while a probe may still be inside it.
+     * The metadata core holds no fd and never raised a tunnel.
+     */
+    @Synchronized
+    private fun dropImportedTools() {
+        if (!toolsHasImport) return
+        tools = null
+        toolsSeam = ""
+        toolsHasImport = false
     }
 
     @Synchronized

@@ -438,6 +438,40 @@ func TestRedirectFollowedOnce(t *testing.T) {
 	}
 }
 
+// TestRedirectHopDialsRedirectHost: обмен перехода идёт под именем ЦЕЛИ
+// перехода. SNI и проверка сертификата берутся из Target.Host, и релей на
+// subscription_domain держит сертификат только на своё имя: переход с именем
+// панели в Target он обрывает alert на рукопожатии. Ступень при этом та же:
+// переход это часть той же попытки, а не новая ступень.
+func TestRedirectHopDialsRedirectHost(t *testing.T) {
+	ex := newFakeExchange()
+	var hopTarget Target
+	hops := 0
+	ex.fn = func(t2 Target, r *http.Request) (*http.Response, error) {
+		hops++
+		if hops == 1 {
+			h := http.Header{}
+			h.Set("Location", "https://sub.example.net/sub/k1")
+			return &http.Response{StatusCode: 308, Header: h, Body: io.NopCloser(strings.NewReader(""))}, nil
+		}
+		hopTarget = t2
+		return okResponse([]byte("doc")), nil
+	}
+	l := NewLadder(ex)
+	_, err := l.Do(context.Background(), newRequest(t, "https://panel.example.net/sub/k1"), DoOptions{
+		Origin: "https://panel.example.net", SubscriptionDomain: "sub.example.net",
+	})
+	if err != nil {
+		t.Fatalf("переход не выполнен: %v", err)
+	}
+	if hopTarget.Host != "sub.example.net" {
+		t.Fatalf("переход набран под именем %q, ожидалось имя цели sub.example.net", hopTarget.Host)
+	}
+	if hopTarget.Rung != R1Direct {
+		t.Fatalf("переход сменил ступень на %v", hopTarget.Rung)
+	}
+}
+
 func TestCatalogLadderDefaultsRejected(t *testing.T) {
 	l := NewLadder(newFakeExchange())
 	// en без ступени 6 обязан отвергнуть каталог.

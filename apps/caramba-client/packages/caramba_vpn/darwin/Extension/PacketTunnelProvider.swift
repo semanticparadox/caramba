@@ -138,6 +138,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let panelUrl = conf[CarambaVpnKeys.panelUrl] as? String ?? ""
         let subUuid = conf[CarambaVpnKeys.subscriptionUuid] as? String ?? ""
         let accessToken = conf[CarambaVpnKeys.accessToken] as? String ?? ""
+        // The long-lived half of the same session, plus when the access half
+        // dies. This extension is a separate process with no Dart in it: once
+        // the 15-minute access token expires it has nobody to ask for a new one,
+        // so without these the core goes permanently 401 while the tunnel is
+        // still up. Expiry rides the plist as a String; 0 means "unknown" and
+        // the core falls back to the JWT's own exp claim.
+        let refreshToken = conf[CarambaVpnKeys.refreshToken] as? String ?? ""
+        let accessExpiryUnix = Int64(conf[CarambaVpnKeys.accessExpiryUnix] as? String ?? "") ?? 0
 
         // Use the App Group container so the extension and app agree on token
         // store + work dir on disk. The gomobile prefix is `Caramba` (see the
@@ -171,7 +179,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             // Configure(panelURL, subscriptionID, accessToken): the binding's single
             // auth entry point. The extension runs in its own process, so the app
             // hands it the JWT + subscription uuid here rather than re-running login.
-            try client.configure(panelUrl, subscriptionID: subUuid, accessToken: accessToken)
+            try client.configure(panelUrl, subscriptionID: subUuid, accessToken: accessToken,
+                                 refreshToken: refreshToken, accessExpiryUnix: accessExpiryUnix)
         }
 
         // ABI v2 policy: the whole CoreConfig arrives as one JSON blob and is

@@ -63,6 +63,27 @@ int ArgInt(const flutter::EncodableMap* args, const char* key, int fallback) {
   return fallback;
 }
 
+// Reads a 64-bit int argument. Separate from ArgInt because the one caller is a
+// unix timestamp: truncating it to 32 bits works until 2038 and then quietly
+// reports every session as long expired.
+int64_t ArgInt64(const flutter::EncodableMap* args, const char* key,
+                 int64_t fallback) {
+  if (args == nullptr) {
+    return fallback;
+  }
+  auto it = args->find(flutter::EncodableValue(key));
+  if (it == args->end()) {
+    return fallback;
+  }
+  if (const auto* i = std::get_if<int32_t>(&it->second)) {
+    return *i;
+  }
+  if (const auto* i = std::get_if<int64_t>(&it->second)) {
+    return *i;
+  }
+  return fallback;
+}
+
 }  // namespace
 
 void CarambaVpnPlugin::RegisterWithRegistrar(
@@ -260,7 +281,11 @@ void CarambaVpnPlugin::HandleMethodCall(
       subscription_id = ArgString(args, "subscriptionId");
     }
     const std::string access_token = ArgString(args, "accessToken");
-    Configure(panel_url, subscription_id, access_token);
+    // Absent from a caller built before the session seam: an empty refresh
+    // degrades to the old 15-minute behaviour instead of failing the call.
+    const std::string refresh_token = ArgString(args, "refreshToken");
+    Configure(panel_url, subscription_id, access_token, refresh_token,
+              ArgInt64(args, "accessExpiryUnix", 0));
     result->Success();
     return;
   }
@@ -492,19 +517,45 @@ void CarambaVpnPlugin::HandleMethodCall(
 
 void CarambaVpnPlugin::Configure(const std::string& panel_url,
                                  const std::string& subscription_id,
-                                 const std::string& access_token) {
+                                 const std::string& access_token,
+                                 const std::string& refresh_token,
+                                 int64_t access_expiry_unix) {
   panel_url_ = panel_url;
   subscription_id_ = subscription_id;
   access_token_ = access_token;
+  refresh_token_ = refresh_token;
+  access_expiry_unix_ = access_expiry_unix;
   configured_ = false;  // re-apply on (re)creation / next EnsureCore.
   // If the core already exists (re-configure after a token refresh), push the
   // new seam immediately.
-  if (handle_ != 0 && core_.Configure != nullptr) {
+  if (handle_ != 0) {
+    configured_ = PushSeam();
+  }
+}
+
+bool CarambaVpnPlugin::PushSeam() {
+  // ABI v4 carries the refresh token and the expiry; the 3-arg symbol carries
+  // neither. Falling back to it while holding a refresh token would silently
+  // hand the core a session it cannot renew — the failure would surface fifteen
+  // minutes later as an unrecoverable 401, nowhere near this line — so the
+  // fallback is taken ONLY when there is nothing to lose.
+  if (core_.ConfigureSession != nullptr) {
+    core_.DropString(core_.ConfigureSession(
+        handle_, panel_url_.c_str(), subscription_id_.c_str(),
+        access_token_.c_str(), refresh_token_.c_str(), access_expiry_unix_));
+    return true;
+  }
+  if (core_.Configure != nullptr && refresh_token_.empty()) {
     core_.DropString(core_.Configure(handle_, panel_url_.c_str(),
                                      subscription_id_.c_str(),
                                      access_token_.c_str()));
-    configured_ = true;
+    return true;
   }
+  if (core_.Configure != nullptr) {
+    EmitStage("error",
+              "exarobot core is too old for the session seam (rebuild it)");
+  }
+  return false;
 }
 
 bool CarambaVpnPlugin::EnsureCore() {
@@ -523,12 +574,8 @@ bool CarambaVpnPlugin::EnsureCore() {
     EmitStage("error", "exarobot core init failed");
     return false;
   }
-  if (!configured_ && core_.Configure != nullptr &&
-      (!panel_url_.empty() || !access_token_.empty())) {
-    core_.DropString(core_.Configure(handle_, panel_url_.c_str(),
-                                     subscription_id_.c_str(),
-                                     access_token_.c_str()));
-    configured_ = true;
+  if (!configured_ && (!panel_url_.empty() || !access_token_.empty())) {
+    configured_ = PushSeam();
   }
   // ABI v2: policy + capture mode go in right after the handle exists, before
   // any Up. A missing symbol (pre-ABI-v2 core) is skipped silently here; the

@@ -215,3 +215,55 @@ func TestApplyBootstrapDNSCountrySplit(t *testing.T) {
 		t.Fatalf("выбор пользователя затёрт страной: %v", chosen.DNS.DirectNameservers)
 	}
 }
+
+// TestDomesticResolverFollowsTheUserNotTheDefault: страна, которой нет в
+// таблице национальных резолверов, НЕ получает российское умолчание.
+//
+// Это была живая жалоба: американский пользователь на пресете `ru-smart`
+// резолвил прямой трафик через 77.88.8.8. Обе половины бага здесь — и выбор
+// страны (её теперь диктует пользователь, а не пресет: api.homeCountry), и вот
+// эта ветка, где «все остальные» означало «как в России».
+func TestDomesticResolverFollowsTheUserNotTheDefault(t *testing.T) {
+	ru := DomesticResolvers("RU")
+	if len(ru) == 0 || ru[0] != DefaultDomesticNameservers[0] {
+		t.Fatalf("российский резолвер изменился: %v", ru)
+	}
+
+	for _, iso := range []string{"US", "DE", "GB", "us"} {
+		got := DomesticResolvers(iso)
+		if len(got) == 0 {
+			t.Fatalf("%s остался без резолвера", iso)
+		}
+		if got[0] == DefaultDomesticNameservers[0] {
+			t.Fatalf("%s получил российский домашний резолвер %q", iso, got[0])
+		}
+		if !resolverHostIsLiteralIP(got[0]) {
+			t.Fatalf("%s: резолвер задан именем, а не адресом: %q", iso, got[0])
+		}
+	}
+
+	// Пустая строка — «страна неизвестна», и это НЕ то же самое, что «страна
+	// известна и не в таблице». Прежнее компилируемое умолчание остаётся:
+	// поднимаясь неизвестно где, надёжнее считать, что общий DoH недоступен.
+	unknown := DomesticResolvers("")
+	if len(unknown) == 0 || unknown[0] != DefaultDomesticNameservers[0] {
+		t.Fatalf("неизвестная страна сменила умолчание: %v", unknown)
+	}
+}
+
+// TestApplyBootstrapDNSSplitsByUserCountry: раскол, собранный по стране
+// пользователя, разводит прямой и туннельный резолверы именно так, как
+// диктует эта страна.
+func TestApplyBootstrapDNSSplitsByUserCountry(t *testing.T) {
+	us := DefaultPolicy()
+	us.ApplyBootstrapDNS(nil, "US")
+	if us.DNS.DirectNameservers[0] == DefaultDomesticNameservers[0] {
+		t.Fatalf("US: прямой резолвер остался российским: %v", us.DNS.DirectNameservers)
+	}
+
+	ru := DefaultPolicy()
+	ru.ApplyBootstrapDNS(nil, "RU")
+	if ru.DNS.DirectNameservers[0] != DefaultDomesticNameservers[0] {
+		t.Fatalf("RU: прямой резолвер сменился: %v", ru.DNS.DirectNameservers)
+	}
+}

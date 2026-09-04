@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:caramba_client/atmosphere/atmosphere_layer.dart';
 import 'package:caramba_client/data/brand.dart';
 import 'package:caramba_client/data/models/connection_profile.dart';
+import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/protocol.dart';
 import 'package:caramba_client/data/models/relay.dart';
 import 'package:caramba_client/data/models/server.dart';
@@ -26,6 +27,7 @@ import 'package:caramba_client/state/account_state.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
+import 'package:caramba_client/state/exit_inventory_state.dart';
 import 'package:caramba_client/state/servers_state.dart';
 import 'package:caramba_client/state/settings_state.dart';
 import 'package:caramba_client/state/subscription_state.dart';
@@ -417,6 +419,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  /// Ячейка задержки: число вместе с тем, кто его получил.
+  ///
+  /// Собственный замер приложения вытесняет число оператора, как только он
+  /// появляется; до этого показывается операторское, но подписью «пинг узла»,
+  /// а не «задержка» — узел меряет расстояние до СВОЕЙ цели, и выдавать это за
+  /// расстояние пользователя нельзя. Замер, идущий прямо сейчас, — тоже
+  /// состояние, а не пустота.
+  StatCell _latencyCell({required bool connected, required Server? server}) {
+    if (!connected || server == null) {
+      return (value: '·', label: 'Задержка');
+    }
+    final node = ref
+        .watch(exitInventoryProvider)
+        .nodes
+        .where((ExitNode n) => n.panelNodeId == server.id)
+        .firstOrNull;
+    final latency =
+        node?.latency ??
+        (server.pingMs == null
+            ? Latency.none
+            : Latency.fromOperator(server.pingMs!));
+    return switch (latency.source) {
+      LatencySource.client => (
+        value: latency.isTimeout ? 'нет' : '${latency.ms} мс',
+        label: 'Ваш пинг',
+      ),
+      LatencySource.operator => (
+        value: latency.isTimeout ? 'нет' : '${latency.ms} мс',
+        label: 'Пинг узла',
+      ),
+      LatencySource.measuring => (value: '…', label: 'Меряю пинг'),
+      LatencySource.none => (value: '·', label: 'Задержка'),
+    };
+  }
+
   /// Панельная Home: сервер/relay/протокол/маршрут, 4 ячейки и история трафика.
   List<Widget> _panelCards({
     required VpnStatus status,
@@ -436,7 +473,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // назвать ту страну, через которую трафик выходит, а не ту, которую
     // пользователь когда-то выбрал.
     final headline = ref.watch(exitHeadlineProvider);
-    final country = headline.title;
+    // Флаг берётся у страны инвентаря, а не выводится здесь из кода: там уже
+    // решено, твёрдая ли это страна, и второе решение на том же коде поставило
+    // бы на Home флаг, которого нет на экране серверов.
+    final exitFlag = ref
+        .watch(exitInventoryProvider)
+        .locationOf(headline.countryCode)
+        ?.flag;
+    final country = (exitFlag == null || exitFlag == kNeutralFlag)
+        ? headline.title
+        : '$exitFlag ${headline.title}';
     return [
       RowsGroup(
         children: [
@@ -520,12 +566,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 value: connected ? _fmtBytes(traffic.upTotal) : '0,0 МБ',
                 label: 'Отправлено',
               ),
-              (
-                value: connected && server?.pingMs != null
-                    ? '${server!.pingMs} мс'
-                    : '·',
-                label: 'Задержка',
-              ),
+              // Ячейка называет АВТОРА числа. Прежде здесь стояло
+              // `server.pingMs` под подписью «Задержка» — то есть панельный
+              // `nodes.last_latency`, RTT самого узла до его цели по heartbeat
+              // раз в ~30 с, выданный за задержку пользователя. Числа разной
+              // природы под одной подписью неотличимы, поэтому подпись теперь
+              // говорит, чей это замер.
+              _latencyCell(connected: connected, server: server),
               (
                 value: connected ? _session(status.connectedSince) : '00:00',
                 label: 'Сессия',

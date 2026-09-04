@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/models/csm_settings.dart';
+import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/relay.dart';
 import 'package:caramba_client/domain/offering/availability.dart';
 import 'package:caramba_client/domain/offering/offering.dart';
@@ -351,8 +352,11 @@ class _RelayRow extends StatelessWidget {
     return Opacity(
       opacity: off ? 0.45 : 1,
       child: ListItemCard(
+        // Страна входа получает флаг на тех же основаниях, что и страна
+        // выхода: глиф выводится из ISO-2 и только из него. «Выкл» и «Авто» —
+        // не страны, у них остаётся иконка действия.
         leading: c != null && c.isNotEmpty
-            ? CodeChip(c)
+            ? FlagChip(flag: flagOf(c), code: normalizeCountryCode(c))
             : IBox(auto ? Lucide.gauge : Lucide.route),
         title: title,
         subtitle: off

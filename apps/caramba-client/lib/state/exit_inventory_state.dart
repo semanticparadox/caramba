@@ -7,6 +7,7 @@ import 'package:caramba_client/data/models/server.dart';
 import 'package:caramba_client/domain/offering/panel_fleet.dart'
     show panelRelayHopOf;
 import 'package:caramba_client/state/connection_profiles_state.dart';
+import 'package:caramba_client/state/probe_state.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/state/servers_state.dart';
 import 'package:caramba_client/state/subscription_state.dart';
@@ -152,7 +153,7 @@ final exitInventoryProvider = Provider<ExitInventory>((ref) {
   final selectedCountry = profile.selectedExitCountry;
 
   if (profile.isRaw) {
-    return _importedInventory(profile, selectedCountry);
+    return _importedInventory(ref, profile, selectedCountry);
   }
 
   // Профиль с закреплённым корнем оператора тоже приходит сюда, пока каталог
@@ -169,7 +170,14 @@ ExitInventory _panelInventory(
 ) {
   final async = ref.watch(serversProvider);
   final servers = async.valueOrNull ?? const <Server>[];
-  final nodes = servers.map(ExitNode.fromServer).toList(growable: false);
+  // Панель отдаёт СВОЁ число задержки; собственный замер накладывается сверху и
+  // вытесняет его, как только придёт. Список при этом не ждёт замера — он
+  // строится из ответа `/servers` и рисуется сразу.
+  final nodes = _withMeasurements(
+    servers.map(ExitNode.fromServer).toList(growable: false),
+    ref.watch(clientLatencyProvider),
+    ref.watch(probeRunProvider).measuring,
+  );
   final selectedKey = profile.selectedExitNodeId?.toString();
   return ExitInventory(
     source: ExitInventorySource.panelRest,
@@ -214,12 +222,21 @@ ExitAvailability _panelRelayAvailability(List<Server> servers) {
 
 /// Импортированная подписка: узлы уже разобраны ядром и лежат на профиле.
 ExitInventory _importedInventory(
+  Ref ref,
   ConnectionProfile profile,
   String? selectedCountry,
 ) {
-  final probe = profile.lastProbe;
+  final measured = ref.watch(clientLatencyProvider);
+  final measuring = ref.watch(probeRunProvider).measuring;
+  // Оператора на этом пути нет вовсе: всякое число здесь — собственный замер.
   final nodes = profile.servers
-      .map((s) => ExitNode.fromImported(s, pingMs: probe?.latencyMs[s.id]))
+      .map(
+        (s) => ExitNode.fromImported(
+          s,
+          measuredMs: measured[s.id],
+          measuring: measuring && !measured.containsKey(s.id),
+        ),
+      )
       .toList(growable: false);
   return ExitInventory(
     source: ExitInventorySource.importedSub,
@@ -234,6 +251,46 @@ ExitInventory _importedInventory(
     selectedCountry: selectedCountry,
     selectedNodeKey: profile.selectedServerId,
   );
+}
+
+/// Накладывает СОБСТВЕННЫЕ замеры на узлы панели.
+///
+/// Ядро меряет прокси и называет их именами из тела конфига, а панель отдаёт
+/// узел числом `nodes.id`. Мостом служит `inbounds[].proxy_name`, которое
+/// панель объявляет побайтово совпадающим с телом; оно уже лежит в
+/// [ExitNode.proxyNames].
+///
+/// У узла несколько прокси (по одному на инбаунд), и мерятся они по
+/// отдельности. Узлу приписывается ЛУЧШИЙ ответивший: это одна машина, и
+/// худший её инбаунд ничего не говорит о том, как далеко она от пользователя.
+/// Если ответил ноль прокси, а померены были все — это таймаут узла (`-1`), а
+/// не «не мерили»: разница видна и в цвете строки, и в сортировке.
+///
+/// Узел, у которого имён прокси нет вовсе (панель не прочитала инбаунды),
+/// собственного замера получить не может НИКОГДА — и «меряю» ему не ставится:
+/// строка, застрявшая в «меряю» навсегда, хуже честного операторского числа.
+List<ExitNode> _withMeasurements(
+  List<ExitNode> nodes,
+  Map<String, int> byProxyName,
+  bool measuring,
+) {
+  if (byProxyName.isEmpty && !measuring) return nodes;
+  return nodes
+      .map((n) {
+        if (n.proxyNames.isEmpty) return n;
+        int? best;
+        var sawAny = false;
+        for (final name in n.proxyNames) {
+          final ms = byProxyName[name];
+          if (ms == null) continue;
+          sawAny = true;
+          if (ms < 0) continue;
+          if (best == null || ms < best) best = ms;
+        }
+        if (sawAny) return n.withMeasurement(measuredMs: best ?? -1);
+        return measuring ? n.withMeasurement(measuring: true) : n;
+      })
+      .toList(growable: false);
 }
 
 /// Группирует узлы по стране и сортирует: доступные раньше недоступных, внутри

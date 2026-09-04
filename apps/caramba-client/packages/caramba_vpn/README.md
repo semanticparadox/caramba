@@ -46,7 +46,7 @@ Extension), `MethodChannelVpnConnection` everywhere else.
 
 MethodChannel `com.caramba/vpn`:
 
-- `configure({ panelUrl: String, subscriptionUuid: String, accessToken: String })` -> void
+- `configure({ panelUrl: String, subscriptionUuid: String, accessToken: String, refreshToken: String, accessExpiryUnix: int })` -> void
   - `subscriptionUuid` is the canonical key. Every platform also accepts the
     legacy `subscriptionId`.
 - `connect({ serverId: String, serverName: String, countryCode: String })` -> void
@@ -107,13 +107,29 @@ The native side drives the stage transitions and emits a traffic tick at about
 
 1. `panelUrl` -> `mobile.NewClient(panelUrl, subURL, workDir, tokenPath)`
    (build or reuse the per-process `Client`).
-2. `accessToken` -> write into the engine token store so config and
-   subscription requests go out authorized. The token store struct is
-   `auth.Tokens` (`access_token`, `refresh_token`, `access_expiry`); a refresh
-   token may not be present yet on the seam, so persist what is given and let
-   the panel issue a refresh pair on first 401.
+2. `accessToken` + `refreshToken` + `accessExpiryUnix` -> written into the
+   engine token store (`auth.Tokens`: `access_token`, `refresh_token`,
+   `access_expiry`) so config and subscription requests go out authorized AND
+   can be renewed. Expiry is unix seconds; `0` means "unknown" and the core
+   parses the JWT's own `exp` claim.
 3. `subscriptionId` -> `client.SetSubscriptionID(subscriptionId)`. Empty means
    the core resolves the UUID from the panel lazily.
+
+**Send the refresh token.** The access token is good for ~15 minutes. The core
+is the side that must keep working after that — on Android the VPN service can
+be restarted by the system in a process with no Flutter engine, and on Apple the
+tunnel runs in a network extension, a separate process with no Dart in it at all
+— so it cannot ask the app for a new token. Without the refresh half, every
+authenticated call the core makes fifteen minutes after connect gets a 401 it
+cannot recover from, and `IsAuthenticated()` now says so rather than pretending
+otherwise. Passing an empty `refreshToken` is a supported but degraded mode.
+
+The cost of that choice is that the core persists the refresh token to
+`<workDir>/tokens.json` (0600, app-private), where the Flutter side keeps it in
+platform secure storage. That is not a new class of secret in that file: the
+core already writes refresh tokens there after any network login, and the same
+directory holds the assembled mihomo config with the subscription's private
+keys.
 
 Call `configure` before `connect`. It is idempotent: the app calls it again
 after a token refresh to update the seam.
@@ -151,6 +167,8 @@ await CarambaVpn.instance.configure(
   panelUrl: 'https://panel.example',
   subscriptionId: subscriptionUuid,
   accessToken: jwtAccessToken,
+  refreshToken: jwtRefreshToken,
+  accessExpiry: accessTokenExpiry,
 );
 
 // Pick an implementation for this platform. `S` is the app's server model.

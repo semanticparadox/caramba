@@ -1134,6 +1134,62 @@ pub fn generate_v2ray_config(
 // Clash YAML Config Generation
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/// Пин сертификата узла для mihomo (`fingerprint`). Пока всегда `None`.
+///
+/// Панели неоткуда взять отпечаток: сертификат генерирует САМ узел
+/// (`caramba-node`, `ensure_self_signed_cert`, rcgen), в heartbeat уезжает
+/// `CertificateStatus { sni, valid, expires_at, error }` — отпечатка там нет,
+/// а колонка `nodes.certificates_status` объявлена в init-миграции и не
+/// пишется ни одной строкой кода (в проде NULL у всех трёх узлов).
+///
+/// Что должно приехать, чтобы функция начала возвращать `Some` (порядок важен):
+///  1. `caramba_shared::api::CertificateStatus` получает
+///     `#[serde(default)] pub sha256: Option<String>` — узел считает
+///     `sha256(cert.Raw)` там же, где сейчас пишет `cert.pem`;
+///  2. панель складывает отпечаток в отдельную колонку `nodes` (миграция),
+///     `NodeInfo` протаскивает его сюда;
+///  3. ЖИЗНЕННЫЙ ЦИКЛ. Узел перевыпускает сертификат при КАЖДОЙ смене набора
+///     `server_name` (`cert_covers_domains` → `ensure_self_signed_cert`), а
+///     ротация SNI — штатная защита от блокировок. mihomo принимает РОВНО ОДИН
+///     отпечаток (`NewFingerprintVerifier`, 32 байта), окна перекрытия нет:
+///     сразу после ротации всякая закешированная подписка со старым пином
+///     ломается наглухо, пока клиент её не перескачает. Поэтому пин требует
+///     либо долгоживущего сертификата, чьи SAN покрывают весь пул SNI, либо
+///     собственного CA на узел (тогда пинится корень, а не лист).
+///
+/// Без пункта 3 пин строго хуже текущего поведения: он превращает деградацию
+/// в отказ именно на том механизме, который существует ради выживания.
+fn node_cert_pin(_node: &NodeInfo) -> Option<&str> {
+    None
+}
+
+/// Кладёт в clash-прокси гарантию доверия к TLS-сертификату узла.
+///
+/// Узлы предъявляют САМОПОДПИСАННЫЙ сертификат (`CN == SNI`, issuer == subject,
+/// проверено на 85.215.196.151 и 158.69.213.88). Без одной из этих двух опций
+/// mihomo валит рукопожатие проверкой цепочки, и прокси мёртв у любого
+/// clash-клиента — у нашего, у Happ, у Hiddify.
+///
+/// `fingerprint` (пин SHA-256 листа) строго сильнее: `ca.GetTLSConfig` ставит
+/// `InsecureSkipVerify = true` И вешает `VerifyConnection`, сверяющий
+/// `sha256(cert.Raw)` — то есть чужой сертификат не пройдёт. `skip-cert-verify`
+/// принимает любой. Ветка с пином не мёртвая: она покрыта тестом и включится,
+/// как только `node_cert_pin` научится возвращать значение.
+///
+/// Reality сюда не попадает: он аутентифицирует сервер по X25519-ключу, TLS-цепочка
+/// в нём вообще не проверяется.
+fn apply_clash_tls_trust(proxy: &mut Value, cert_pin: Option<&str>) {
+    match cert_pin {
+        Some(fp) => {
+            // mihomo терпит двоеточия и сам их вырезает (component/ca/fingerprint.go).
+            proxy["fingerprint"] = json!(fp);
+        }
+        None => {
+            proxy["skip-cert-verify"] = json!(true);
+        }
+    }
+}
+
 /// Generate Clash YAML config (multi-protocol)
 pub fn generate_clash_config(
     _sub: &Subscription,
@@ -1155,6 +1211,10 @@ pub fn generate_clash_config(
         if node.is_relay {
             continue;
         }
+
+        // Отпечаток общий на узел: сертификат один на все его plain-TLS порты
+        // (`/etc/sing-box/certs/cert.pem`), SNI перечислены в нём как SAN.
+        let cert_pin = node_cert_pin(node);
 
         if !node.inbounds.is_empty() {
             for inbound in &node.inbounds {
@@ -1221,6 +1281,7 @@ pub fn generate_clash_config(
                         } else if si.security == "tls" {
                             proxy["tls"] = json!(true);
                             proxy["servername"] = json!(si.sni);
+                            apply_clash_tls_trust(&mut proxy, cert_pin);
                         }
                         if si.network == "ws" {
                             proxy["ws-opts"] = json!({
@@ -1256,6 +1317,7 @@ pub fn generate_clash_config(
                         if si.security == "tls" {
                             proxy["tls"] = json!(true);
                             proxy["servername"] = json!(si.sni);
+                            apply_clash_tls_trust(&mut proxy, cert_pin);
                         }
                         if si.network == "ws" {
                             proxy["ws-opts"] = json!({
@@ -1292,6 +1354,10 @@ pub fn generate_clash_config(
                                 "short-id": si.short_id
                             });
                             proxy["client-fingerprint"] = json!(si.fingerprint);
+                        } else {
+                            // У mihomo trojan всегда поверх TLS, `security` тут
+                            // различает только Reality и обычный TLS.
+                            apply_clash_tls_trust(&mut proxy, cert_pin);
                         }
                         if si.network == "ws" {
                             proxy["network"] = json!("ws");
@@ -1337,8 +1403,8 @@ pub fn generate_clash_config(
                             "port": inbound.listen_port,
                             "password": user_keys.hy2_password,
                             "sni": si.sni,
-                            "skip-cert-verify": true,
                         });
+                        apply_clash_tls_trust(&mut hy2_proxy, cert_pin);
                         if let Some(obfs) = &si.hy2_obfs {
                             hy2_proxy["obfs"] = json!("salamander");
                             hy2_proxy["obfs-password"] = json!(obfs);
@@ -1347,7 +1413,7 @@ pub fn generate_clash_config(
                     }
                     "tuic" => {
                         let endpoint = node.frontend_url.as_deref().unwrap_or(&node.address);
-                        proxies.push(json!({
+                        let mut tuic_proxy = json!({
                             "name": name,
                             "type": "tuic",
                             "server": endpoint,
@@ -1355,9 +1421,10 @@ pub fn generate_clash_config(
                             "uuid": user_keys.user_uuid,
                             "password": user_keys.hy2_password,
                             "congestion-controller": si.tuic_congestion_control.as_deref().unwrap_or("bbr"),
-                            "skip-cert-verify": true,
                             "alpn": ["h3"]
-                        }));
+                        });
+                        apply_clash_tls_trust(&mut tuic_proxy, cert_pin);
+                        proxies.push(tuic_proxy);
                     }
                     "amneziawg" => {
                         let client_id = user_keys
@@ -2195,6 +2262,92 @@ mod clash_group_tests {
                 "имя naive осталось в группе {group}: {members:?}"
             );
         }
+    }
+
+    /// Говорит ли этот тип прокси по TLS вообще. У vless/vmess TLS
+    /// опционален (`tls: true`), у trojan/hysteria2/tuic он обязателен по
+    /// устройству протокола, у ss/wireguard TLS нет.
+    fn speaks_tls(proxy: &Value) -> bool {
+        match proxy["type"].as_str().unwrap_or_default() {
+            "vless" | "vmess" => proxy["tls"] == json!(true),
+            "trojan" | "hysteria2" | "tuic" => true,
+            _ => false,
+        }
+    }
+
+    /// Главный инвариант этого раунда: каждый TLS-прокси в теле обязан нести
+    /// гарантию доверия к самоподписанному сертификату узла.
+    ///
+    /// Именно этого не хватало живой подписке: восемь VLESS+TLS из тринадцати
+    /// прокси уезжали с `tls: true` и без `skip-cert-verify`, и mihomo рвал
+    /// рукопожатие на проверке цепочки. Reality исключён осознанно — он
+    /// аутентифицирует сервер X25519-ключом, а не сертификатом.
+    #[test]
+    fn every_tls_proxy_carries_a_trust_guarantee() {
+        let exit = node_one_behind_a_relay();
+        let yaml = generate_clash_config(&sub(), std::slice::from_ref(&exit), &keys(), &[])
+            .expect("генератор выпускает конфиг");
+        let doc: Value = serde_yaml::from_str(&yaml).expect("тело Clash — валидный YAML");
+        let proxies = doc["proxies"].as_array().expect("есть proxies:");
+
+        let mut checked = 0usize;
+        for p in proxies {
+            if !speaks_tls(p) {
+                continue;
+            }
+            let name = p["name"].as_str().unwrap_or("<без имени>");
+            if p.get("reality-opts").is_some() {
+                assert!(
+                    p.get("skip-cert-verify").is_none() && p.get("fingerprint").is_none(),
+                    "«{name}»: Reality не проверяет цепочку, лишняя опция доверия только путает"
+                );
+                continue;
+            }
+            checked += 1;
+
+            let skip = p["skip-cert-verify"] == json!(true);
+            let pinned = p
+                .get("fingerprint")
+                .and_then(|v| v.as_str())
+                .map(|fp| {
+                    let hex: String = fp.chars().filter(|c| *c != ':').collect();
+                    hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit())
+                })
+                .unwrap_or(false);
+            assert!(
+                skip || pinned,
+                "«{name}» ({}) идёт по TLS без пина и без skip-cert-verify — \
+                 mihomo отвергнет самоподписанный сертификат узла:\n{p:#}",
+                p["type"].as_str().unwrap_or("?")
+            );
+        }
+        assert!(
+            checked >= 5,
+            "фикстура должна содержать не-Reality TLS-прокси, иначе тест ничего не проверяет"
+        );
+    }
+
+    /// Ветка пина — не мёртвый код: когда `node_cert_pin` начнёт возвращать
+    /// отпечаток, тело обязано нести `fingerprint`, а НЕ `skip-cert-verify`.
+    /// Формат — тот, что принимает `ca.NewFingerprintVerifier`: hex SHA-256,
+    /// двоеточия допустимы.
+    #[test]
+    fn a_known_fingerprint_pins_instead_of_skipping_verification() {
+        // Реальный отпечаток узла 1 (85.215.196.151, CN=essentialhome.live).
+        const FP: &str = "B34FCC4D69C01F21E0B3BC61B9143D2C34C0755F3AD7F7F9E4C8CEEF956A2F65";
+
+        let mut pinned = json!({ "name": "n", "type": "vless", "tls": true });
+        apply_clash_tls_trust(&mut pinned, Some(FP));
+        assert_eq!(pinned["fingerprint"], json!(FP));
+        assert!(
+            pinned.get("skip-cert-verify").is_none(),
+            "пин и отключённая проверка вместе бессмысленны: {pinned:#}"
+        );
+
+        let mut unpinned = json!({ "name": "n", "type": "vless", "tls": true });
+        apply_clash_tls_trust(&mut unpinned, None);
+        assert_eq!(unpinned["skip-cert-verify"], json!(true));
+        assert!(unpinned.get("fingerprint").is_none());
     }
 
     /// Обратная сторона того же инварианта: узел, у которого ВСЕ инбаунды

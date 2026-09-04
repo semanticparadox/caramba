@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/data/models/exit_location.dart';
-import 'package:caramba_client/data/models/server.dart';
 import 'package:caramba_client/domain/offering/offering.dart';
 import 'package:caramba_client/domain/offering/offering_providers.dart';
 import 'package:caramba_client/features/servers/fleet_alignment.dart';
@@ -39,14 +38,10 @@ class CountryNodesView extends ConsumerWidget {
   /// Выбран узел; `null` — строка «Авто» (пин снят, узел выбирает ядро).
   final void Function(ExitNode? node) onSelect;
 
-  /// Идёт замер задержек: строки на это время не нажимаются.
-  final bool probing;
-
   const CountryNodesView({
     required this.location,
     required this.onBack,
     required this.onSelect,
-    this.probing = false,
     super.key,
   });
 
@@ -102,14 +97,16 @@ class CountryNodesView extends ConsumerWidget {
             title: 'Авто',
             subtitle: 'Ядро выберет узел в этой стране само',
             selected: selectedKey == null,
-            onTap: probing ? null : () => onSelect(null),
+            // Замер строки НЕ блокирует: список показан сразу, числа
+            // доезжают отдельно, и выбирать во время замера можно.
+            onTap: () => onSelect(null),
           ),
           if (exits.isEmpty)
             for (final n in nodes)
               _NodeRow(
                 node: n,
                 selected: n.isAvailable && selectedKey == n.key,
-                onTap: (probing || !n.isAvailable) ? null : () => onSelect(n),
+                onTap: n.isAvailable ? () => onSelect(n) : null,
               )
           else
             for (final e in exits)
@@ -117,7 +114,6 @@ class CountryNodesView extends ConsumerWidget {
                 exit: e,
                 selected: exitHoldsKey(e, selectedKey),
                 node: nodeForExit(e, nodes),
-                probing: probing,
                 onSelect: onSelect,
               ),
         ],
@@ -137,31 +133,27 @@ class _ExitRow extends StatelessWidget {
   /// представлена, и нажать не на что.
   final ExitNode? node;
 
-  final bool probing;
   final void Function(ExitNode? node) onSelect;
 
   const _ExitRow({
     required this.exit,
     required this.selected,
     required this.node,
-    required this.probing,
     required this.onSelect,
   });
 
   @override
   Widget build(BuildContext context) {
-    final c = context.c;
     final n = node;
     final off = !exit.isAvailable || n == null;
-    final ping = exit.pingMs;
-    final bucket = ping == null ? null : pingBucketOf(ping);
-    final color = switch (bucket) {
-      PingBucket.good => c.success,
-      PingBucket.fair => c.warning,
-      PingBucket.poor => c.danger,
-      PingBucket.timeout => c.danger,
-      null => c.textLow,
-    };
+    // Задержку берём у УЗЛА, если машина в списке выбора представлена: там
+    // лежит собственный замер вместе с именем автора. У предложения автора нет
+    // — его `pingMs` пришёл с панели, и назвать его можно только операторским.
+    final latency = n != null
+        ? n.latency
+        : (exit.pingMs == null
+              ? Latency.none
+              : Latency.fromOperator(exit.pingMs!));
     final live = exit.liveInbounds.length;
     final inboundsKnown = exit.inboundsKnown.isAvailable;
 
@@ -171,9 +163,13 @@ class _ExitRow extends StatelessWidget {
         // Страна стоит НА СТРОКЕ, а не только в заголовке уровня: та же машина
         // упоминается в подписи под дайлом и в тостах, и без кода страны её
         // легко спутать с одноимённой в другой стране.
-        leading: exit.countryCode.isEmpty
-            ? const IBox(Lucide.globe)
-            : CodeChip(exit.countryCode),
+        leading: FlagChip(
+          // Флаг решает УЗЕЛ: на импортированном пути страна — догадка по имени
+          // прокси, и твёрдость этой догадки известна только там. Машины без
+          // узла в списке выбора остаются с нейтральным глифом.
+          flag: n?.flag ?? kNeutralFlag,
+          code: exit.countryCode,
+        ),
         title: machineTitleOf(exit),
         subtitle: _subtitle(),
         selected: selected,
@@ -185,17 +181,8 @@ class _ExitRow extends StatelessWidget {
           else
             const Tag('инбаунды: ?'),
         ],
-        onTap: (probing || off) ? null : () => onSelect(n),
-        trailing: bucket == PingBucket.timeout
-            ? Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              )
-            : Text(
-                ping == null ? '-' : '$ping мс',
-                style: AppType.monoSm.copyWith(color: color),
-              ),
+        onTap: off ? null : () => onSelect(n),
+        trailing: LatencyReadout(latency),
       ),
     );
   }
@@ -236,23 +223,12 @@ class _NodeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.c;
     final off = !node.isAvailable;
-    // `null` в pingMs это «не мерили», и оно не то же самое, что таймаут:
-    // прочерк честнее нуля и честнее красной точки.
-    final bucket = node.pingMs == null ? null : node.pingBucket;
-    final color = switch (bucket) {
-      PingBucket.good => c.success,
-      PingBucket.fair => c.warning,
-      PingBucket.poor => c.danger,
-      PingBucket.timeout => c.danger,
-      null => c.textLow,
-    };
 
     return Opacity(
       opacity: off ? 0.45 : 1,
       child: ListItemCard(
-        leading: const IBox(Lucide.globe),
+        leading: FlagChip(flag: node.flag, code: node.countryCode),
         title: node.name.isEmpty ? node.key : node.name,
         subtitle: off ? node.availability.message : _subtitle(),
         selected: selected,
@@ -261,17 +237,7 @@ class _NodeRow extends StatelessWidget {
         // `GET /servers` его нет вовсе, и выдумывать его нечем.
         titleBadges: [if (node.protocol.isNotEmpty) Tag(node.protocol)],
         onTap: onTap,
-        trailing: bucket == PingBucket.timeout
-            // Таймаут — точка цвета danger: числа тут нет, а «-1 мс» врал бы.
-            ? Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              )
-            : Text(
-                node.pingMs == null ? '-' : '${node.pingMs} мс',
-                style: AppType.monoSm.copyWith(color: color),
-              ),
+        trailing: LatencyReadout(node.latency),
       ),
     );
   }

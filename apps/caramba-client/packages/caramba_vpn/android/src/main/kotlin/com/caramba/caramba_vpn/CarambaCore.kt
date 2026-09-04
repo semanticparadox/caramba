@@ -36,6 +36,11 @@ internal class CarambaCore private constructor(
          * @param subscriptionId subscription UUID; passed through configure.
          * @param accessToken live JWT injected so Up fetches the clash config
          *        (which already carries amnezia-wg) without a re-login.
+         * @param refreshToken the long-lived half of the same session. Without
+         *        it the core is authenticated for ~15 minutes and then dead: it
+         *        has nothing to renew with, and this service outlives the app.
+         * @param accessExpiryUnix when accessToken expires; 0 lets the core read
+         *        the JWT's own exp claim.
          *
          * @throws Exception if the Go core fails to initialize or configure.
          */
@@ -46,12 +51,15 @@ internal class CarambaCore private constructor(
             tokenPath: String,
             subscriptionId: String,
             accessToken: String,
+            refreshToken: String,
+            accessExpiryUnix: Long,
         ): CarambaCore {
             val client = GoMobile.newClient(panelUrl, subUrl, workDir, tokenPath)
-            // Configure injects the JWT + subscription UUID so the core is
-            // authenticated before Up. panelUrl is also echoed (the core keeps the
-            // NewClient URL; the arg is part of the documented plugin contract).
-            client.configure(panelUrl, subscriptionId, accessToken)
+            // Configure injects the whole session + subscription UUID so the core
+            // is authenticated before Up AND can stay that way. panelUrl is also
+            // echoed (the core keeps the NewClient URL; the arg is part of the
+            // documented plugin contract).
+            client.configure(panelUrl, subscriptionId, accessToken, refreshToken, accessExpiryUnix)
             return CarambaCore(client)
         }
 
@@ -108,32 +116,67 @@ internal class CarambaCore private constructor(
             tokenPath: String,
             subscriptionId: String,
             accessToken: String,
+            refreshToken: String,
+            accessExpiryUnix: Long,
             bridge: io.caramba.core.mobile.DeviceKeyBridge,
         ): CarambaCore {
             val client = GoMobile.newClient(panelUrl, subUrl, workDir, tokenPath)
             client.setDeviceKeyBridge(bridge)
             if (subscriptionId.isNotEmpty() || accessToken.isNotEmpty()) {
-                client.configure(panelUrl, subscriptionId, accessToken)
+                client.configure(panelUrl, subscriptionId, accessToken, refreshToken, accessExpiryUnix)
             }
             return CarambaCore(client)
         }
 
         /**
-         * Builds a core client for the metadata-only calls of generic mode
-         * (importSubscription / probe). No panel, no auth, no TUN: the client is
-         * only used to parse a subscription and to measure node latency, then
-         * closed. Runs in the PLUGIN process, not in CarambaVpnService.
+         * Builds the core client for the metadata-only calls (importSubscription
+         * / probe). No TUN: it parses a subscription and measures node latency,
+         * and runs in the PLUGIN process, not in CarambaVpnService.
          *
+         * It DOES carry the panel seam. It used to be built as
+         * `newClient("", "", ...)` with no auth at all, on the reasoning that
+         * "the generic path never talks to a panel" — true of an imported
+         * subscription and false of the panel path, which is the other caller of
+         * the very same `probe`. `Core.Probe` measures the nodes of the config
+         * the core has loaded, a panel-path core loads that config by fetching
+         * the subscription, and a core with no panel URL and no token cannot
+         * fetch anything. So it measured nothing and returned `{"servers":[]}`,
+         * which the app read as "the operator gave us no nodes" — the autotune's
+         * "Ядро не вернуло ни одного узла", and the reason a panel user never
+         * saw a latency of their own.
+         *
+         * @param panelUrl base panel URL; empty keeps the pure-import behaviour.
+         * @param subUrl subscription service URL (empty -> defaults to panelUrl).
          * @param workDir scratch dir for the parsed config (separate from the
          *        tunnel work dir so a probe never disturbs a live session).
-         * @param tokenPath token-store file path (unused on this path).
+         * @param tokenPath token-store file path.
+         * @param subscriptionId subscription UUID; passed through configure.
+         * @param accessToken live JWT so the fetch needs no re-login.
+         * @param refreshToken the long-lived half of the same session, so the
+         *        probe still works on a phone that has been sitting for hours.
+         * @param accessExpiryUnix when accessToken expires; 0 lets the core
+         *        read the JWT's own exp claim.
          *
          * @throws Exception if the Go core fails to initialize.
          */
-        fun createTools(workDir: String, tokenPath: String): CarambaCore {
+        fun createTools(
+            workDir: String,
+            tokenPath: String,
+            panelUrl: String = "",
+            subUrl: String = "",
+            subscriptionId: String = "",
+            accessToken: String = "",
+            refreshToken: String = "",
+            accessExpiryUnix: Long = 0L,
+        ): CarambaCore {
             // NewClient only wires the client (no network), so an empty panel URL
-            // is fine here — the generic path never talks to a panel.
-            val client = GoMobile.newClient("", "", workDir, tokenPath)
+            // stays valid: that is the imported-subscription case.
+            val client = GoMobile.newClient(panelUrl, subUrl, workDir, tokenPath)
+            // Guarded exactly as in createCsm: configure with an empty pair would
+            // write emptiness over a seam the store may already hold.
+            if (subscriptionId.isNotEmpty() || accessToken.isNotEmpty()) {
+                client.configure(panelUrl, subscriptionId, accessToken, refreshToken, accessExpiryUnix)
+            }
             return CarambaCore(client)
         }
 

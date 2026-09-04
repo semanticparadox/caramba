@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/data/api_client.dart';
+import 'package:caramba_client/data/models/auth_tokens.dart' show accessTokenExpiry;
 import 'package:caramba_client/data/models/subscription.dart';
 import 'package:caramba_client/data/prefs_store.dart';
 import 'package:caramba_client/data/token_store.dart';
@@ -186,10 +187,14 @@ Future<VpnConfig?> _resolveVpnConfig(Ref ref) async {
     final uuid = profile.subscriptionUuid;
     // Токен ротируется в общем TokenStore (в т.ч. энроллмент-сессией), поэтому
     // он приоритетнее снимка, лежащего на профиле.
-    final live = await ref.read(tokenStoreProvider).readAccess();
+    final store = ref.read(tokenStoreProvider);
+    final live = await store.readAccess();
     final token = (live != null && live.isNotEmpty)
         ? live
         : profile.accessToken;
+    // refresh берём ТОЛЬКО из общего хранилища: на профиле его снимка нет и
+    // быть не должно — он ротируется при каждом обновлении пары.
+    final refresh = await store.readRefresh() ?? '';
     if (panelUrl != null &&
         panelUrl.isNotEmpty &&
         uuid != null &&
@@ -200,14 +205,19 @@ Future<VpnConfig?> _resolveVpnConfig(Ref ref) async {
         panelUrl: panelUrl,
         subscriptionUuid: uuid,
         accessToken: token,
+        // Пара из TokenStore принадлежит одной сессии; снимок на профиле — нет.
+        // Отдавать чужой refresh к чужому access значило бы дать ядру продлить
+        // не ту сессию, поэтому refresh едет только со «свежим» токеном.
+        refreshToken: (live != null && live.isNotEmpty) ? refresh : '',
+        accessExpiry: accessTokenExpiry(token),
       );
     }
     // Поля профиля неполны — падаем на дефолтный путь тенанта-1 ниже.
   }
 
   // Дефолтный путь тенанта-1: текущая сессия TokenStore + активная подписка.
-  final access = await ref.read(tokenStoreProvider).readAccess();
-  if (access == null || access.isEmpty) return null;
+  final session = await _resolveSession(ref);
+  if (session == null) return null;
   final Subscription sub;
   try {
     sub = await ref.read(subscriptionProvider.future);
@@ -218,9 +228,67 @@ Future<VpnConfig?> _resolveVpnConfig(Ref ref) async {
   return VpnConfig(
     panelUrl: kApiBaseUrl,
     subscriptionUuid: sub.subscriptionUuid,
-    accessToken: access,
+    accessToken: session.access,
+    refreshToken: session.refresh,
+    accessExpiry: session.expiry,
   );
 }
+
+/// Живая сессия панели из [TokenStore]: пара токенов и срок жизни access.
+///
+/// Отдельная функция, потому что сессию читают ДВА пути — подключение и замер —
+/// и разойтись им нельзя. Пара всегда берётся целиком: access без своего
+/// refresh даёт ядру ровно 15 минут жизни, а refresh от другой сессии дал бы
+/// ему продлить не ту.
+Future<({String access, String refresh, DateTime? expiry})?> _resolveSession(
+  Ref ref,
+) async {
+  final store = ref.read(tokenStoreProvider);
+  final access = await store.readAccess();
+  if (access == null || access.isEmpty) return null;
+  return (
+    access: access,
+    refresh: await store.readRefresh() ?? '',
+    expiry: accessTokenExpiry(access),
+  );
+}
+
+/// Резолвер панельного шва ДЛЯ ЗАМЕРА: те же токены, что и у подключения, но
+/// без единого сетевого запроса.
+///
+/// Замер обязан отдать ядру шов до того, как что-то мерить, и раньше собирал
+/// его сам из полей профиля — а там лежит СНИМОК токена, сделанный при создании
+/// профиля: он устаревает за час и refresh не содержит вовсе, так что замер на
+/// отлежавшемся телефоне уходил в ядро с мёртвой сессией.
+///
+/// Но и [_resolveVpnConfig] сюда не годится: на дефолтном пути он ждёт
+/// `GET /subscription`, и замер начинал бы с ожидания сети — при том, что
+/// панельный профиль свой UUID уже знает. Поэтому endpoint здесь берётся
+/// ТОЛЬКО с профиля, а сессия — из общего хранилища.
+final probeSeamResolverProvider = Provider<VpnConfigResolver>(
+  (ref) => () async {
+    final profile = ref.read(activeConnectionProfileProvider);
+    if (profile == null || !profile.isPanel) return null;
+    final panelUrl = profile.panelUrl ?? '';
+    if (panelUrl.isEmpty) return null;
+    final session = await _resolveSession(ref);
+    if (session == null) return null;
+    return VpnConfig(
+      panelUrl: panelUrl,
+      subscriptionUuid: profile.subscriptionUuid ?? '',
+      accessToken: session.access,
+      refreshToken: session.refresh,
+      accessExpiry: session.expiry,
+    );
+  },
+);
+
+/// Резолвер панельного шва для ПОДКЛЮЧЕНИЯ — тем же способом, каким его
+/// получает [vpnConnectionProvider]. В отличие от [probeSeamResolverProvider]
+/// он вправе сходить за UUID подписки в сеть.
+final vpnSeamResolverProvider = Provider<VpnConfigResolver>(
+  (ref) => () => _resolveVpnConfig(ref),
+);
 
 /// Включает нативное Go-ядро вместо [MockVpnConnection]. По умолчанию выключено,
 /// чтобы голый `flutter run` (CI/dev без собранных нативных либ) показывал UI на

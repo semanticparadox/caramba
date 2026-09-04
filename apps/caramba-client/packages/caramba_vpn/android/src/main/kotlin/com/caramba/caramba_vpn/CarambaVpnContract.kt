@@ -77,9 +77,29 @@ internal object CarambaVpnKeys {
     const val SUBSCRIPTION_ID = "subscriptionId"
     const val ACCESS_TOKEN = "accessToken"
 
+    // The rest of the session. The access token lives ~15 minutes, and the core
+    // had nothing to renew it with: fifteen minutes after connect every call it
+    // made to the panel got a 401 it could not recover from. The refresh token
+    // has to reach the core because the core is what keeps running once the app
+    // is gone — this service is restartable by the system in a process with no
+    // Flutter engine in it, so "ask Dart for a fresh token" has nobody to ask.
+    // ACCESS_EXPIRY is unix seconds; 0 means "unknown" and lets the core read
+    // the JWT's own exp claim.
+    const val REFRESH_TOKEN = "refreshToken"
+    const val ACCESS_EXPIRY = "accessExpiryUnix"
+
     // SharedPreferences file holding the most recent configure() seam so the
     // service can read it even if started fresh by the system. It also carries
     // the policy JSON and tunnel mode written by setPolicy() / setTunnelMode().
+    //
+    // The refresh token joins the access token already stored here, in the app's
+    // private prefs (MODE_PRIVATE). That is a deliberate trade, not an
+    // oversight: the alternative is that a system-restarted service comes back
+    // with no session at all, and the Go core it builds persists the same pair
+    // to its own tokens.json in this same app-private directory anyway — next
+    // to the assembled mihomo config, which carries the subscription's private
+    // keys. Nothing here is readable by another app; everything here is
+    // readable by anyone who has already rooted the device.
     const val PREFS = "caramba_vpn_seam"
 
     // Seam pref keys for the ABI v2 policy / tunnel mode (namespaced so they do

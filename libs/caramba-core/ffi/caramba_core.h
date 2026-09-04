@@ -47,9 +47,20 @@ extern "C" {
  * Возвращает хэндл >0 либо 0 при ошибке. */
 extern long CarambaNew(char *panelURL, char *subURL, char *workDir, char *tokenPath);
 
-/* Инъекция JWT приложения + UUID подписки (шов аутентификации).
+/* УСТАРЕЛО (ABI v1): инъекция ТОЛЬКО access-токена. Такая сессия живёт ~15
+ * минут и не продлевается — ядро после этого честно перестаёт быть
+ * авторизованным. Новый код зовёт CarambaConfigureSession.
  * NULL при успехе, иначе JSON-ошибка. */
 extern char *CarambaConfigure(long h, char *panelURL, char *subscriptionID, char *accessToken);
+
+/* ABI v4: инъекция ВСЕЙ сессии — access + refresh + срок жизни access
+ * (unix-секунды; <=0 = «не передан», ядро возьмёт claim exp из самого JWT).
+ * refreshToken может быть NULL/"" (деградация до поведения CarambaConfigure).
+ * Только с refresh ядро способно продлить сессию, пока приложение выгружено.
+ * NULL при успехе, иначе JSON-ошибка. */
+extern char *CarambaConfigureSession(long h, char *panelURL, char *subscriptionID,
+                                     char *accessToken, char *refreshToken,
+                                     long long accessExpiryUnix);
 
 /* Импорт сырой подписки (raw-путь): format = "auto"|"clash"|"singbox"|"v2ray"|
  * "uri". После него CarambaUp(h, "") поднимает туннель из импортированного

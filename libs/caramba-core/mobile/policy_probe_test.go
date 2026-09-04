@@ -29,7 +29,7 @@ func TestClientProbeJSONWithoutConfig(t *testing.T) {
 // Configure с новым адресом панели перенаправляет ядро и не теряет токен.
 func TestClientConfigureAppliesPanelURL(t *testing.T) {
 	cl := newTestClient(t)
-	if err := cl.Configure("https://tenant-2.invalid", "sub-uuid", "access-token"); err != nil {
+	if err := cl.Configure("https://tenant-2.invalid", "sub-uuid", "access-token", "refresh-token", 0); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
 	st, err := cl.Status()

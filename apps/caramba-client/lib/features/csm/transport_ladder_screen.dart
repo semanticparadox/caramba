@@ -83,6 +83,8 @@ class _TransportLadderScreenState extends ConsumerState<TransportLadderScreen> {
     final ready = ref.watch(connectionProfilesReadyProvider);
     final ladder = ref.watch(csmLadderProvider);
     final attempts = ref.watch(csmAttemptHistoryProvider);
+    final tor = ref.watch(csmTorStatusProvider);
+    final delivered = ref.watch(csmDeliveredRungProvider);
 
     // Профиль без CSM не имеет действующей лестницы, но список ступеней всё
     // равно показывается целиком: скрыть ступень нельзя ни по какой причине.
@@ -135,6 +137,14 @@ class _TransportLadderScreenState extends ConsumerState<TransportLadderScreen> {
                   onMove: (delta) => _move(ref, rungs, r, delta),
                   canMoveUp: r.position > 0,
                   canMoveDown: r.position < rungs.length - 1,
+                  // Резервный путь через локальный Tor это часть истории
+                  // ИМЕННО R5, а не отдельная функция: он подставляет адрес в
+                  // ту же ступень и наследует её место в порядке. Отдельная
+                  // карточка внизу экрана оторвала бы его от переключателя,
+                  // которым он и управляется.
+                  extra: r.rung == CsmRung.userProxy
+                      ? _TorPanel(status: tor)
+                      : null,
                 ),
               if (_coreRefused) ...[
                 const SizedBox(height: AppSpace.s3),
@@ -158,6 +168,22 @@ class _TransportLadderScreenState extends ConsumerState<TransportLadderScreen> {
             ],
 
             const SectionTitle('История попыток'),
+            // Какая ступень реально принесла ту конфигурацию, на которой
+            // приложение сейчас работает. Без этой строки экран показывает
+            // список путей и ни одного факта о том, каким из них пришли
+            // байты; «неизвестно» тут это отдельный и честный ответ.
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpace.s3),
+              child: Text(
+                delivered == null
+                    ? 'Ни одна ступень пока не приносила проверенную '
+                          'конфигурацию.'
+                    : 'Последнюю проверенную конфигурацию принесла ступень '
+                          '${csmRungId(delivered)} — '
+                          '${csmRungTitle(delivered).toLowerCase()}.',
+                style: AppType.bodySm.copyWith(color: c.textMed),
+              ),
+            ),
             if (attempts.isEmpty)
               const ScreenEmpty(
                 glyph: Lucide.listTree,
@@ -281,6 +307,9 @@ class _RungCard extends StatelessWidget {
   final bool canMoveUp;
   final bool canMoveDown;
 
+  /// Дополнительная панель под ступенью. Сегодня её просит только R5.
+  final Widget? extra;
+
   const _RungCard({
     required this.entry,
     required this.interactive,
@@ -288,6 +317,7 @@ class _RungCard extends StatelessWidget {
     required this.onMove,
     required this.canMoveUp,
     required this.canMoveDown,
+    this.extra,
   });
 
   @override
@@ -392,6 +422,96 @@ class _RungCard extends StatelessWidget {
                 color: (interactive && canMoveDown) ? c.textMed : c.textLow,
               ),
             ],
+          ),
+          if (extra != null) ...[const SizedBox(height: AppSpace.s3), extra!],
+        ],
+      ),
+    );
+  }
+}
+
+/// Резервный путь ступени R5 через локальный Tor (Orbot либо системный tor).
+///
+/// Что этот путь даёт: скрывает от наблюдателя рядом с пользователем сам факт
+/// обращения за подпиской. Чего он НЕ даёт: анонимности сеанса VPN. Трафик
+/// туннеля через Tor не идёт — ступень R5 по построению обслуживает только
+/// выборку манифеста и конфигурации. Это написано на экране прямым текстом
+/// намеренно: пользователь, поверивший в «Tor значит анонимно», примет решение
+/// о своей безопасности на основании обещания, которого приложение не давало.
+///
+/// Ступень стоит последней среди автоматических и пробуется только после того,
+/// как отказали все пути оператора: три хопа Tor это самая дорогая по задержке
+/// дорога, и платить за неё в обычном случае незачем.
+class _TorPanel extends StatelessWidget {
+  final CsmTorStatus status;
+  const _TorPanel({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final (String head, Color tone) = switch (status.state) {
+      CsmTorState.ready => (
+        'Локальный Tor найден: ${status.addr}',
+        c.success,
+      ),
+      CsmTorState.absent => ('Локальный Tor не найден', c.warning),
+      CsmTorState.superseded => (
+        'Занято прокси, который вы ввели сами',
+        c.textMed,
+      ),
+      CsmTorState.unsupported => (
+        'Эта платформа не даёт другому приложению отдать SOCKS на петлю',
+        c.warning,
+      ),
+      CsmTorState.unknown => (
+        'Локальный Tor не искали: включите ступень R5',
+        c.textLow,
+      ),
+    };
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpace.s3),
+      decoration: BoxDecoration(
+        color: c.surfaceInset,
+        borderRadius: AppRadius.r8,
+        border: Border.all(color: c.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Резервный путь через Tor',
+            style: AppType.bodySm.copyWith(color: c.textHi),
+          ),
+          const SizedBox(height: 2),
+          Text(head, style: AppType.monoSm.copyWith(color: tone)),
+          // Причина словами ядра: «порт закрыт» и «требует логин и пароль» это
+          // разные действия для пользователя, и одинаковая строка на оба
+          // случая была бы отказом, о котором приложение промолчало.
+          if (status.detail.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              _capLabel(status.detail),
+              style: AppType.monoSm.copyWith(color: c.textLow),
+            ),
+          ],
+          if (status.checkedAtSec > 0) ...[
+            const SizedBox(height: 2),
+            Text(
+              'Проверено ${csmDateTimeSec(status.checkedAtSec)}',
+              style: AppType.monoSm.copyWith(color: c.textLow),
+            ),
+          ],
+          const SizedBox(height: AppSpace.s2),
+          Text(
+            'Через Tor берётся только подписка и конфигурация. Трафик туннеля '
+            'через Tor не идёт, и сеанс VPN от этого анонимным НЕ становится: '
+            'здесь Tor прячет от наблюдателя рядом с вами сам факт обращения '
+            'за подпиской, и только его. Ступень пробуется последней из '
+            'автоматических, после того как отказали все пути оператора, '
+            'и требует запущенного Orbot или системного tor.',
+            style: AppType.bodySm.copyWith(color: c.textMed),
           ),
         ],
       ),

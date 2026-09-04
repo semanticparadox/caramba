@@ -129,6 +129,7 @@ class _AutotuneScreenState extends ConsumerState<AutotuneScreen> {
       final results = await probeProfile(
         ref.read(vpnConnectionProvider),
         profile,
+        seam: ref.read(probeSeamResolverProvider),
       );
       if (!mounted) return;
       setState(() => _current = 2);

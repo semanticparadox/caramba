@@ -185,11 +185,20 @@ class TrafficStats {
   );
 }
 
-/// Данные для одноразовой авторизации Go-ядра перед поднятием туннеля.
+/// Данные для авторизации Go-ядра перед поднятием туннеля — ВСЯ сессия, а не
+/// один её короткоживущий кусок.
 ///
 /// Ядро (caramba-core) имеет собственный auth-store и само тянет mihomo-конфиг
-/// по подписке, поэтому ему нужно передать JWT-доступ, UUID подписки и базовый
-/// URL панели. Источник значений — TokenStore (JWT) и `GET /subscription`.
+/// по подписке, поэтому ему нужно передать сессию, UUID подписки и базовый URL
+/// панели. Источник значений — TokenStore (JWT-пара) и `GET /subscription`.
+///
+/// Здесь долго ездил ОДИН access-токен. Он живёт ~15 минут, ядру нечем было его
+/// продлить, и через четверть часа любой его запрос к панели получал 401 без
+/// пути назад — при том, что приложение всё это время держало в secure storage
+/// вполне живой refresh. Поэтому [refreshToken] и [accessExpiry] едут вместе с
+/// токеном: продлевать сессию обязано то, что переживает выгрузку приложения,
+/// а это ядро (Android-сервис перезапускается системой в пустом процессе,
+/// iOS-расширение — вообще другой процесс без Dart).
 class VpnConfig {
   /// Базовый URL панели (`kApiBaseUrl`), без `/api/v2/app`.
   final String panelUrl;
@@ -200,25 +209,73 @@ class VpnConfig {
   /// JWT access-токен текущей сессии (ядро переиспользует его, без ре-логина).
   final String accessToken;
 
+  /// Долгоживущий refresh той же сессии (~30 дней). Пусто — режим деградации:
+  /// ядро проработает до истечения [accessToken] и честно перестанет считаться
+  /// авторизованным, а не будет упираться в неустранимый 401.
+  final String refreshToken;
+
+  /// Когда истекает [accessToken]. `null` — «неизвестно»; ядро тогда возьмёт
+  /// срок из claim `exp` самого JWT.
+  final DateTime? accessExpiry;
+
   const VpnConfig({
     required this.panelUrl,
     required this.subscriptionUuid,
     required this.accessToken,
+    this.refreshToken = '',
+    this.accessExpiry,
   });
 
   /// Аргументы канала `configure`. Ключ подписки — `subscriptionUuid`
   /// (нативные стороны принимают и устаревший `subscriptionId`).
+  ///
+  /// Срок уходит целым числом unix-секунд (`0` — неизвестен), а не DateTime:
+  /// провод общий для пяти мостов, а plist/SharedPreferences/EncodableValue
+  /// одинаково понимают только примитивы.
   Map<String, Object?> toArgs() => <String, Object?>{
     'panelUrl': panelUrl,
     'subscriptionUuid': subscriptionUuid,
     'accessToken': accessToken,
+    'refreshToken': refreshToken,
+    'accessExpiryUnix': accessExpiryUnix,
   };
 
-  /// Можно ли вообще конфигурировать ядро (все поля заполнены).
+  /// Срок жизни access-токена в unix-секундах; `0` — неизвестен.
+  int get accessExpiryUnix =>
+      accessExpiry == null ? 0 : accessExpiry!.millisecondsSinceEpoch ~/ 1000;
+
+  /// Можно ли вообще конфигурировать ядро (обязательные поля заполнены).
+  ///
+  /// [refreshToken] сюда НЕ входит: у профиля, заведённого до этой версии, его
+  /// в снимке нет, и отказаться конфигурировать ядро вовсе было бы хуже, чем
+  /// сконфигурировать его на 15 минут.
   bool get isComplete =>
       panelUrl.isNotEmpty &&
       subscriptionUuid.isNotEmpty &&
       accessToken.isNotEmpty;
+
+  /// Равенство по значению нужно мостам: они пропускают повторный `configure`,
+  /// когда шов не изменился. Пока сравнение писалось руками поле за полем,
+  /// добавленное поле молча выпадало из него — и ротация токена переставала
+  /// доезжать до ядра.
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is VpnConfig &&
+          other.panelUrl == panelUrl &&
+          other.subscriptionUuid == subscriptionUuid &&
+          other.accessToken == accessToken &&
+          other.refreshToken == refreshToken &&
+          other.accessExpiryUnix == accessExpiryUnix;
+
+  @override
+  int get hashCode => Object.hash(
+    panelUrl,
+    subscriptionUuid,
+    accessToken,
+    refreshToken,
+    accessExpiryUnix,
+  );
 }
 
 /// Резолвер конфигурации ядра: лениво (на момент connect) достаёт свежие

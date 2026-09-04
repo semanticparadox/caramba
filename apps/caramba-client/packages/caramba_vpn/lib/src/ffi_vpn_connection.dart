@@ -188,13 +188,11 @@ class FfiVpnConnection<S extends Object> implements VpnConnection<S> {
     if (message != null) throw CarambaCoreException(message);
   }
 
-  /// Совпадают ли два seam-конфига поле в поле (у [VpnConfig] нет ==).
+  /// Совпадают ли два seam-конфига. Сравнение живёт в самом [VpnConfig]
+  /// (operator ==): выписанное здесь руками, оно забывало каждое новое поле —
+  /// так из него однажды выпал refresh-токен.
   static bool _sameConfig(VpnConfig? a, VpnConfig? b) =>
-      a != null &&
-      b != null &&
-      a.panelUrl == b.panelUrl &&
-      a.subscriptionUuid == b.subscriptionUuid &&
-      a.accessToken == b.accessToken;
+      a != null && b != null && a == b;
 
   /// Достаёт поле `error` из JSON-ответа ядра; null — ошибки нет.
   static String? _errorOf(String raw) {
@@ -227,6 +225,8 @@ class FfiVpnConnection<S extends Object> implements VpnConnection<S> {
             panelUrl: cfg.panelUrl,
             subscriptionUuid: cfg.subscriptionUuid,
             accessToken: cfg.accessToken,
+            refreshToken: cfg.refreshToken,
+            accessExpiryUnix: cfg.accessExpiryUnix,
           ),
         );
         _appliedConfig = cfg;

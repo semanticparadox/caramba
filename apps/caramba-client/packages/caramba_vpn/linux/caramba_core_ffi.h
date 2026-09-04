@@ -19,6 +19,14 @@ typedef CarambaHandle (*caramba_new_fn)(const char*, const char*, const char*,
 // ({ "error": ... }) on failure, or NULL on success.
 typedef char* (*caramba_configure_fn)(CarambaHandle, const char*, const char*,
                                       const char*);
+// ABI v4: вся сессия целиком — access, refresh и срок жизни access
+// (unix-секунды; 0 = «не знаю»). РЕЗОЛВИТСЯ ОПЦИОНАЛЬНО, как символы ABI v2:
+// библиотека на диске может быть старее приложения. NULL здесь означает, что
+// ядру можно отдать только 15-минутный access и нечем его продлить, поэтому
+// откат на caramba_configure_fn допустим ТОЛЬКО когда refresh пуст.
+typedef char* (*caramba_configure_session_fn)(CarambaHandle, const char*,
+                                              const char*, const char*,
+                                              const char*, long long);
 // CarambaImportSubscription парсит сырую подписку [raw] формата [format] в
 // mihomo-конфиг и сохраняет её как импортированный источник. Возвращает
 // CarambaFreeString-owned JSON-строку: метаданные при успехе или { "error": ... }
@@ -54,6 +62,7 @@ typedef struct {
   void* module;
   caramba_new_fn New;
   caramba_configure_fn Configure;
+  caramba_configure_session_fn ConfigureSession;  // optional (ABI v4)
   caramba_import_subscription_fn ImportSubscription;
   caramba_set_tun_fd_fn SetTunFd;
   caramba_set_tunnel_mode_fn SetTunnelMode;  // optional (ABI v2)
@@ -91,6 +100,9 @@ static inline gboolean caramba_core_ffi_load(CarambaCoreFfi* ffi) {
   }
   ffi->New = (caramba_new_fn)dlsym(ffi->module, "CarambaNew");
   ffi->Configure = (caramba_configure_fn)dlsym(ffi->module, "CarambaConfigure");
+  // ABI v4, optional: absent in a core built before the session seam.
+  ffi->ConfigureSession = (caramba_configure_session_fn)dlsym(
+      ffi->module, "CarambaConfigureSession");
   ffi->ImportSubscription = (caramba_import_subscription_fn)dlsym(
       ffi->module, "CarambaImportSubscription");
   ffi->SetTunFd = (caramba_set_tun_fd_fn)dlsym(ffi->module, "CarambaSetTunFd");

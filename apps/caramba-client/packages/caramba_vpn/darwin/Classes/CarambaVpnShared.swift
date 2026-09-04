@@ -54,11 +54,21 @@ enum CarambaVpnKeys {
     static let routeReport = "caramba.vpn.routeReport"
 
     // Configuration handed from the app to the extension via providerConfiguration.
-    // The first three mirror the `configure` method-channel args; the rest carry
+    // The first five mirror the `configure` method-channel args; the rest carry
     // the connect args + optional policy.
     static let panelUrl = "panelUrl"            // Configure(panelURL, ...)
     static let subscriptionUuid = "subscriptionUuid" // Configure(_, subscriptionID, _)
     static let accessToken = "accessToken"      // Configure(_, _, accessToken) — JWT
+    // The rest of the session. The access token is good for ~15 minutes and the
+    // tunnel core lives in the network extension — a SEPARATE PROCESS with no
+    // Dart in it — so it cannot ask the app for a fresh one when that runs out.
+    // Without the refresh half every authenticated call the core makes fifteen
+    // minutes after connect gets a 401 it cannot recover from.
+    static let refreshToken = "refreshToken"    // Configure(_, _, _, refreshToken, _)
+    // Unix seconds; carried as a String because providerConfiguration is a
+    // plist (same as mixedPort). "" / "0" means "unknown" and lets the core read
+    // the JWT's own exp claim.
+    static let accessExpiryUnix = "accessExpiryUnix"
     static let serverId = "serverId"
     static let serverName = "serverName"
     static let countryCode = "countryCode"

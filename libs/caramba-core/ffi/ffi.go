@@ -103,17 +103,51 @@ func CarambaNew(panelURL, subURL, workDir, tokenPath *C.char) C.long {
 	return C.long(id)
 }
 
-// CarambaConfigure разрешает шов аутентификации: инъецирует JWT приложения и UUID
-// подписки в ядро (см. mobile.Client.Configure). Возвращает NULL при успехе либо
-// C-строку с JSON-ошибкой (владелец освобождает её CarambaFreeString).
+// CarambaConfigure — УСТАРЕВШАЯ форма шва аутентификации (ABI v1): только access
+// без refresh и без срока. Оставлена, чтобы уже собранные плагины продолжали
+// линковаться, и НЕ должна использоваться новым кодом: инъекция без refresh
+// живёт ~15 минут, после чего ядро честно перестаёт быть авторизованным и
+// подписка больше не загружается. Новый вызов — CarambaConfigureSession.
+//
+// Возвращает NULL при успехе либо C-строку с JSON-ошибкой (владелец освобождает
+// её CarambaFreeString).
 //
 //export CarambaConfigure
 func CarambaConfigure(h C.long, panelURL, subscriptionID, accessToken *C.char) *C.char {
+	return configure(h, panelURL, subscriptionID, accessToken, nil, 0)
+}
+
+// CarambaConfigureSession — шов аутентификации ABI v4: переносит в ядро ВСЮ
+// сессию, а не один её короткоживущий кусок (см. mobile.Client.Configure).
+//
+// Отдельный символ, а не расширение CarambaConfigure, по той же причине, по
+// которой лениво резолвятся символы ABI v2/v3: библиотека на диске может быть
+// старее приложения, и тогда правильный ответ — «пересоберите ядро», а не молча
+// потерянный refresh-токен, который проявится через 15 минут в другом месте.
+//
+// refreshToken может быть NULL/пустым (деградация до access-only, см. выше);
+// accessExpiryUnix <= 0 означает «срок не передан» — ядро достроит его из claim
+// exp самого JWT.
+//
+//export CarambaConfigureSession
+func CarambaConfigureSession(h C.long, panelURL, subscriptionID, accessToken, refreshToken *C.char, accessExpiryUnix C.longlong) *C.char {
+	return configure(h, panelURL, subscriptionID, accessToken, refreshToken, accessExpiryUnix)
+}
+
+// configure — общее тело обеих форм. C.GoString(nil) отдаёт "", поэтому NULL в
+// refreshToken допустим и означает «нет refresh».
+func configure(h C.long, panelURL, subscriptionID, accessToken, refreshToken *C.char, accessExpiryUnix C.longlong) *C.char {
 	cl := lookup(h)
 	if cl == nil {
 		return errJSON("caramba: неизвестный хэндл")
 	}
-	if err := cl.Configure(C.GoString(panelURL), C.GoString(subscriptionID), C.GoString(accessToken)); err != nil {
+	if err := cl.Configure(
+		C.GoString(panelURL),
+		C.GoString(subscriptionID),
+		C.GoString(accessToken),
+		C.GoString(refreshToken),
+		int64(accessExpiryUnix),
+	); err != nil {
 		return errJSON(err.Error())
 	}
 	return nil

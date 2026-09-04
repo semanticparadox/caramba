@@ -28,6 +28,13 @@ class CarambaCoreFfi {
   // ({ "error": ... }) on failure, or NULL on success.
   using ConfigureFn = char* (*)(CarambaHandle, const char*, const char*,
                                 const char*);
+  // ABI v4: the whole session — access + refresh + access expiry (unix seconds,
+  // 0 = unknown). Optional for the same reason the ABI v2 symbols are: a DLL on
+  // disk may predate the app. A null pointer here means the core can only be
+  // given a ~15-minute access token with nothing to renew it with, so the
+  // caller falls back to ConfigureFn ONLY when there is no refresh to lose.
+  using ConfigureSessionFn = char* (*)(CarambaHandle, const char*, const char*,
+                                       const char*, const char*, long long);
   using SetTunFdFn = char* (*)(CarambaHandle, int);
   // ABI v2. Resolved OPTIONALLY: a DLL built before the policy/probe wave does
   // not export them, and a hard check would block the whole desktop path. A null
@@ -77,6 +84,9 @@ class CarambaCoreFfi {
     New = reinterpret_cast<NewFn>(GetProcAddress(module_, "CarambaNew"));
     Configure = reinterpret_cast<ConfigureFn>(
         GetProcAddress(module_, "CarambaConfigure"));
+    // ABI v4, optional: absent in a core built before the session seam.
+    ConfigureSession = reinterpret_cast<ConfigureSessionFn>(
+        GetProcAddress(module_, "CarambaConfigureSession"));
     SetTunFd =
         reinterpret_cast<SetTunFdFn>(GetProcAddress(module_, "CarambaSetTunFd"));
     // ABI v2, optional: absent in a core built before the policy/probe wave.
@@ -148,6 +158,7 @@ class CarambaCoreFfi {
 
   NewFn New = nullptr;
   ConfigureFn Configure = nullptr;
+  ConfigureSessionFn ConfigureSession = nullptr;
   SetTunFdFn SetTunFd = nullptr;
   SetTunnelModeFn SetTunnelMode = nullptr;  // optional (ABI v2)
   SetPolicyFn SetPolicy = nullptr;          // optional (ABI v2)

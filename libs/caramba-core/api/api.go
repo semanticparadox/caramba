@@ -98,6 +98,22 @@ type Core struct {
 	// установок, заведённых до появления второго оператора.
 	csmProfileKey string
 	relayCountry  string // вход через страну (relay), ISO-2 или имя; пусто — прямое
+	// userCountry — страна, где находится САМ пользователь, ISO-2. Пусто —
+	// неизвестна, и это полноценное третье состояние, а не «Россия».
+	//
+	// Ядро определить её не может: геобазы оно не носит, а адрес, который оно
+	// видит у себя, ничего не говорит. Единственный, кто её знает, — панель:
+	// она видит исходящий адрес запроса и отдаёт результат в
+	// `x-client-country` на теле подписки и в `client_country` в
+	// `GET /api/v2/app/subscription`. Платформенный слой кладёт её сюда через
+	// SetUserCountry.
+	//
+	// Отличать её от relayCountry обязательно: relayCountry это ВЫБОР входа
+	// («хочу заходить через Россию»), а это ФАКТ о пользователе. Раньше на
+	// месте факта стояла страна пресета — то есть выбор режима выдавал себя за
+	// местоположение, и американский пользователь на умолчании `ru-smart`
+	// получал российский домашний резолвер.
+	userCountry string
 	// importedConfig — сырой clash/mihomo YAML импортированной подписки (см.
 	// SetImportedConfig). Если задан, Up поднимает туннель из него БЕЗ обращения
 	// к панели и БЕЗ требования аутентификации (raw-путь, contract A/D).
@@ -524,11 +540,18 @@ func (c *Core) LoginTelegram(ctx context.Context, data auth.TelegramLogin) (Auth
 // (и, желательно, refresh), чтобы ядру не входить повторно. После инъекции Up может
 // сам сходить за clash-конфигом подписки (он несёт amnezia-wg) и UUID подписки.
 //
-// expiresUnix — unix-секунды истечения access-токена; <=0 означает «срок
-// неизвестен» (тогда авто-обновление только по 401). Пустой refreshToken — режим
-// деградации: сессия живёт до истечения access без авто-продления (см.
-// auth.PanelClient.SetTokens). subscriptionID опционален: если задан, кэшируется,
-// и Up не делает round-trip к панели за UUID.
+// expiresUnix — unix-секунды истечения access-токена; <=0 означает «вызывающий
+// срок не передал», и тогда он достраивается из claim exp самого JWT
+// (auth.jwtExpiry), а не остаётся неизвестным.
+//
+// Пустой refreshToken — режим деградации, и слово «деградация» тут буквальное:
+// сессия живёт ровно до истечения access (~15 минут), после чего ядро честно
+// перестаёт считаться авторизованным (auth.Tokens.Valid) — вместо того чтобы
+// врать «авторизован» и упираться в неустранимый 401. Все мосты обязаны
+// передавать refresh; без него ядро не сможет продлиться, пока приложение
+// выгружено (см. mobile.Client.Configure о том, почему обратный вызов в
+// приложение не вариант). subscriptionID опционален: если задан, кэшируется, и
+// Up не делает round-trip к панели за UUID.
 func (c *Core) InjectToken(accessToken, refreshToken string, expiresUnix int64, subscriptionID string) error {
 	var expiry time.Time
 	if expiresUnix > 0 {
@@ -870,6 +893,44 @@ func (c *Core) SetRelay(country string) {
 	c.mu.Unlock()
 }
 
+// SetUserCountry сообщает ядру страну, где находится пользователь (ISO-2, как
+// её увидела панель). Пустая строка или мусор возвращают состояние «не знаем».
+//
+// Значение НЕ угадывается и не подставляется: единственный источник — панель
+// (`x-client-country` / `client_country`). Пока она не ответила, страна
+// остаётся пустой, и решения, которые от неё зависят, обязаны честно падать на
+// свой запасной путь, а не на Россию.
+func (c *Core) SetUserCountry(iso string) {
+	iso = strings.ToUpper(strings.TrimSpace(iso))
+	if len(iso) != 2 {
+		iso = ""
+	}
+	c.mu.Lock()
+	c.userCountry = iso
+	c.mu.Unlock()
+}
+
+// UserCountry возвращает страну пользователя, известную ядру; пусто — неизвестна.
+func (c *Core) UserCountry() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.userCountry
+}
+
+// homeCountry — страна, чей ДОМАШНИЙ резолвер получит этот подъём.
+//
+// Порядок именно такой: место, где человек находится, важнее режима, который
+// он включил. Страна пресета остаётся запасным вариантом на случай, когда
+// панель ещё не сказала своего слова, — тогда явно выбранный `ru-smart` это
+// лучшее доступное свидетельство о местоположении, и хуже прежнего не станет.
+// Оба пусты — раскола нет вовсе (см. profile.ApplyBootstrapDNS).
+func homeCountry(userCountry, presetID string) string {
+	if userCountry != "" {
+		return userCountry
+	}
+	return presetCountry(presetID)
+}
+
 // SetSubscriptionID привязывает Core к конкретному UUID подписки. Обычно UUID
 // подтягивается автоматически после входа (GET /api/v2/app/subscription); этот
 // метод служит ручным переопределением.
@@ -941,6 +1002,7 @@ func (c *Core) Up(ctx context.Context, serverID string) (UpResult, error) {
 	policy := c.policy
 	presetID := c.presetID
 	rawRelay := c.relayCountry
+	userCC := c.userCountry
 	c.mu.Unlock()
 
 	// Что этот подъём применить не сможет, известно до того, как он начнётся.
@@ -973,7 +1035,7 @@ func (c *Core) Up(ctx context.Context, serverID string) (UpResult, error) {
 		return UpResult{}, err
 	}
 	policy.Bootstrap = plan.boot
-	policy.ApplyBootstrapDNS(plan.doh, presetCountry(presetID))
+	policy.ApplyBootstrapDNS(plan.doh, homeCountry(userCC, presetID))
 	route, routeSnap := c.routingForBuild(plan)
 	if route != nil {
 		policy.Routing = route

@@ -134,15 +134,29 @@ func (c *Client) SetSubscriptionID(id string) { c.core.SetSubscriptionID(id) }
 //     перенаправляет ядро на эту панель; пусто оставляет URL из NewClient.
 //   - subscriptionID — UUID подписки текущего пользователя (передаётся в ядро,
 //     чтобы Up не ходил за ним к панели). Пусто — ядро подтянет его лениво.
-//   - accessToken    — JWT приложения. Обязателен.
+//   - accessToken    — JWT приложения.
+//   - refreshToken   — долгоживущий refresh той же сессии. ПЕРЕДАВАТЬ ВСЕГДА,
+//     когда он у приложения есть (см. ниже).
+//   - accessExpiryUnix — unix-секунды истечения access; 0 означает «не знаю», и
+//     тогда срок достраивается из claim exp самого JWT (auth.jwtExpiry).
 //
-// gomobile-граница принимает только примитивы, поэтому это плоская сигнатура без
-// refresh-токена и срока: инъекция идёт в режиме «access-only» — сессия живёт до
-// истечения access-токена и НЕ продлевается сама; на 401 авторизованный запрос
-// падает, и приложение должно повторно вызвать Configure со свежим токеном. Это
-// сознательная деградация ради простого, бесшовного handoff (см.
-// auth.PanelClient.SetTokens / api.Core.InjectToken).
-func (c *Client) Configure(panelURL, subscriptionID, accessToken string) error {
+// Почему refresh обязан жить В ЯДРЕ, а не переспрашиваться у приложения. Здесь
+// годами передавались пустой refresh и нулевой срок, и это была не мелочь, а
+// поломка: access живёт 15 минут, ядру нечем было его продлить, и через четверть
+// часа КАЖДЫЙ авторизованный вызов ядра получал 401 без пути назад. Очевидная
+// альтернатива — «Dart подсунет свежий токен на каждый вызов» — не работает
+// ровно там, где проблема и живёт: туннель поднимает Android-сервис, который
+// система вправе перезапустить в пустом процессе, и iOS-расширение, где Dart
+// нет ВООБЩЕ (это другой процесс). Спросить у приложения оттуда некого.
+//
+// Цена решения — refresh ложится в файл токенов ядра (tokens.json, 0600 в
+// приватном каталоге приложения), тогда как Flutter держит его в Keychain/
+// Keystore. Это осознанный размен, а не недосмотр: тот же файл ядро уже
+// заполняет refresh-токенами при ЛЮБОМ сетевом входе (auth.PanelClient.persist),
+// а рядом, в том же каталоге, лежит собранный mihomo-конфиг с приватными
+// ключами узлов подписки. Новым классом секрета refresh здесь не становится;
+// новым стало бы только молчаливое отсутствие продления.
+func (c *Client) Configure(panelURL, subscriptionID, accessToken, refreshToken string, accessExpiryUnix int64) error {
 	// Непустой и отличающийся panelURL перенаправляет ядро на другую панель:
 	// пересобираются auth-клиент, клиент подписок и клиент /subscription
 	// (api.Core.SetPanelURL). Это нужно мультипанельному режиму (enroll в чужую
@@ -151,7 +165,7 @@ func (c *Client) Configure(panelURL, subscriptionID, accessToken string) error {
 	if err := c.core.SetPanelURL(panelURL); err != nil {
 		return err
 	}
-	return c.core.InjectToken(accessToken, "", 0, subscriptionID)
+	return c.core.InjectToken(accessToken, refreshToken, accessExpiryUnix, subscriptionID)
 }
 
 // ImportSubscription импортирует сырую подписку формата format (auto/clash/

@@ -7,11 +7,15 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/net/http2"
 )
 
 // ErrPinMismatch это отказ по SPKI пину: сертификат валиден по цепочке, но его
@@ -39,16 +43,10 @@ func (e *NetExchange) Do(ctx context.Context, t Target, req *http.Request) (*htt
 	if req.Header.Get("User-Agent") == "" {
 		req.Header.Set("User-Agent", e.UserAgent)
 	}
-	tr := &http.Transport{
-		// Переходы за нас не выполняются: правило одного перехода живёт в
-		// readCSMResponse, вместе с проверкой хоста и схемы.
-		DisableCompression:  true,
-		DisableKeepAlives:   true,
-		MaxConnsPerHost:     1,
-		TLSHandshakeTimeout: TLSHandshakeTimeout,
-		ForceAttemptHTTP2:   false,
+	if req.URL == nil {
+		return nil, fmt.Errorf("%w: пустой URL запроса", ErrBadHostname)
 	}
-	// tr.Proxy НАМЕРЕННО не задаётся, даже когда ступень несёт прокси.
+	// Прокси НЕ передаётся в http.Transport, даже когда ступень его несёт.
 	// http.Transport зовёт DialTLSContext только "for non-proxied HTTPS
 	// requests": при непустом Proxy он берёт TLSClientConfig, который здесь
 	// пуст, и тогда на ступенях R4 и R5 молча исчезают SPKI пины, нижняя
@@ -59,26 +57,185 @@ func (e *NetExchange) Do(ctx context.Context, t Target, req *http.Request) (*htt
 			return nil, err
 		}
 	}
+
+	// Один срок на всю попытку, 02-SPEC.md 8.5. Раньше его держал
+	// http.Client.Timeout, и набор соединения в него не входил; теперь
+	// соединение открывается здесь, поэтому срок считается от одной точки и
+	// делится между набором и обменом.
+	deadline := time.Now().Add(t.Rung.Timeout())
+
+	// TLS соединение открывается ЗДЕСЬ, а не лениво внутри http.Transport,
+	// потому что версия HTTP выбирается по результату ALPN, а он известен
+	// только после рукопожатия. Ленивый набор оставлял бы выбор транспорту, а
+	// транспорт его сделать не может (см. exchangeOverConn).
+	var conn net.Conn
+	if strings.EqualFold(req.URL.Scheme, "https") {
+		dialCtx, cancel := context.WithDeadline(ctx, deadline)
+		c, err := dialTLSConn(dialCtx, t, dialAddr(req.URL))
+		cancel()
+		if err != nil {
+			return nil, err
+		}
+		conn = c
+	}
+	return e.exchangeOverConn(ctx, t, conn, req, deadline)
+}
+
+// exchangeOverConn ведёт обмен поверх уже открытого соединения conn. Пустой
+// conn означает путь без TLS (только .onion, инвариант 8): там соединение
+// наберёт сам http.Transport.
+//
+// Версия HTTP выбирается по ALPN, и выбирается ЗДЕСЬ, потому что
+// http.Transport выбрать её в нашей конфигурации не может ПРИНЦИПИАЛЬНО, а не
+// по недонастройке: состояние сессии он читает приведением типа возвращённого
+// соединения к *crypto/tls.Conn, и только при удачном приведении заполняет
+// tlsState и смотрит TLSNextProto. uTLS возвращает свой тип, приведение не
+// проходит, tlsState остаётся пустым, и транспорт пишет в согласованное h2
+// соединение запрос HTTP/1.1. Ответом приходит кадр SETTINGS, который парсер
+// ответа читает как «malformed HTTP response».
+func (e *NetExchange) exchangeOverConn(ctx context.Context, t Target, conn net.Conn,
+	req *http.Request, deadline time.Time) (*http.Response, error) {
+
+	rest := time.Until(deadline)
+	if rest <= 0 {
+		if conn != nil {
+			_ = conn.Close()
+		}
+		return nil, context.DeadlineExceeded
+	}
+	if conn != nil {
+		// Срок ставится на соединение, а не только на http.Client: у пути h2
+		// клиента нет, а тело ответа читает уже вызывающий.
+		_ = conn.SetDeadline(deadline)
+		if negotiatedALPN(conn) == "h2" {
+			return roundTripH2(conn, req)
+		}
+	}
+	return e.roundTripH1(t, conn, req, rest)
+}
+
+// roundTripH1 ведёт обмен по HTTP/1.1. Соединение либо уже открыто (тогда оно
+// отдаётся транспорту один раз), либо его наберёт сам транспорт.
+func (e *NetExchange) roundTripH1(t Target, conn net.Conn, req *http.Request,
+	rest time.Duration) (*http.Response, error) {
+
+	tr := &http.Transport{
+		// Переходы за нас не выполняются: правило одного перехода живёт в
+		// readCSMResponse, вместе с проверкой хоста и схемы.
+		DisableCompression:  true,
+		DisableKeepAlives:   true,
+		MaxConnsPerHost:     1,
+		TLSHandshakeTimeout: TLSHandshakeTimeout,
+		ForceAttemptHTTP2:   false,
+	}
 	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		return dialRawConn(ctx, t, addr)
 	}
+	var mu sync.Mutex
+	ready := conn
+	take := func() net.Conn {
+		mu.Lock()
+		defer mu.Unlock()
+		c := ready
+		ready = nil
+		return c
+	}
 	tr.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		// Готовое соединение отдаётся ровно один раз. Если транспорт решит
+		// набрать ещё, он наберёт по-настоящему, а не получит уже отданное:
+		// молча вернуть его дважды значило бы отдать закрытый поток.
+		if c := take(); c != nil {
+			return c, nil
+		}
 		return dialTLSConn(ctx, t, addr)
 	}
 
 	cli := &http.Client{
 		Transport: tr,
-		Timeout:   t.Rung.Timeout(),
+		Timeout:   rest,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			// followRedirects: false. Переход решает readCSMResponse.
 			return http.ErrUseLastResponse
 		},
 	}
 	resp, err := cli.Do(req)
+	if c := take(); c != nil {
+		// Транспорт до набора не дошёл: соединение открыли мы, закрывать его
+		// тоже нам.
+		_ = c.Close()
+	}
 	if err != nil {
 		return nil, err
 	}
 	return resp, nil
+}
+
+// roundTripH2 ведёт обмен по HTTP/2 поверх уже установленного соединения.
+//
+// ClientConn создаётся напрямую, минуя пул http2.Transport: гигиена соединения
+// 03-WIRE.md 11.2 считает бюджет НА СОЕДИНЕНИЕ, а пул мультиплексирует и живёт
+// дольше обмена, и этот счёт стал бы ложью — ровно то, ради чего на пути
+// HTTP/1.1 стоит DisableKeepAlives.
+func roundTripH2(conn net.Conn, req *http.Request) (*http.Response, error) {
+	tr := &http2.Transport{DisableCompression: true}
+	cc, err := tr.NewClientConn(conn)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	resp, err := cc.RoundTrip(req)
+	if err != nil {
+		_ = cc.Close()
+		return nil, err
+	}
+	if resp.Body == nil {
+		resp.Body = http.NoBody
+	}
+	// Закрытие привязано к телу: раньше него соединение закрыть нельзя, а
+	// после него держать открытым нечего. Тело закрывает readCSMResponse.
+	resp.Body = &h2Body{rc: resp.Body, cc: cc}
+	return resp, nil
+}
+
+// h2Body закрывает соединение h2 вместе с телом ответа.
+type h2Body struct {
+	rc io.ReadCloser
+	cc *http2.ClientConn
+}
+
+func (b *h2Body) Read(p []byte) (int, error) { return b.rc.Read(p) }
+
+func (b *h2Body) Close() error {
+	err := b.rc.Close()
+	_ = b.cc.Close()
+	return err
+}
+
+// negotiatedALPN отдаёт протокол, выбранный сервером в ALPN. Пустая строка
+// означает «ALPN не было или не согласовалось», и тогда обмен идёт по
+// HTTP/1.1: это же и есть поведение сборки без uTLS, где ClientHello ALPN
+// вовсе не объявляет.
+func negotiatedALPN(c net.Conn) string {
+	if p, ok := utlsALPN(c); ok {
+		return p
+	}
+	if tc, ok := c.(*tls.Conn); ok {
+		return tc.ConnectionState().NegotiatedProtocol
+	}
+	return ""
+}
+
+// dialAddr отдаёт host:port цели набора. Порт берётся из URL, иначе
+// подразумевается порт схемы.
+func dialAddr(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		port = "443"
+		if strings.EqualFold(u.Scheme, "http") {
+			port = "80"
+		}
+	}
+	return net.JoinHostPort(u.Hostname(), port)
 }
 
 // parseProxyURL принимает socks5://host:port, http://host:port и голый

@@ -53,6 +53,19 @@ CARAMBA_API char* CarambaConfigure(CarambaHandle h,
                                    const char* subscriptionUuid,
                                    const char* accessToken);
 
+// CarambaConfigureSession (ABI v4) injects the WHOLE session: access token,
+// refresh token, and when the access token expires (unix seconds; <= 0 means
+// "unknown" and the core reads the JWT's own exp claim). refreshToken may be
+// NULL/"" and then this behaves exactly like CarambaConfigure — which is to say
+// the session dies in ~15 minutes with nothing to renew it. Returns NULL on
+// success, or a CarambaFreeString-owned JSON error string on failure.
+CARAMBA_API char* CarambaConfigureSession(CarambaHandle h,
+                                          const char* panelUrl,
+                                          const char* subscriptionUuid,
+                                          const char* accessToken,
+                                          const char* refreshToken,
+                                          long long accessExpiryUnix);
+
 // CarambaSetTunFd passes the platform TUN fd to the engine BEFORE CarambaUp.
 // On desktop pass -1: mihomo creates the TUN itself (wintun/tun), which needs
 // elevated privileges. Returns NULL on success, or a CarambaFreeString-owned

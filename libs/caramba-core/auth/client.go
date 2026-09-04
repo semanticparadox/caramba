@@ -253,13 +253,24 @@ func (c *PanelClient) Logout(ctx context.Context) error {
 // сработает (Refresh вернёт ErrNotAuthenticated при пустом refresh), и при ответе
 // 401 авторизованный запрос упадёт — приложение должно заново вызвать SetTokens с
 // новым access-токеном (re-Configure). С непустым refresh поведение совпадает с
-// сетевым входом: токен обновляется автоматически.
+// сетевым входом: токен обновляется автоматически. Именно поэтому передавать
+// refresh НУЖНО везде, где он у приложения есть: ядро продолжает работать, пока
+// приложение выгружено (Android-сервис, iOS-расширение — отдельный процесс без
+// Dart вовсе), и переспросить у него токен ему не у кого.
 //
-// accessExpiry — момент истечения access-токена (UTC); нулевое значение означает
-// «срок неизвестен» (авто-обновление тогда только по 401, как и в toTokens()).
+// accessExpiry — момент истечения access-токена (UTC); нулевое значение здесь НЕ
+// оставляется «неизвестным», а достраивается из claim exp самого токена
+// (jwtExpiry): иначе достаточно одному мосту забыть аргумент, чтобы протухший
+// токен снова считался живым.
+//
+// Хотя бы одна из частей обязана быть непустой. Инъекция «только refresh»
+// допустима: access будет получен обновлением при первом же использовании.
 func (c *PanelClient) SetTokens(accessToken, refreshToken string, accessExpiry time.Time) (Tokens, error) {
-	if accessToken == "" {
+	if accessToken == "" && refreshToken == "" {
 		return Tokens{}, ErrNotAuthenticated
+	}
+	if accessExpiry.IsZero() {
+		accessExpiry = jwtExpiry(accessToken)
 	}
 	return c.persist(Tokens{
 		AccessToken:  accessToken,
@@ -268,7 +279,11 @@ func (c *PanelClient) SetTokens(accessToken, refreshToken string, accessExpiry t
 	})
 }
 
-// IsAuthenticated сообщает, есть ли сохранённые токены.
+// IsAuthenticated сообщает, есть ли ПРИГОДНАЯ сессия — то есть такая, с которой
+// авторизованный запрос имеет шанс пройти (см. Tokens.Valid). Наличия строки в
+// поле access для этого недостаточно: протухший access без refresh это не
+// авторизация, и отвечать здесь «да» значит отправить вызывающего в 401 без
+// пути назад.
 func (c *PanelClient) IsAuthenticated() bool {
 	if err := c.ensureLoaded(); err != nil {
 		return false
@@ -290,7 +305,9 @@ func (c *PanelClient) AccessToken(ctx context.Context) (string, error) {
 	if !t.Valid() {
 		return "", ErrNotAuthenticated
 	}
-	if t.expired(expirySkew) {
+	// Пустой access при живом refresh — законное состояние после инъекции
+	// «только refresh»; обновляемся, а не отдаём пустую строку в заголовок.
+	if t.AccessToken == "" || t.expired(expirySkew) {
 		nt, err := c.Refresh(ctx)
 		if err != nil {
 			return "", err

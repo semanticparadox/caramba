@@ -51,6 +51,26 @@ typedef _DConfigure =
       Pointer<Utf8> accessToken,
     );
 
+// ABI v4: шов аутентификации целиком — access + refresh + срок жизни access.
+typedef _CConfigureSession =
+    Pointer<Utf8> Function(
+      Int64 h,
+      Pointer<Utf8> panelURL,
+      Pointer<Utf8> subscriptionID,
+      Pointer<Utf8> accessToken,
+      Pointer<Utf8> refreshToken,
+      Int64 accessExpiryUnix,
+    );
+typedef _DConfigureSession =
+    Pointer<Utf8> Function(
+      int h,
+      Pointer<Utf8> panelURL,
+      Pointer<Utf8> subscriptionID,
+      Pointer<Utf8> accessToken,
+      Pointer<Utf8> refreshToken,
+      int accessExpiryUnix,
+    );
+
 typedef _CImport =
     Pointer<Utf8> Function(Int64 h, Pointer<Utf8> raw, Pointer<Utf8> format);
 typedef _DImport =
@@ -220,16 +240,55 @@ class CarambaCoreLibrary {
     (p) => _new(p[0], p[1], p[2], p[3]),
   );
 
-  /// `CarambaConfigure`. Возвращает текст ошибки или '' при успехе.
+  /// `CarambaConfigureSession` (ABI v4). Текст ошибки или '' при успехе.
+  ///
+  /// Символ резолвится ЛЕНИВО, как и остальные добавленные в ABI: dylib на
+  /// диске может быть старее приложения. Если его там нет, есть ровно два
+  /// честных исхода, и молчаливой потери refresh среди них нет:
+  ///
+  ///   * refresh передавать нечего — зовём устаревший `CarambaConfigure`,
+  ///     семантика ровно та же, терять нечего;
+  ///   * refresh есть — [CarambaCoreMissingSymbol], то есть «пересоберите
+  ///     ядро». Тихо уронить его в старый вызов значило бы вернуть ту самую
+  ///     поломку, ради которой символ и появился, и обнаружилась бы она через
+  ///     15 минут в совершенно другом месте.
   String configure(
     int handle, {
     required String panelUrl,
     required String subscriptionUuid,
     required String accessToken,
-  }) => _withStrings(
-    <String>[panelUrl, subscriptionUuid, accessToken],
-    (p) => _takeError(_configure(handle, p[0], p[1], p[2])),
-  );
+    String refreshToken = '',
+    int accessExpiryUnix = 0,
+  }) {
+    final session = _lookupConfigureSession(required: refreshToken.isNotEmpty);
+    if (session == null) {
+      return _withStrings(
+        <String>[panelUrl, subscriptionUuid, accessToken],
+        (p) => _takeError(_configure(handle, p[0], p[1], p[2])),
+      );
+    }
+    return _withStrings(
+      <String>[panelUrl, subscriptionUuid, accessToken, refreshToken],
+      (p) => _takeError(
+        session(handle, p[0], p[1], p[2], p[3], accessExpiryUnix),
+      ),
+    );
+  }
+
+  /// Резолвит `CarambaConfigureSession`. `null` — символа нет и он не был
+  /// обязателен; при [required] отсутствие символа бросает.
+  _DConfigureSession? _lookupConfigureSession({required bool required}) {
+    try {
+      return _lib.lookupFunction<_CConfigureSession, _DConfigureSession>(
+        'CarambaConfigureSession',
+      );
+    } on ArgumentError {
+      if (required) {
+        throw CarambaCoreMissingSymbol('CarambaConfigureSession', path);
+      }
+      return null;
+    }
+  }
 
   /// `CarambaImportSubscription`. JSON метаданных либо `{"error":...}`.
   String importSubscription(int handle, String raw, String format) =>

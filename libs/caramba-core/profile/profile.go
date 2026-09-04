@@ -276,6 +276,15 @@ var (
 	//
 	// IP-форма убирает саму зависимость от начального резолвинга.
 	DefaultDomesticNameservers = []string{"https://77.88.8.8/dns-query"}
+	// NeutralDomesticNameservers — прямая половина раскола для страны, которая
+	// ИЗВЕСТНА и в domesticResolvers не значится: там нет цензуры, ради которой
+	// раскол задумывался, и нет причины отдавать прямой трафик национальному
+	// резолверу другой страны.
+	//
+	// Это тот же Quad9, что и в DefaultNameservers, но записанный адресом, а не
+	// именем, — по той же причине, что и строкой выше: резолвер, заданный
+	// именем, внутри туннеля сам нуждается в разрешении имени.
+	NeutralDomesticNameservers = []string{"https://9.9.9.9/dns-query"}
 )
 
 // domesticResolvers — домашний резолвер по ISO-коду страны. Список намеренно
@@ -286,12 +295,31 @@ var domesticResolvers = map[string][]string{
 	"CN": {"https://doh.pub/dns-query"},
 }
 
-// DomesticResolvers возвращает домашний резолвер страны. Неизвестная или
-// пустая страна отдаёт DefaultDomesticNameservers.
+// DomesticResolvers возвращает домашний резолвер для страны пользователя.
+//
+// Три ветки, и различать их обязательно:
+//
+//   - страна есть в таблице (RU/BY/CN) — её резолвер. Это страны, где
+//     зарубежный DoH недоступен, ради них раскол и существует.
+//   - страна ИЗВЕСТНА, но в таблице её нет (US, DE, …) — общий резолвер
+//     (DefaultNameservers). Здесь раскола нет и быть не должно: раньше эта
+//     ветка возвращала DefaultDomesticNameservers, то есть 77.88.8.8 — Яндекс
+//     резолвил прямой трафик американскому пользователю просто потому, что
+//     российское умолчание стояло на месте «всех остальных».
+//   - страна ПУСТА (не знаем) — DefaultDomesticNameservers, прежнее
+//     компилируемое умолчание. Менять его нельзя: оно выбрано полевыми
+//     данными для случая, когда клиент поднимается там, где общий DoH не
+//     работает, и «неизвестно» надёжнее трактовать в эту сторону.
 func DomesticResolvers(iso string) []string {
-	if r, ok := domesticResolvers[strings.ToUpper(strings.TrimSpace(iso))]; ok {
+	iso = strings.ToUpper(strings.TrimSpace(iso))
+	if r, ok := domesticResolvers[iso]; ok {
 		out := make([]string, len(r))
 		copy(out, r)
+		return out
+	}
+	if iso != "" {
+		out := make([]string, len(NeutralDomesticNameservers))
+		copy(out, NeutralDomesticNameservers)
 		return out
 	}
 	out := make([]string, len(DefaultDomesticNameservers))

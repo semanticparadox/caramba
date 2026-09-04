@@ -24,13 +24,24 @@
 #
 # Экспортируемая поверхность mobile.Client, которую потребляет нативный плагин
 # (канал com.caramba/vpn): NewClient, Configure(panelURL,subscriptionID,
-# accessToken), SetTunFd, Up→JSON, Down, StatusJSON→{stage,detail?,
-# connectedSinceMs}, TrafficJSON→{downBps,upBps,downTotal,upTotal}, плюс
+# accessToken,refreshToken,accessExpiryUnix), SetTunFd, Up→JSON, Down,
+# StatusJSON→{stage,detail?,connectedSinceMs},
+# TrafficJSON→{downBps,upBps,downTotal,upTotal}, плюс
 # Login*/SetProtocol/SetRelay/ApplyPreset/SetSplitTunnel/ListPresets/AutoTune.
 #
-# Куда вендорится артефакт:
-#   android → apps/caramba-client/android/caramba_vpn/libs/exarobot.aar
-#   ios     → apps/caramba-client/ios/Frameworks/exarobot.xcframework
+# Менять сигнатуру любого из этих методов — значит менять ABI вендоренного AAR.
+# Сам по себе APK об этом не узнает: Gradle соберётся против ТОГО .aar, что
+# лежит в packages/caramba_vpn/android/libs/, и молча увезёт старое ядро. После
+# правки mobile/ этот скрипт обязателен, а результат — перекопировать поверх
+# packages/caramba_vpn/android/libs/caramba.aar. Проверить, что доехало:
+#   unzip -p .../caramba.aar classes.jar > /tmp/c.jar && \
+#   javap -classpath /tmp/c.jar io.caramba.core.mobile.Client | grep configure
+#
+# Куда вендорится артефакт (пути ведут в плагин packages/caramba_vpn, а не в
+# приложение: именно их читают build.gradle и caramba_vpn.podspec):
+#   android → apps/caramba-client/packages/caramba_vpn/android/libs/caramba.aar
+#   ios     → apps/caramba-client/packages/caramba_vpn/darwin/Frameworks/ios/exarobot.xcframework
+#   macos   → apps/caramba-client/packages/caramba_vpn/darwin/Frameworks/macos/exarobot.xcframework
 #
 set -euo pipefail
 

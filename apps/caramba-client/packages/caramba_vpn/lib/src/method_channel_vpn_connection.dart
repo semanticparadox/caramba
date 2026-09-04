@@ -180,13 +180,9 @@ class MethodChannelVpnConnection<S extends Object> implements VpnConnection<S> {
     if (resolver == null) return;
     final cfg = await resolver();
     if (cfg == null || !cfg.isComplete) return;
-    final prev = _appliedConfig;
-    if (prev != null &&
-        prev.panelUrl == cfg.panelUrl &&
-        prev.subscriptionUuid == cfg.subscriptionUuid &&
-        prev.accessToken == cfg.accessToken) {
-      return;
-    }
+    // Сравнение живёт в самом VpnConfig (operator ==). Выписанное здесь руками,
+    // оно забывало каждое новое поле — так из него выпал refresh-токен.
+    if (_appliedConfig == cfg) return;
     await _method.invokeMethod<void>('configure', cfg.toArgs());
     _appliedConfig = cfg;
   }

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:caramba_client/data/models/exit_location.dart';
+import 'package:caramba_client/data/models/server.dart';
 import 'package:caramba_client/data/safe_url.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
@@ -306,6 +308,119 @@ class CodeChip extends StatelessWidget {
         text,
         style: AppType.monoMd.copyWith(color: c.textHi, letterSpacing: 0.5),
       ),
+    );
+  }
+}
+
+/// Страна на строке: ФЛАГ и код рядом.
+///
+/// Код не убран в пользу флага намеренно. Флаг просили показывать, и он теперь
+/// первый — но идентификатор страны во всём приложении это ISO-2: по нему
+/// группируется список, ищется имя и уходит выбор. Флаг без кода превратил бы
+/// строку в картинку, которую нельзя ни назвать, ни сверить с тостом, а
+/// нейтральный глиф (страна не названа твёрдо) без кода не сказал бы вообще
+/// ничего.
+///
+/// [flag] сюда приходит уже решённым (`flagOf` / `flagOfGuessedCountry`);
+/// виджет ничего не выводит сам. [code] пустой — страна неизвестна, и вместо
+/// кода стоит `··`, как и раньше.
+class FlagChip extends StatelessWidget {
+  final String flag;
+  final String code;
+
+  const FlagChip({required this.flag, required this.code, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final label = code.isEmpty ? '··' : code;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      constraints: const BoxConstraints(minWidth: 40),
+      decoration: BoxDecoration(
+        color: c.surfaceInset,
+        borderRadius: AppRadius.r8,
+        border: Border.all(color: c.borderSubtle),
+      ),
+      alignment: Alignment.center,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(flag, style: const TextStyle(fontSize: 14, height: 1.2)),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: AppType.monoSm.copyWith(color: c.textHi, letterSpacing: 0.5),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Значение задержки С УКАЗАНИЕМ АВТОРА.
+///
+/// Без подписи «42 мс» — это утверждение о расстоянии до пользователя, а панель
+/// такого числа не производит: её `latency_ms` меряет узел до своей цели раз в
+/// ~30 с. Поэтому число оператора показывается, но подписано оператором, а
+/// собственный замер — своим именем. Прочерк означает «никто не мерил», и он
+/// честнее нуля.
+class LatencyReadout extends StatelessWidget {
+  final Latency latency;
+
+  const LatencyReadout(this.latency, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final color = switch (latency.bucket) {
+      PingBucket.good => c.success,
+      PingBucket.fair => c.warning,
+      PingBucket.poor => c.danger,
+      PingBucket.timeout => c.danger,
+      null => c.textLow,
+    };
+    final caption = switch (latency.source) {
+      LatencySource.client => 'ваш пинг',
+      LatencySource.operator => 'от оператора',
+      LatencySource.measuring => 'меряю',
+      LatencySource.none => null,
+    };
+
+    final Widget value;
+    if (latency.source == LatencySource.measuring) {
+      value = SizedBox(
+        width: 12,
+        height: 12,
+        child: CircularProgressIndicator(strokeWidth: 1.5, color: c.textLow),
+      );
+    } else if (latency.isTimeout) {
+      // Таймаут — точка цвета danger: числа тут нет, а «-1 мс» врал бы.
+      value = Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      );
+    } else {
+      value = Text(
+        latency.ms == null ? '-' : '${latency.ms} мс',
+        style: AppType.monoSm.copyWith(color: color),
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        value,
+        if (caption != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            caption,
+            style: AppType.bodySm.copyWith(color: c.textLow, fontSize: 10),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -649,6 +764,7 @@ Future<int?> showPickerSheet({
   required String subtitle,
   required List<({String name, String desc, String? icon})> options,
   required int selected,
+
   /// Индексы, которые видны, но не выбираемы, и подпись причины к каждому.
   ///
   /// 02-SPEC.md 7.2 и 7.9: значение, которого оператор не предлагает или

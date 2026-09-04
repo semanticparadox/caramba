@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 )
 
 // listenLocal поднимает TCP-слушателя на свободном порту петли и возвращает его
@@ -219,5 +220,97 @@ func TestProbeBrokenConfig(t *testing.T) {
 		t.Fatal("ожидалась ошибка разбора")
 	} else if !strings.Contains(err.Error(), "api:") {
 		t.Fatalf("ошибка без контекста пакета: %v", err)
+	}
+}
+
+// panelCore — ядро на панельном пути: настроенная панель и инъецированный токен,
+// то есть ровно то состояние, в котором приложение спрашивает про задержки ДО
+// подъёма туннеля.
+//
+// Сеть в этих тестах не поднимается: выборка подписки идёт через лестницу
+// транспортов, а та требует настоящего TLS (инвариант 8, `CheckFetchURL`), и
+// самоподписанный httptest ей не подсунуть. Поэтому проверяется ГРАНИЦА
+// поведения — ходит ядро за конфигом или нет, — а не содержимое ответа: сам
+// замер загруженного конфига покрыт тестами выше.
+func panelCore(t *testing.T, base string) *Core {
+	t.Helper()
+	dir := t.TempDir()
+	core, err := NewCore(Config{
+		PanelBaseURL:   base,
+		SubBaseURL:     base,
+		WorkDir:        dir,
+		TokenStorePath: dir + "/tokens.json",
+	})
+	if err != nil {
+		t.Fatalf("NewCore: %v", err)
+	}
+	if err := core.InjectToken("access-token", "", time.Now().Add(time.Hour).Unix(), "sub-uuid"); err != nil {
+		t.Fatalf("InjectToken: %v", err)
+	}
+	return core
+}
+
+// ГЛАВНОЕ по панельному пути: ядро идёт за конфигом САМО, до первого Up.
+//
+// Конфиг там кэшировался только внутри Up, поэтому ядро, заведённое приложением
+// специально под замер, отвечало `{"servers":[]}` без ошибки — «Ядро не вернуло
+// ни одного узла». Пустой ответ и есть та регрессия, которую тест ловит: теперь
+// ядро обязано либо померить узлы, либо назвать причину, по которой не смогло их
+// взять, но не молчать.
+func TestProbeFetchesPanelProfileBeforeUp(t *testing.T) {
+	core := panelCore(t, "https://panel.invalid")
+
+	rep, err := core.Probe(context.Background(), 500)
+	if err == nil {
+		t.Fatalf("ожидалась причина неудачи, получен отчёт %+v", rep.Servers)
+	}
+	if !strings.Contains(err.Error(), "загрузка узлов подписки для замера") {
+		t.Fatalf("ошибка не про загрузку узлов для замера: %v", err)
+	}
+}
+
+// Загруженный конфиг сильнее панели: в сеть за тем же телом ядро не идёт.
+//
+// Иначе каждый повторный замер стоил бы round-trip к подписке — а на панельном
+// пути этот round-trip сегодня ещё и идёт через российский релэй.
+func TestProbePrefersLoadedConfigOverPanel(t *testing.T) {
+	core := panelCore(t, "https://panel.invalid")
+	a1, a2, dead := listenLocal(t), listenLocal(t), closedPort(t)
+	if err := core.SetImportedConfig([]byte(probeFixture(a1, a2, dead))); err != nil {
+		t.Fatalf("SetImportedConfig: %v", err)
+	}
+
+	rep, err := core.Probe(context.Background(), 2000)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if len(rep.Servers) != 3 {
+		t.Fatalf("узлов %d, ожидалось 3: %+v", len(rep.Servers), rep.Servers)
+	}
+	if rep.Servers[0].LatencyMs < 1 {
+		t.Fatalf("живой узел должен дать задержку >= 1мс: %+v", rep.Servers[0])
+	}
+}
+
+// Панель настроена, но вход не выполнен — по-прежнему пустой список без ошибки:
+// спросить про задержки до входа приложение вправе, и ходить за конфигом,
+// которого ему не дадут, незачем.
+func TestProbeWithoutAuthStaysEmpty(t *testing.T) {
+	dir := t.TempDir()
+	core, err := NewCore(Config{
+		PanelBaseURL:   "https://panel.invalid",
+		SubBaseURL:     "https://panel.invalid",
+		WorkDir:        dir,
+		TokenStorePath: dir + "/tokens.json",
+	})
+	if err != nil {
+		t.Fatalf("NewCore: %v", err)
+	}
+	rep, err := core.Probe(context.Background(), 200)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if len(rep.Servers) != 0 {
+		t.Fatalf("без входа ожидался пустой список, получено %+v", rep.Servers)
 	}
 }

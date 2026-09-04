@@ -110,13 +110,23 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
         case "configure":
             let args = call.arguments as? [String: Any] ?? [:]
             // Capture the auth + endpoint params the extension needs to call
-            // Configure(panelURL, subscriptionID, accessToken) on the Go core, plus
+            // Configure(panelURL, subscriptionID, accessToken, refreshToken,
+            // accessExpiryUnix) on the Go core, plus
             // optional policy. The values are stored on the provider configuration
             // (an App Group plist) so the out-of-process extension can read them.
             for key in [CarambaVpnKeys.panelUrl, CarambaVpnKeys.subscriptionUuid,
-                        CarambaVpnKeys.accessToken, CarambaVpnKeys.protocolName,
+                        CarambaVpnKeys.accessToken, CarambaVpnKeys.refreshToken,
+                        CarambaVpnKeys.protocolName,
                         CarambaVpnKeys.relayCountry, CarambaVpnKeys.presetId] {
                 if let v = args[key] { pendingConfig[key] = v }
+            }
+            // The expiry arrives as a number on the channel and has to live in a
+            // plist, so it is normalized to a String here rather than at four
+            // separate read sites. Absent -> "0", which the core reads as
+            // "unknown" and answers by parsing the JWT's own exp claim.
+            if let exp = args[CarambaVpnKeys.accessExpiryUnix] {
+                pendingConfig[CarambaVpnKeys.accessExpiryUnix] =
+                    String(describing: (exp as? NSNumber)?.int64Value ?? 0)
             }
             // Wire-key compatibility: the canonical key is `subscriptionUuid`, but
             // older callers send `subscriptionId`. Accept either, store the canonical.
@@ -618,8 +628,11 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
         try client.setDeviceKeyBridge(CarambaGoDeviceKeyBridge(keys: deviceKeys))
         let subscription = pendingConfig[CarambaVpnKeys.subscriptionUuid] as? String ?? ""
         let token = pendingConfig[CarambaVpnKeys.accessToken] as? String ?? ""
+        let refresh = pendingConfig[CarambaVpnKeys.refreshToken] as? String ?? ""
+        let expiry = Int64(pendingConfig[CarambaVpnKeys.accessExpiryUnix] as? String ?? "") ?? 0
         if !subscription.isEmpty || !token.isEmpty {
-            try client.configure(panelUrl, subscriptionID: subscription, accessToken: token)
+            try client.configure(panelUrl, subscriptionID: subscription, accessToken: token,
+                                 refreshToken: refresh, accessExpiryUnix: expiry)
         }
         if !csmProfileKey.isEmpty {
             try client.csmSelectProfile(csmProfileKey)

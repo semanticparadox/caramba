@@ -48,7 +48,7 @@ void main() {
       final r = await probeCarambaPanel('https://p.example/sub/u', client: _dio(a));
       expect(r, isNotNull);
       expect(r!.origin, 'https://p.example');
-      expect(r.displayName, 'Панель X');
+      expect(r.brandName, 'Панель X');
       expect(a.calls, 1);
     });
 
@@ -62,10 +62,16 @@ void main() {
       expect(await probeCarambaPanel('https://p.example/sub/u', client: _dio(a)), isNull);
     });
 
-    test('без имени бренда показываем хост', () async {
+    // Раньше здесь ожидался хост: геттер подставлял его вместо пустого бренда,
+    // и адрес панели уезжал в заголовок листа импорта у каждого оператора,
+    // который брендинг не заполнял. Подстановки больше нет — решение, чем
+    // заменить отсутствующее имя, принимает вызывающий, и объясняет его у себя
+    // (panel_address_exposure_test.dart).
+    test('без имени бренда имени нет, а хост не подставляется', () async {
       final a = _Adapter(200, '{"bot_url":"https://t.me/b"}');
       final r = await probeCarambaPanel('https://p.example/sub/u', client: _dio(a));
-      expect(r!.displayName, 'p.example');
+      expect(r!.brandName, isEmpty);
+      expect(r.origin, 'https://p.example');
     });
   });
 }

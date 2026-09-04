@@ -18,6 +18,10 @@ import (
 // которого в этой сборке нет.
 func defaultTunnelReason() Reason { return ReasonAppVersionUnsupported }
 
+// utlsALPN: соединений uTLS в этой сборке не бывает, поэтому ALPN читает общий
+// путь negotiatedALPN через *tls.Conn.
+func utlsALPN(net.Conn) (string, bool) { return "", false }
+
 // dialTLSConn открывает TLS соединение стандартным crypto/tls и применяет
 // SPKI пины поверх обычной проверки цепочки.
 func dialTLSConn(ctx context.Context, t Target, addr string) (net.Conn, error) {

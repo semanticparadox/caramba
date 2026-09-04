@@ -170,7 +170,7 @@ fn canonicalize_ip(ip: std::net::IpAddr) -> std::net::IpAddr {
     }
 }
 
-fn extract_client_ip(headers: &axum::http::HeaderMap) -> String {
+pub(crate) fn extract_client_ip(headers: &axum::http::HeaderMap) -> String {
     let raw = headers
         .get("cf-connecting-ip")
         .or_else(|| headers.get("x-forwarded-for"))
@@ -229,39 +229,131 @@ where
     nodes.insert(0, node);
 }
 
+/// Страна клиента: заголовок обратного прокси важнее GeoIP.
+///
+/// `None` означает ровно «не знаем», а не «нигде»: MaxMind-базы может не быть,
+/// внешний сервис мог не ответить, адрес мог оказаться приватным. Все решения,
+/// принимаемые по этому значению, обязаны отдельно описывать ветку `None` —
+/// молча подставлять страну нельзя.
+pub(crate) async fn resolve_client_country(
+    state: &AppState,
+    client_ip: &str,
+    header_cc: Option<&str>,
+) -> Option<String> {
+    if let Some(cc) = header_cc {
+        return Some(cc.to_string());
+    }
+    state
+        .geo_service
+        .get_location(client_ip)
+        .await
+        .map(|geo| geo.country_code.to_uppercase())
+}
+
+/// Страны активных релеев этой установки, ISO-2 в верхнем регистре.
+///
+/// Кешируется на минуту в процессе: значение меняется только когда админ
+/// добавляет или гасит релей, а спрашивают его на каждой выдаче подписки.
+async fn active_relay_countries(state: &AppState) -> Vec<String> {
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+
+    static CACHE: OnceLock<Mutex<Option<(Vec<String>, Instant)>>> = OnceLock::new();
+    let cell = CACHE.get_or_init(|| Mutex::new(None));
+
+    if let Ok(guard) = cell.lock()
+        && let Some((cached, ts)) = guard.as_ref()
+        && ts.elapsed() < Duration::from_secs(60)
+    {
+        return cached.clone();
+    }
+
+    let rows: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT UPPER(country_code) FROM nodes \
+         WHERE is_relay = TRUE AND status = 'active' AND country_code IS NOT NULL",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    if let Ok(mut guard) = cell.lock() {
+        *guard = Some((rows.clone(), Instant::now()));
+    }
+    rows
+}
+
+/// Обслуживает ли зеркало подписки (`subscription_domain`) клиента из этой
+/// страны — то есть надо ли отправлять его туда вместо панели.
+///
+/// Настройка `subscription_domain_countries`:
+///   `relays` (умолчание) — страны, где у установки есть активный релей;
+///   `*`                  — все (прежнее безусловное поведение);
+///   пустая строка        — никто, тело всегда отдаёт панель;
+///   `RU,BY`              — явный список ISO-2.
+///
+/// Неизвестная страна НЕ отправляется на зеркало (кроме режима `*`). Причина
+/// не в осторожности, а в том, что известно: запрос уже дошёл до панели, то
+/// есть прямой путь у этого клиента заведомо работает. Гнать его в обход по
+/// догадке значит менять доказанное на предполагаемое.
+///
+/// Режим `relays` при отсутствии активных релеев вырождается в `*`. Установка,
+/// где домен подписки задан, а релеев нет, использует его не как «вход для
+/// страны», а как обычный фронт (CDN, отдельный домен), и отнимать его молча
+/// нельзя.
+pub(crate) async fn mirror_serves_country(state: &AppState, client_cc: Option<&str>) -> bool {
+    let raw = state
+        .settings
+        .get_or_default("subscription_domain_countries", "relays")
+        .await;
+    // Список релеев спрашиваем только в режиме `relays` — в остальных он на
+    // решение не влияет, а это запрос к базе.
+    let relays = if raw.trim().eq_ignore_ascii_case("relays") {
+        active_relay_countries(state).await
+    } else {
+        Vec::new()
+    };
+    mirror_country_decision(&raw, &relays, client_cc)
+}
+
+/// Чистая половина [`mirror_serves_country`]: всё решение без базы и настроек.
+/// Вынесена ради тестов — ветки здесь такие, что ошибка в любой из них тихо
+/// уводит целую страну не туда.
+fn mirror_country_decision(mode: &str, relay_countries: &[String], client_cc: Option<&str>) -> bool {
+    let mode = mode.trim();
+
+    if mode == "*" {
+        return true;
+    }
+    if mode.is_empty() {
+        return false;
+    }
+
+    let list: Vec<String> = if mode.eq_ignore_ascii_case("relays") {
+        if relay_countries.is_empty() {
+            return true;
+        }
+        relay_countries.to_vec()
+    } else {
+        mode.split(',')
+            .map(|s| s.trim().to_uppercase())
+            .filter(|s| s.len() == 2)
+            .collect()
+    };
+
+    match client_cc {
+        Some(cc) => list.iter().any(|c| c.eq_ignore_ascii_case(cc)),
+        None => false,
+    }
+}
+
 pub async fn subscription_handler(
     Path(uuid): Path<String>,
     Query(params): Query<SubParams>,
     State(state): State<AppState>,
     req: Request,
 ) -> Response {
-    // 0. Smart Routing: Redirect if subscription_domain is set and we are not on it
-    let sub_domain = state
-        .settings
-        .get_or_default("subscription_domain", "")
-        .await;
-    if !sub_domain.is_empty()
-        && let Some(host) = req
-            .headers()
-            .get(header::HOST)
-            .and_then(|h| h.to_str().ok())
-    {
-        let host_clean = host.split(':').next().unwrap_or(host);
-        let sub_domain_clean = sub_domain.split(':').next().unwrap_or(&sub_domain);
-
-        if host_clean != sub_domain_clean {
-            let proto = "https";
-            let query = req
-                .uri()
-                .query()
-                .map(|q| format!("?{}", q))
-                .unwrap_or_default();
-            let full_url = format!("{}://{}/sub/{}{}", proto, sub_domain, uuid, query);
-            return axum::response::Redirect::permanent(&full_url).into_response();
-        }
-    }
-
-    // 0.5 Extract IP, User-Agent, and country header for tracking
+    // 0. Кто спрашивает. Разбор заголовков стоит ноль и поднят сюда потому, что
+    // от страны клиента теперь зависит сам способ доставки (шаг 1.5).
     let user_agent = req
         .headers()
         .get(header::USER_AGENT)
@@ -291,7 +383,81 @@ pub async fn subscription_handler(
         }
     }
 
-    // 2. Get subscription
+    // 1.5 Страна клиента: заголовок обратного прокси важнее GeoIP.
+    //
+    // Считается ДО решения о доставке и переиспользуется ниже (фильтр релеев,
+    // ключ кеша) — второго обращения к GeoIP в этом хендлере больше нет.
+    // Порядок «сначала лимит, потом GeoIP» намеренный: промах кеша GeoIP это
+    // исходящий HTTP-запрос, и он не должен выполняться чаще, чем 30 раз в
+    // минуту на подписку. Побочный эффект: клиент, упёршийся в лимит, получает
+    // 429 там, где раньше получал редирект. Это правильнее — редирект теперь
+    // решение, а не константа, и стоит запроса к геобазе.
+    let client_cc = resolve_client_country(&state, &client_ip, client_country_header.as_deref()).await;
+
+    // 2. Куда отдавать тело: с панели напрямую или через зеркало подписки.
+    //
+    // Раньше здесь стоял безусловный 308 на `subscription_domain`, и он гнал
+    // ЛЮБОГО клиента через зеркало. На этой установке зеркало — российский
+    // релей, поэтому американский пользователь ходил за своим конфигом в
+    // Россию и обратно в Польшу.
+    //
+    // Важно понять, чего редирект не умеет: чтобы его увидеть, надо СНАЧАЛА
+    // дотянуться до панели. Клиенту, у которого панель заблокирована, он не
+    // помогает никак — тот просто не доходит до этой строки. Значит редирект
+    // никогда не покупает достижимость, он только закрепляет клиента за
+    // доменом зеркала. Это ценно ровно для той страны, ради которой зеркало и
+    // стоит, и является чистым крюком для всех остальных.
+    //
+    // Отсюда правило: зеркало получает тех, кого оно обслуживает
+    // (`subscription_domain_countries`), остальные — тело прямо здесь.
+    // Мёртвой ссылки не появляется ни у кого: запрос уже дошёл, а адрес
+    // зеркала не изменился.
+    //
+    // Редирект остался ПОСТОЯННЫМ (308) сознательно. Для страны, которую
+    // зеркало обслуживает, «запомни этот адрес навсегда» — не ложь, а ровно то,
+    // что нужно: клиент переписывает у себя ссылку на домен, который переживёт
+    // блокировку панельного. Цена известна и названа: россиянин, переехавший в
+    // США, останется с закешированным крюком, пока не обновит подписку заново.
+    //
+    // Порядок проверок важен для стоимости: сравнение хостов бесплатно, а
+    // решение о стране может стоить запроса к базе. Запрос, ПРИШЕДШИЙ с
+    // зеркала, узнаётся по Host и не платит ничего — а это весь российский
+    // трафик: caramba-sub обращается к панели с `Host: app.exarobot.top`
+    // (FRONTEND_DOMAIN), и для него условие ниже ложно всегда.
+    let sub_domain = state
+        .settings
+        .get_or_default("subscription_domain", "")
+        .await;
+    if !sub_domain.is_empty()
+        && let Some(host) = req
+            .headers()
+            .get(header::HOST)
+            .and_then(|h| h.to_str().ok())
+    {
+        let host_clean = host.split(':').next().unwrap_or(host);
+        let sub_domain_clean = sub_domain.split(':').next().unwrap_or(&sub_domain);
+
+        if host_clean != sub_domain_clean
+            && mirror_serves_country(&state, client_cc.as_deref()).await
+        {
+            let proto = "https";
+            let query = req
+                .uri()
+                .query()
+                .map(|q| format!("?{}", q))
+                .unwrap_or_default();
+            let full_url = format!("{}://{}/sub/{}{}", proto, sub_domain, uuid, query);
+            tracing::info!(
+                "Subscription delivery: mirror, client_ip={}, country={}, to={}",
+                client_ip,
+                client_cc.as_deref().unwrap_or("unknown"),
+                sub_domain_clean
+            );
+            return axum::response::Redirect::permanent(&full_url).into_response();
+        }
+    }
+
+    // 3. Get subscription
     let sub = match state
         .subscription_service
         .get_subscription_by_uuid(&uuid)
@@ -842,16 +1008,10 @@ function copyLink(){{
         other => other,
     };
 
-    // Determine client country: header from reverse proxy > GeoIP service.
-    // Needed for: 1) relay geo-filtering, 2) cache key (different countries = different configs).
-    let client_cc: Option<String> = match &client_country_header {
-        Some(cc) => Some(cc.clone()),
-        None => state
-            .geo_service
-            .get_location(&client_ip)
-            .await
-            .map(|geo| geo.country_code.to_uppercase()),
-    };
+    // Страна клиента уже определена на шаге 1.5 — она понадобилась там, чтобы
+    // выбрать способ доставки. Здесь её только используют: фильтр релеев,
+    // ключ кеша (разные страны — разные тела) и заголовок ответа.
+    let client_country_header_value = client_cc.clone().unwrap_or_else(|| "unknown".to_string());
     if client_cc.is_none() {
         warn!(
             "GeoIP lookup failed for client_ip={}, country_header={:?} — relay filtering will include all relays",
@@ -917,6 +1077,15 @@ function copyLink(){{
                 (
                     header::HeaderName::from_static("profile-update-interval"),
                     "2",
+                ),
+                // Страна, которую панель увидела у этого клиента. Клиент сам её не
+                // знает — ни ядро, ни приложение геобазы не носят, — а от неё
+                // зависит выбор пресета и домашнего резолвера. Отдаём то, что
+                // есть, включая честное "unknown": подставлять страну по догадке
+                // здесь значит увести пользователя в чужой национальный режим.
+                (
+                    header::HeaderName::from_static("x-client-country"),
+                    client_country_header_value.as_str(),
                 ),
             ],
             cached_config,
@@ -1051,6 +1220,15 @@ function copyLink(){{
                 header::HeaderName::from_static("profile-update-interval"),
                 "2",
             ),
+            // Страна, которую панель увидела у этого клиента. Клиент сам её не
+            // знает — ни ядро, ни приложение геобазы не носят, — а от неё
+            // зависит выбор пресета и домашнего резолвера. Отдаём то, что
+            // есть, включая честное "unknown": подставлять страну по догадке
+            // здесь значит увести пользователя в чужой национальный режим.
+            (
+                header::HeaderName::from_static("x-client-country"),
+                client_country_header_value.as_str(),
+            ),
         ],
         content,
     )
@@ -1059,11 +1237,73 @@ function copyLink(){{
 
 #[cfg(test)]
 mod tests {
-    use super::{filter_nodes_for_subscription, normalize_relay_param, promote_pinned_node};
+    use super::{
+        filter_nodes_for_subscription, mirror_country_decision, normalize_relay_param,
+        promote_pinned_node,
+    };
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     struct TestNode {
         id: i64,
+    }
+
+    fn ru() -> Vec<String> {
+        vec!["RU".to_string()]
+    }
+
+    /// Живая расстановка этой установки: один активный релей, RU. Российский
+    /// клиент идёт на зеркало (домен релея — то, ради чего оно стоит),
+    /// американский получает тело с панели.
+    ///
+    /// Это ровно та жалоба владельца: «я просил делать так, чтобы те, кто не из
+    /// России, подписочный сервис напрямую из Польши брали».
+    #[test]
+    fn relays_mode_sends_only_the_relay_country_through_the_mirror() {
+        assert!(mirror_country_decision("relays", &ru(), Some("RU")));
+        assert!(mirror_country_decision("relays", &ru(), Some("ru")));
+        assert!(!mirror_country_decision("relays", &ru(), Some("US")));
+        assert!(!mirror_country_decision("relays", &ru(), Some("DE")));
+    }
+
+    /// Неизвестная страна остаётся на панели, и это не осторожность, а вывод из
+    /// факта: раз запрос дошёл, прямой путь у клиента работает. Единственное
+    /// исключение — явный режим `*`, где оператор сказал «все».
+    #[test]
+    fn an_unknown_country_is_never_guessed_into_the_mirror() {
+        assert!(!mirror_country_decision("relays", &ru(), None));
+        assert!(!mirror_country_decision("RU,BY", &[], None));
+        assert!(mirror_country_decision("*", &[], None));
+    }
+
+    /// Аварийный выход оператора в обе стороны: `*` — прежнее безусловное
+    /// поведение, пустая строка — зеркало не используется никем.
+    #[test]
+    fn the_operator_can_force_the_mirror_on_or_off_for_everyone() {
+        assert!(mirror_country_decision("*", &[], Some("US")));
+        assert!(!mirror_country_decision("", &ru(), Some("RU")));
+        assert!(!mirror_country_decision("   ", &ru(), Some("RU")));
+    }
+
+    /// Установка с доменом подписки, но без релеев, использует его как обычный
+    /// фронт. Режим `relays` там вырождается в прежнее поведение — иначе
+    /// апгрейд молча отнял бы у оператора домен, который он настроил сам.
+    #[test]
+    fn relays_mode_without_any_relay_keeps_the_old_blanket_behaviour() {
+        assert!(mirror_country_decision("relays", &[], Some("US")));
+        assert!(mirror_country_decision("relays", &[], None));
+    }
+
+    /// Явный список читается как список ISO-2: регистр и пробелы не значат
+    /// ничего, мусор длиной не в два символа отбрасывается и не становится
+    /// «страной», под которую случайно подойдёт чей-то код.
+    #[test]
+    fn an_explicit_country_list_is_parsed_as_iso2_and_nothing_else() {
+        let list = ["RU".to_string()];
+        assert!(mirror_country_decision(" ru , by ", &list, Some("BY")));
+        assert!(!mirror_country_decision(" ru , by ", &list, Some("US")));
+        // "rus" — не ISO-2, попасть в список не должен ни в каком виде.
+        assert!(!mirror_country_decision("rus", &list, Some("RU")));
+        assert!(!mirror_country_decision("rus", &list, Some("RUS")));
     }
 
     /// Только две формы — «релей страны XX» и «без релея» — являются выбором.
