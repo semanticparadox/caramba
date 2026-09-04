@@ -9,17 +9,18 @@ use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton
 /// уже отрисованные клавиатуры не обновляются сами).
 pub fn main_menu(lang: Lang, app_mode: bool, always_support: bool) -> KeyboardMarkup {
     if app_mode {
-        let mut row = Vec::new();
+        // Режим «только приложение» обязан оставлять дорогу В приложение.
+        //
+        // Раньше он прятал всё, кроме поддержки, — включая единственную кнопку,
+        // по которой бот отдаёт ссылку caramba://connect. Выпуск ссылки при этом
+        // работал и был выкачен, но нажать было негде: на боевой панели в этом
+        // режиме за всё время не выдалось ни одного кода. Функция, до которой
+        // нельзя дотянуться, ничем не отличается от отсутствующей.
+        let mut row = vec![KeyboardButton::new(t(lang, "menu.open_app"))];
         if always_support {
             row.push(KeyboardButton::new(t(lang, "menu.support")));
         }
-
-        if row.is_empty() {
-            // Return empty markup or hidden
-            return KeyboardMarkup::new(Vec::<Vec<KeyboardButton>>::new()).resize_keyboard();
-        } else {
-            return KeyboardMarkup::new(vec![row]).resize_keyboard();
-        }
+        return KeyboardMarkup::new(vec![row]).resize_keyboard();
     }
 
     KeyboardMarkup::new(vec![
