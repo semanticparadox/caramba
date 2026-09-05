@@ -557,4 +557,36 @@ void main() {
       expect(find.textContaining('код состояния 403'), findsOneWidget);
     });
   });
+
+  test('отказ панели с цифрами объясняется цифрами, а не «тремя случаями»', () {
+    // Живой ответ v0.9.81 через RU-зеркало: тело то же самое, что и раньше,
+    // а причина и числа приехали заголовками. Пока их не разбирали на импорте,
+    // человек читал общий текст поверх конкретного ответа.
+    final f = describeFailure(
+      const SubscriptionFetchException(
+        'ответ сервера 403',
+        statusCode: 403,
+        body: 'Subscription inactive or expired',
+        headers: <String, String>{
+          'x-caramba-st': '7',
+          'x-caramba-reason': '3003',
+          'x-caramba-state': 'quota_exceeded',
+          'x-caramba-reason-name': 'daily_allowance_exhausted',
+          'x-caramba-used': '262144000',
+          'x-caramba-limit': '209715200',
+          'x-caramba-period': 'day',
+          'x-caramba-resets-at': '1788652800',
+          'x-caramba-reset-lag': '1800',
+          'x-caramba-bytes-after-reset': '157286400',
+        },
+      ),
+    );
+
+    expect(f, isNotNull);
+    expect(f!.text, contains('200 МБ'));
+    expect(f.text, contains('250 МБ'));
+    expect(f.payable, isTrue);
+    expect(f.text, isNot(contains('в трёх случаях')));
+    expect(f.text, isNot(contains('throttled')));
+  });
 }

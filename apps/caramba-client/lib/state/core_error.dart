@@ -25,6 +25,8 @@ import 'package:flutter/services.dart' show PlatformException;
 import 'package:caramba_client/data/api_client.dart' show ApiException;
 import 'package:caramba_client/data/models/subscription.dart'
     show AccessKind, AccessState;
+import 'package:caramba_client/state/access_guard.dart'
+    show refusalFromResponse;
 import 'package:caramba_client/data/subscription_fetch.dart'
     show SubscriptionFetchException;
 
@@ -106,7 +108,13 @@ CarambaFailure? describeFailure(Object error, {AccessState? access}) {
       : _statusIn(raw);
   if (raw == null && code == null) return null;
 
-  final failure = _classify(raw ?? '', code, access);
+  // Отказ подписки несёт цифры С СОБОЙ — панель кладёт их в заголовки
+  // `x-caramba-*` и в `subscription-userinfo`. Пока их тут не разбирали,
+  // человек на импорте читал общее «так отвечают в трёх случаях», хотя
+  // конкретный ответ уже называл и причину, и расход, и время пополнения.
+  // Явно переданное состояние сильнее: вызывающий может знать больше ответа.
+  final state = access ?? _accessFromError(error);
+  final failure = _classify(raw ?? '', code, state);
   if (failure == null) return null;
   _remember(failure.text, raw);
   return failure;
@@ -123,6 +131,20 @@ CarambaFailure? describeText(String? raw, {AccessState? access}) {
   if (failure == null) return null;
   _remember(failure.text, text);
   return failure;
+}
+
+/// Состояние доступа, вытащенное из самого ответа панели.
+///
+/// Разбор один и тот же, что и у живого сторожа: два классификатора одного и
+/// того же отказа рано или поздно разошлись бы, и человек получил бы разные
+/// объяснения одной причины на разных экранах.
+AccessState? _accessFromError(Object error) {
+  if (error is! SubscriptionFetchException) return null;
+  return refusalFromResponse(
+    statusCode: error.statusCode,
+    body: error.body,
+    headers: error.headers,
+  )?.access;
 }
 
 /// Сырой текст исключения — ровно то, что раньше уходило на экран.
