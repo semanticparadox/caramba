@@ -8,55 +8,46 @@ import 'package:caramba_client/domain/offering/offering_providers.dart';
 import 'package:caramba_client/features/servers/access_card.dart';
 import 'package:caramba_client/features/servers/fleet_alignment.dart';
 import 'package:caramba_client/state/exit_inventory_state.dart';
-import 'package:caramba_client/theme/spacing.dart';
-import 'package:caramba_client/theme/tokens.dart';
-import 'package:caramba_client/theme/typography.dart';
 import 'package:caramba_client/widgets/lucide.dart';
 import 'package:caramba_client/widgets/ui.dart';
 
-/// Второй уровень выбора выхода: МАШИНЫ одной страны.
+/// Плоский список выходов: МАШИНЫ всех стран сразу.
 ///
-/// Здесь и была та самая жалоба: «восемь серверов» на экране оказывались
-/// восемью инбаундами одной машины. В теле подписки узла не существует как
-/// сущности — есть только прокси, — и экран честно перечислял прокси, называя
-/// их серверами. Поэтому строка теперь берётся из [Offering], где машина уже
+/// Раньше выбор шёл в два шага — страна, потом узел внутри неё, — и это была
+/// лишняя дверь: узлов у оператора десяток, а не сотня, и владелец сервиса
+/// прямо сказал, что хочет выбирать ноду сразу. Страна никуда не делась, она
+/// переехала В СТРОКУ: флаг и код слева, имя машины заголовком. Так её видно
+/// на том же экране, где делается выбор, а не уровнем выше.
+///
+/// Строка — МАШИНА, а не прокси. В теле подписки узла как сущности нет, есть
+/// только инбаунды, и восемь входов одной немецкой машины когда-то читались
+/// как восемь серверов. Поэтому строка берётся из [Offering], где машина уже
 /// восстановлена (по одинаковому `server:` в импорте, по `nodes.id` у панели),
-/// а её инбаунды лежат внутри неё и пересчитаны.
+/// а её инбаунды посчитаны и лежат бейджем. Протокол выбирается отдельно, на
+/// главном экране, и дублировать его строками списка незачем.
 ///
-/// Выбор при этом по-прежнему уходит через [ExitSelectionController], которому
-/// нужен [ExitNode]: у панели это `node_id`, у импорта — имя прокси, которое
-/// читает `connectRaw`. Машина разрешается в узел здесь, а не в контроллере,
-/// потому что связь «машина → её прокси» знает только предложение.
+/// Выбор уходит через [ExitSelectionController], которому нужен [ExitNode]: у
+/// панели это `node_id`, у импорта — имя прокси, которое читает `connectRaw`.
+/// Машина разрешается в узел здесь, а не в контроллере, потому что связь
+/// «машина → её прокси» знает только предложение.
 ///
 /// Виджет ничего не выбирает сам: он зовёт [onSelect], а решение — что делать с
 /// выбором и как показать результат синхронизации с панелью — принимает экран,
 /// который его встроил. Иначе политика выбора жила бы в двух местах.
-class CountryNodesView extends ConsumerWidget {
-  final ExitLocation location;
-
-  /// Вернуться к списку стран.
-  final VoidCallback onBack;
-
+class ExitNodeList extends ConsumerWidget {
   /// Выбран узел; `null` — строка «Авто» (пин снят, узел выбирает ядро).
   final void Function(ExitNode? node) onSelect;
 
-  const CountryNodesView({
-    required this.location,
-    required this.onBack,
-    required this.onSelect,
-    super.key,
-  });
+  const ExitNodeList({required this.onSelect, super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final c = context.c;
     final inventory = ref.watch(exitInventoryProvider);
-    final nodes = ref.watch(exitNodesInCountryProvider(location.countryCode));
     final offering = ref.watch(offeringProvider);
     final selectedKey = inventory.selectedNodeKey;
-    // Отказ подписки накрывает ВСЕ строки страны разом, включая те, что
-    // пришли из предложения: они описывают тот же флот, и оставить их
-    // нажимаемыми значило бы обещать подключение, которого не будет.
+    // Отказ подписки накрывает ВСЕ строки разом: они описывают один и тот же
+    // флот, и оставить их нажимаемыми значило бы обещать подключение, которого
+    // не будет.
     final blocked = inventory.blockedBy;
 
     // Предложение описывает ЭТОТ же источник — только тогда его машинам можно
@@ -64,79 +55,123 @@ class CountryNodesView extends ConsumerWidget {
     // половины разошлись бы, и экран показал бы чужие машины; в этом случае
     // строкой остаётся узел инвентаря, как и раньше.
     final exits = fleetSourcesAgree(inventory.source, offering.source)
-        ? offering.exitsIn(location.countryCode)
+        ? offering.exits
         : const <ExitOffer>[];
+
+    if (inventory.nodes.isEmpty) {
+      return const InlineEmpty(message: 'Узлов нет');
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Align(
-          alignment: Alignment.centerLeft,
-          child: GhostButton(
-            label: 'Все страны',
-            icon: Lucide.arrowLeft,
-            onPressed: onBack,
-          ),
+        ListItemCard(
+          leading: const IBox(Lucide.gauge),
+          title: 'Авто',
+          subtitle: _autoSubtitle(inventory),
+          selected: selectedKey == null,
+          // Замер строки НЕ блокирует: список показан сразу, числа доезжают
+          // отдельно, и выбирать во время замера можно.
+          onTap: () => onSelect(null),
         ),
-        const SizedBox(height: AppSpace.s4),
-        SectionTitle(
-          location.displayName,
-          padding: const EdgeInsets.only(bottom: AppSpace.s3),
-          trailing: Text(
-            'узлов: ${exits.isNotEmpty ? exits.length : location.nodeCount}',
-            style: AppType.bodySm.copyWith(color: c.textLow),
+        if (exits.isEmpty)
+          for (final n in _sortedNodes(inventory.nodes))
+            _NodeRow(
+              node: n,
+              selected: n.isAvailable && selectedKey == n.key,
+              onTap: (n.isAvailable && blocked == null)
+                  ? () => onSelect(n)
+                  : null,
+            )
+        else
+          ..._exitRows(
+            _sortedExits(exits, inventory.nodes),
+            inventory.nodes,
+            selectedKey,
+            blocked,
           ),
-        ),
-        if (blocked != null) ...[
-          AccessCard(access: blocked, compact: true),
-          const SizedBox(height: AppSpace.s4),
-        ] else if (!location.isAvailable) ...[
-          InlineBanner(
-            tone: BannerTone.warning,
-            glyph: Lucide.alert,
-            text: exitUnavailableText(location.availability),
-          ),
-          const SizedBox(height: AppSpace.s4),
-        ],
-        if (nodes.isEmpty)
-          const InlineEmpty(message: 'В этой стране узлов нет')
-        else ...[
-          ListItemCard(
-            leading: const IBox(Lucide.gauge),
-            title: 'Авто',
-            subtitle: 'Ядро выберет узел в этой стране само',
-            selected: selectedKey == null,
-            // Замер строки НЕ блокирует: список показан сразу, числа
-            // доезжают отдельно, и выбирать во время замера можно.
-            onTap: () => onSelect(null),
-          ),
-          if (exits.isEmpty)
-            for (final n in nodes)
-              _NodeRow(
-                node: n,
-                selected: n.isAvailable && selectedKey == n.key,
-                onTap: n.isAvailable ? () => onSelect(n) : null,
-              )
-          else
-            for (final e in exits)
-              _ExitRow(
-                exit: e,
-                selected: exitHoldsKey(e, selectedKey),
-                node: nodeForExit(e, nodes),
-                onSelect: onSelect,
-                blockedBy: blocked,
-              ),
-        ],
       ],
     );
   }
+
+  /// Строки машин с уже разведёнными заголовками.
+  ///
+  /// Номер приписывается ЗДЕСЬ, а не в [machineTitleOf]: одинаковость видна
+  /// только всему списку сразу, отдельная машина о своих тёзках не знает.
+  List<Widget> _exitRows(
+    List<ExitOffer> exits,
+    List<ExitNode> nodes,
+    String? selectedKey,
+    AccessState? blocked,
+  ) {
+    final titles = disambiguateTitles(
+      exits.map(machineTitleOf).toList(growable: false),
+    );
+    return <Widget>[
+      for (var i = 0; i < exits.length; i++)
+        _ExitRow(
+          exit: exits[i],
+          title: titles[i],
+          selected: exitHoldsKey(exits[i], selectedKey),
+          node: nodeForExit(exits[i], nodes),
+          onSelect: onSelect,
+          blockedBy: blocked,
+        ),
+    ];
+  }
+
+  /// Подпись «Авто». Закреплённая страна называется здесь, потому что своей
+  /// строки у неё больше нет: иначе человек с прежним закреплением увидел бы
+  /// список, где не выбрано ничего, и не понял бы, куда подключается.
+  String _autoSubtitle(ExitInventory inventory) {
+    final cc = inventory.selectedCountry;
+    if (cc == null || cc.isEmpty) return 'Ядро выберет страну и узел само';
+    final name = inventory.locationOf(cc)?.displayName ?? cc;
+    return 'Ядро выбирает узел само, в пределах страны: $name. '
+        'Нажмите, чтобы снять закрепление.';
+  }
 }
+
+/// Порядок строк: доступные раньше недоступных, внутри — по задержке, затем по
+/// имени.
+///
+/// В плоском списке порядок несёт больше, чем в списке по странам: он и есть
+/// единственная подсказка, что выбирать. Узел без известной задержки уходит
+/// ВНИЗ, а не наверх: «не мерили» это не «быстрее всех».
+List<ExitNode> _sortedNodes(List<ExitNode> nodes) {
+  final out = [...nodes];
+  out.sort((a, b) {
+    if (a.isAvailable != b.isAvailable) return a.isAvailable ? -1 : 1;
+    final c = _rank(a.latency.ms).compareTo(_rank(b.latency.ms));
+    return c != 0 ? c : a.name.compareTo(b.name);
+  });
+  return out;
+}
+
+List<ExitOffer> _sortedExits(List<ExitOffer> exits, List<ExitNode> nodes) {
+  final out = [...exits];
+  out.sort((a, b) {
+    if (a.isAvailable != b.isAvailable) return a.isAvailable ? -1 : 1;
+    final la = nodeForExit(a, nodes)?.latency.ms ?? a.pingMs;
+    final lb = nodeForExit(b, nodes)?.latency.ms ?? b.pingMs;
+    final c = _rank(la).compareTo(_rank(lb));
+    return c != 0 ? c : machineTitleOf(a).compareTo(machineTitleOf(b));
+  });
+  return out;
+}
+
+/// Неизвестная и отрицательная (таймаут) задержка — в конец.
+int _rank(int? ms) => (ms == null || ms < 0) ? 1 << 30 : ms;
 
 /// Строка МАШИНЫ. Недоступная рисуется тем же приёмом, что и выключенный
 /// вариант в [showPickerSheet]: приглушённая, с ПРИЧИНОЙ вместо подписи и без
 /// цели для нажатия.
 class _ExitRow extends StatelessWidget {
   final ExitOffer exit;
+
+  /// Заголовок, уже разведённый с тёзками по списку.
+  final String title;
+
   final bool selected;
 
   /// Узел, которым этот выход закрепляется; `null` — машина в списке выбора не
@@ -150,6 +185,7 @@ class _ExitRow extends StatelessWidget {
 
   const _ExitRow({
     required this.exit,
+    required this.title,
     required this.selected,
     required this.node,
     required this.onSelect,
@@ -184,7 +220,7 @@ class _ExitRow extends StatelessWidget {
           flag: n?.flag ?? kNeutralFlag,
           code: exit.countryCode,
         ),
-        title: machineTitleOf(exit),
+        title: title,
         subtitle: _subtitle(),
         selected: selected,
         titleBadges: [

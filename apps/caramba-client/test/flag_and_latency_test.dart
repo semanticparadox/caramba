@@ -531,8 +531,10 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      // Список НЕ ждёт замера: страна уже на экране, а её задержка ещё меряется.
-      expect(find.text('Германия'), findsOneWidget);
+      // Список НЕ ждёт замера: узел уже на экране, а его задержка ещё меряется.
+      // Страна теперь стоит на строке кодом, отдельной строки у неё нет.
+      expect(find.text('Node #5'), findsOneWidget);
+      expect(find.text('DE'), findsWidgets);
       expect(find.text('меряю'), findsWidgets);
 
       core.release();

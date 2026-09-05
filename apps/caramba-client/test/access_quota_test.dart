@@ -495,7 +495,7 @@ void main() {
       );
     });
 
-    testWidgets('экран серверов: страны видны, помечены и рядом оплата', (
+    testWidgets('экран серверов: узлы видны, помечены и рядом оплата', (
       tester,
     ) async {
       tester.view
@@ -530,8 +530,13 @@ void main() {
         await tester.pump(const Duration(milliseconds: 16));
       }
 
-      // Флот на месте: страны видны, а не заменены пустым состоянием.
-      expect(find.textContaining('Герман'), findsWidgets);
+      // Флот на месте: узлы видны, а не заменены пустым состоянием. Строка
+      // теперь называет машину, а страна стоит на ней кодом — экран стал
+      // плоским, но исчерпанный трафик по-прежнему не отменяет существования
+      // флота оператора.
+      expect(find.text('DE-1'), findsOneWidget);
+      expect(find.text('CA-1'), findsOneWidget);
+      expect(find.text('DE'), findsWidgets);
       // И рядом с ними — причина и путь к оплате.
       expect(find.text('Лимит на сегодня закончился'), findsOneWidget);
       expect(find.text('Оплатить и не ждать'), findsOneWidget);

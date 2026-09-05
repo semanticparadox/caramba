@@ -321,51 +321,51 @@ void main() {
   });
 
   group('экран серверов', () {
-    testWidgets('узлы сгруппированы по странам, а не свалены в один список', (
+    // Экран переехал с двух уровней (страна → узел) на один плоский список по
+    // прямой просьбе владельца сервиса. Тесты держат ровно то, ради чего этот
+    // список и переделывали, и то, что было завоёвано раньше и потеряться не
+    // должно.
+
+    testWidgets('все машины в одном списке, страна — на строке', (
       tester,
     ) async {
       _useTallView(tester);
       await tester.pumpWidget(_app(const ServersScreen()));
       await _settle(tester);
 
-      expect(find.text('Нидерланды'), findsOneWidget);
-      expect(find.text('Германия'), findsOneWidget);
-      // Tag рисует текст в верхнем регистре.
-      expect(find.text('УЗЛОВ: 2'), findsOneWidget);
-      expect(find.text('УЗЛОВ: 1'), findsOneWidget);
-      // Строка «Авто» стоит первой и выбрана: пина страны нет.
-      expect(find.text('Авто'), findsOneWidget);
-
-      // Узлы на первом уровне не показываются: это второй уровень.
-      expect(find.text('Amsterdam #1'), findsNothing);
-    });
-
-    testWidgets('страна открывается в список своих узлов', (tester) async {
-      _useTallView(tester);
-      await tester.pumpWidget(_app(const ServersScreen()));
-      await _settle(tester);
-
-      await tester.tap(find.text('Нидерланды'));
-      await tester.pumpAndSettle();
-
+      // Ни одного лишнего нажатия: машины всех стран видны сразу.
       expect(find.text('Amsterdam #1'), findsOneWidget);
       expect(find.text('Amsterdam #2'), findsOneWidget);
-      // Узел другой страны сюда не попал.
-      expect(find.text('Frankfurt #1'), findsNothing);
+      expect(find.text('Frankfurt #1'), findsOneWidget);
+
+      // Страна больше не строка списка и не уровень — она стоит НА строке
+      // машины кодом рядом с флагом.
+      expect(find.text('Нидерланды'), findsNothing);
+      expect(find.text('Германия'), findsNothing);
+      expect(find.text('NL'), findsNWidgets(2));
+      expect(find.text('DE'), findsOneWidget);
+
+      // Второго уровня больше нет, значит и возвращаться неоткуда.
+      expect(find.text('Все страны'), findsNothing);
+
       // Строка — МАШИНА, и она называет, сколько инбаундов предлагает. Без
       // этого счётчика восемь прокси одной машины читались как восемь
-      // серверов — ровно то, на что жаловался владелец. Здесь у каждой машины
-      // по одному прокси, поэтому «1».
-      expect(find.text('ИНБАУНДОВ: 1'), findsNWidgets(2));
-      // Тип outbound'а источник знает — значит он назван в подписи строки.
-      expect(find.text('vless'), findsNWidgets(2));
-      expect(find.text('Все страны'), findsOneWidget);
+      // серверов — ровно то, на что владелец жаловался раньше.
+      expect(find.text('ИНБАУНДОВ: 1'), findsNWidgets(3));
+
+      // «Авто» первым и выбрано: пина нет.
+      final auto = tester.widget<ListItemCard>(
+        find.ancestor(
+          of: find.text('Авто'),
+          matching: find.byType(ListItemCard),
+        ),
+      );
+      expect(auto.selected, isTrue);
     });
 
-    testWidgets('недоступная страна видна, приглушена и названа причиной', (
+    testWidgets('недоступная машина видна, приглушена и названа причиной', (
       tester,
     ) async {
-      // Все узлы страны отозваны оператором: страна остаётся в списке.
       final catalog = _catalogWith(const <ExitNode>[
         ExitNode(
           key: 'ru-1',
@@ -387,67 +387,56 @@ void main() {
       await tester.pumpWidget(_app(const ServersScreen(), catalog: catalog));
       await _settle(tester);
 
-      expect(find.text('Германия'), findsOneWidget);
-      _expectDisabledRow(tester, 'Россия', 'Все узлы страны сейчас недоступны');
+      expect(find.text('DE exit'), findsOneWidget);
+      _expectDisabledRow(tester, 'RU relay', 'Узел не в сети');
     });
 
-    testWidgets('«Авто» внутри страны закрепляет узел этой страны', (
-      tester,
-    ) async {
-      // Раньше эта строка снимала пин и оставляла на профиле одну страну. На
-      // сыром пути это ложь: `connectRaw` получает ИМЯ ПРОКСИ и не знает про
-      // страны, поэтому «Нидерланды» с галочкой уживались с выходом через
-      // Германию. Автоподбор внутри страны обязан выбрать узел за пользователя
-      // — и показать, какой именно.
+    testWidgets('адрес машины заголовком не становится', (tester) async {
+      // Заголовком раньше мог оказаться АДРЕС машины («158.69.213.88»): в теле
+      // подписки имени машины не существует, и ключом ей служит адрес. Адрес не
+      // имя, и показывать его там, где есть что показать вместо него, значит
+      // светить адрес узла без нужды. Здесь у каждой машины по одному прокси,
+      // и его имя — единственное имя этой машины.
+      _useTallView(tester);
+      await tester.pumpWidget(_app(const ServersScreen()));
+      await _settle(tester);
+
+      expect(find.textContaining('example'), findsNothing);
+      expect(find.text('Amsterdam #1'), findsOneWidget);
+      expect(find.text('Frankfurt #1'), findsOneWidget);
+    });
+
+    testWidgets('выбор узла закрепляется на профиле', (tester) async {
       final store = _FakeProfilesStore(<ConnectionProfile>[_profile()], 'cp_1');
       _useTallView(tester);
       await tester.pumpWidget(_app(const ServersScreen(), store: store));
       await _settle(tester);
 
-      await tester.tap(find.text('Нидерланды'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Amsterdam #2'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Авто'));
+      await tester.tap(find.text('Frankfurt #1'));
       await tester.pumpAndSettle();
 
-      expect(store.profiles.single.selectedExitCountry, 'NL');
-      expect(store.profiles.single.selectedServerId, 'nl-1');
-
-      final auto = tester.widget<ListItemCard>(
+      expect(store.profiles.single.selectedServerId, 'de-1');
+      final card = tester.widget<ListItemCard>(
         find.ancestor(
-          of: find.text('Авто'),
+          of: find.text('Frankfurt #1'),
           matching: find.byType(ListItemCard),
         ),
       );
-      expect(auto.selected, isFalse, reason: 'пин конкретный, а не «любой»');
-      final node = tester.widget<ListItemCard>(
-        find.ancestor(
-          of: find.text('Amsterdam #1'),
-          matching: find.byType(ListItemCard),
-        ),
-      );
-      expect(node.selected, isTrue);
+      expect(card.selected, isTrue);
     });
 
-    testWidgets('«Авто» над списком стран отпускает и страну, и узел', (
-      tester,
-    ) async {
+    testWidgets('«Авто» отпускает и страну, и узел', (tester) async {
       final store = _FakeProfilesStore(<ConnectionProfile>[_profile()], 'cp_1');
       _useTallView(tester);
       await tester.pumpWidget(_app(const ServersScreen(), store: store));
       await _settle(tester);
 
-      await tester.tap(find.text('Нидерланды'));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Amsterdam #1'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Все страны'));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Авто'));
       await tester.pumpAndSettle();
 
-      // Здесь отказ от выбора настоящий: узел выбирает ядро.
+      // Отказ от выбора настоящий: узел выбирает ядро.
       expect(store.profiles.single.selectedExitCountry, isNull);
       expect(store.profiles.single.selectedServerId, isNull);
       final auto = tester.widget<ListItemCard>(
@@ -457,25 +446,6 @@ void main() {
         ),
       );
       expect(auto.selected, isTrue);
-    });
-
-    testWidgets('выбор узла закрепляется на профиле', (tester) async {
-      _useTallView(tester);
-      await tester.pumpWidget(_app(const ServersScreen()));
-      await _settle(tester);
-
-      await tester.tap(find.text('Германия'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Frankfurt #1'));
-      await tester.pumpAndSettle();
-
-      final card = tester.widget<ListItemCard>(
-        find.ancestor(
-          of: find.text('Frankfurt #1'),
-          matching: find.byType(ListItemCard),
-        ),
-      );
-      expect(card.selected, isTrue);
     });
   });
 

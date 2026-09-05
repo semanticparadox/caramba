@@ -4,10 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/subscription.dart' show AccessState;
-import 'package:caramba_client/domain/offering/offering_providers.dart';
 import 'package:caramba_client/features/servers/access_card.dart';
-import 'package:caramba_client/features/servers/country_nodes_view.dart';
-import 'package:caramba_client/features/servers/fleet_alignment.dart';
+import 'package:caramba_client/features/servers/exit_node_list.dart';
 import 'package:caramba_client/features/settings/reconnect_banner.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
@@ -22,17 +20,18 @@ import 'package:caramba_client/theme/typography.dart';
 import 'package:caramba_client/widgets/lucide.dart';
 import 'package:caramba_client/widgets/ui.dart';
 
-/// Серверы. Выбор идёт СТРАНОЙ, а узлом — вторым уровнем.
+/// Серверы. ОДИН список машин, страна — на строке.
 ///
-/// Раньше экран ветвился по режиму на две почти одинаковые страницы: узлы
-/// импортированной подписки и узлы панели. Страна там не существовала как
-/// сущность вовсе — только как двухбуквенный чип на строке, — и выбрать
-/// «Германию» было нельзя, можно было выбрать конкретный узел, который завтра
-/// уйдёт из выдачи. Теперь режимы сведены в [exitInventoryProvider], и обе
-/// прежние страницы стали ОДНИМ вторым уровнем ([CountryNodesView]).
+/// Экран пережил две перестройки. Сначала он ветвился по режиму на две почти
+/// одинаковые страницы (узлы импортированной подписки и узлы панели); режимы
+/// свели в [exitInventoryProvider]. Потом выбор шёл через страну: список стран,
+/// а внутри — узлы. Второй шаг убран по прямой просьбе владельца сервиса, и он
+/// прав: узлов у оператора десяток, лишняя дверь перед ними ничего не даёт.
+/// Страна не исчезла — она стоит В СТРОКЕ флагом и кодом, рядом с именем
+/// машины, то есть там же, где делается выбор.
 ///
-/// Недоступная страна остаётся в списке приглушённой и с причиной: страна,
-/// пропавшая из списка, неотличима от страны, которой у оператора никогда не
+/// Недоступная машина остаётся в списке приглушённой и с причиной: строка,
+/// пропавшая из списка, неотличима от машины, которой у оператора никогда не
 /// было, и пользователь ищет её в обновлении приложения.
 class ServersScreen extends ConsumerStatefulWidget {
   const ServersScreen({super.key});
@@ -42,9 +41,6 @@ class ServersScreen extends ConsumerStatefulWidget {
 }
 
 class _ServersScreenState extends ConsumerState<ServersScreen> {
-  /// Открытая страна (второй уровень); `null` — список стран.
-  String? _country;
-
   /// Последняя НЕсостоявшаяся синхронизация выбора с панелью. Локально выбор
   /// применён всегда, поэтому это не ошибка действия, а состояние режима, и
   /// живёт оно баннером, а не тостом с красным словом.
@@ -58,11 +54,6 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
     final c = context.c;
     final inventory = ref.watch(exitInventoryProvider);
     _maybeAutoProbe(inventory);
-    final location = _country == null ? null : inventory.locationOf(_country);
-    // Страна могла исчезнуть из выдачи, пока её экран открыт: возвращаемся к
-    // списку, а не показываем пустой второй уровень.
-    final drilled = location != null;
-
     return Scaffold(
       backgroundColor: c.bgCanvas,
       body: SafeArea(
@@ -131,24 +122,10 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
                 )
               else if (inventory.isEmpty)
                 _Empty(source: inventory.source, access: inventory.blockedBy)
-              else if (drilled)
-                CountryNodesView(
-                  location: location,
-                  onBack: () => setState(() => _country = null),
-                  onSelect: (node) => node == null
-                      ? _pickCountry(location.countryCode)
-                      : _pickNode(node),
-                )
               else
-                _CountryList(
-                  inventory: inventory,
-                  // Счётчик узлов у страны берётся из предложения, когда оно
-                  // описывает тот же источник: в теле подписки «узлов» ровно
-                  // столько, сколько прокси, а машин — меньше, и именно
-                  // машины пользователь считает серверами.
-                  machineCounts: _machineCounts(inventory),
-                  onAuto: () => _pickCountry(null),
-                  onOpen: (cc) => setState(() => _country = cc),
+                ExitNodeList(
+                  onSelect: (node) =>
+                      node == null ? _pickCountry(null) : _pickNode(node),
                 ),
             ],
           ),
@@ -224,20 +201,6 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) ref.read(probeRunProvider.notifier).measure();
     });
-  }
-
-  /// Сколько МАШИН в каждой стране по данным предложения; пусто — предложение
-  /// этот источник не ведёт, и счётчиком остаётся число узлов инвентаря.
-  Map<String, int> _machineCounts(ExitInventory inventory) {
-    final offering = ref.watch(offeringProvider);
-    if (!fleetSourcesAgree(inventory.source, offering.source)) {
-      return const <String, int>{};
-    }
-    final out = <String, int>{};
-    for (final e in offering.exits) {
-      out[e.countryCode] = (out[e.countryCode] ?? 0) + 1;
-    }
-    return out;
   }
 
   Future<void> _refresh(ExitInventorySource source) {
@@ -336,90 +299,6 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
 
 /// Первый уровень: страны выхода. «Авто» сверху, затем страны в порядке
 /// инвентаря (доступные раньше недоступных, внутри — по лучшему пингу).
-class _CountryList extends StatelessWidget {
-  final ExitInventory inventory;
-
-  /// Число машин по коду страны; пусто — считаем узлами инвентаря.
-  final Map<String, int> machineCounts;
-
-  final VoidCallback onAuto;
-  final void Function(String countryCode) onOpen;
-
-  const _CountryList({
-    required this.inventory,
-    required this.machineCounts,
-    required this.onAuto,
-    required this.onOpen,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        ListItemCard(
-          leading: const IBox(Lucide.gauge),
-          title: 'Авто',
-          subtitle: 'Приложение выберет страну и узел само',
-          selected: inventory.selectedCountry == null,
-          onTap: onAuto,
-        ),
-        for (final l in inventory.locations)
-          _CountryRow(
-            location: l,
-            nodeCount: machineCounts[l.countryCode] ?? l.nodeCount,
-            selected: l.countryCode == inventory.selectedCountry,
-            onTap: l.isAvailable ? () => onOpen(l.countryCode) : null,
-          ),
-      ],
-    );
-  }
-}
-
-/// Строка страны. Недоступная страна рисуется тем же приёмом, что и выключенный
-/// вариант в [showPickerSheet]: приглушённая, с ПРИЧИНОЙ вместо подписи и без
-/// цели для нажатия.
-class _CountryRow extends StatelessWidget {
-  final ExitLocation location;
-
-  /// Сколько МАШИН в стране (не прокси).
-  final int nodeCount;
-
-  final bool selected;
-  final VoidCallback? onTap;
-
-  const _CountryRow({
-    required this.location,
-    required this.nodeCount,
-    required this.selected,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final off = !location.isAvailable;
-
-    return Opacity(
-      opacity: off ? 0.45 : 1,
-      child: ListItemCard(
-        // Флаг ставится рядом с кодом, а не вместо него: код — идентификатор
-        // страны, флаг — её глиф. Страна, которую источник не назвал твёрдо,
-        // получает нейтральный глиф, а не флаг наугад.
-        leading: FlagChip(
-          flag: location.flag,
-          code: location.isUnknownCountry ? '' : location.countryCode,
-        ),
-        title: location.displayName,
-        subtitle: off ? location.availability.message : null,
-        selected: selected,
-        titleBadges: [Tag('узлов: $nodeCount')],
-        onTap: onTap,
-        trailing: LatencyReadout(location.bestLatency),
-      ),
-    );
-  }
-}
-
 /// Пусто по-разному в разных режимах, и разница здесь важна: в импорте чинится
 /// обновлением подписки, на панели — повтором запроса, а без профиля выбирать
 /// не из чего вообще.

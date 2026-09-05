@@ -186,6 +186,27 @@ final _mute = Server.fromJson(<String, dynamic>{
   'inbounds_error': 'panel_could_not_read_inbounds',
 });
 
+/// Панельный узел с ЕДИНСТВЕННЫМ инбаундом: случай, в котором имя оператора
+/// раньше подменялось тегом инбаунда.
+final _singleInbound = Server.fromJson(<String, dynamic>{
+  'id': 7,
+  'name': 'Node #7 (Single)',
+  'country_code': 'DE',
+  'status': 'active',
+  'inbounds': <Map<String, dynamic>>[
+    <String, dynamic>{
+      'tag': 'only-in',
+      'protocol': 'vless',
+      'network': 'tcp',
+      'security': 'tls',
+      'port': 443,
+      'label': 'VLESS',
+      'proxy_name': '🇩🇪 Only',
+      'available': true,
+    },
+  ],
+});
+
 /// Входы, как их отдаёт `GET /app/relays`: страна и число узлов в ней.
 final _panelRelays = Relay.fromCountries(<Relay>[
   Relay.fromApiJson(const <String, dynamic>{
@@ -307,13 +328,12 @@ void main() {
         _app(const ServersScreen(), servers: <Server>[_germany, _canada]),
       );
       await _settle(tester);
-
-      expect(find.text('Германия'), findsOneWidget);
-      expect(find.text('УЗЛОВ: 1'), findsNWidgets(2));
-
-      await tester.tap(find.text('Германия'));
+      // Раньше висящий таймер подписки добирал `pumpAndSettle` после нажатия
+      // на страну. Захода в страну больше нет, а таймер остался — досыпаем
+      // явно, иначе тест падает на нём, а не на проверке.
       await tester.pumpAndSettle();
 
+      // Список плоский: машина видна сразу, без захода в страну.
       expect(find.text('Node #1 (Germany)'), findsOneWidget);
       // Семь из восьми доезжают до конфига; восьмой (`naive`) — нет.
       expect(find.text('ИНБАУНДОВ: 7'), findsOneWidget);
@@ -321,8 +341,27 @@ void main() {
         find.textContaining('ещё 1 не доезжает до конфига'),
         findsOneWidget,
       );
-      // Страна названа на самой строке, а не только в заголовке уровня.
+      // Страна названа на самой строке — теперь это её единственное место.
       expect(find.text('DE'), findsWidgets);
+      expect(find.text('Германия'), findsNothing);
+    });
+
+    testWidgets('строка называет узел именем оператора, а не тегом инбаунда', (
+      tester,
+    ) async {
+      // Панельный узел с ОДНИМ инбаундом назывался тегом этого инбаунда
+      // («vless-in») вместо имени, которое дал оператор. Пока выбор шёл через
+      // страну, заголовок машины почти никто не видел; в плоском списке он
+      // стал главным словом строки.
+      _useTallView(tester);
+      await tester.pumpWidget(
+        _app(const ServersScreen(), servers: <Server>[_singleInbound]),
+      );
+      await _settle(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Node #7 (Single)'), findsOneWidget);
+      expect(find.text('only-in'), findsNothing);
     });
 
     testWidgets(
@@ -333,8 +372,6 @@ void main() {
           _app(const ServersScreen(), servers: <Server>[_mute]),
         );
         await _settle(tester);
-
-        await tester.tap(find.text('Нидерланды'));
         await tester.pumpAndSettle();
 
         // Ноль и «неизвестно» — разные ответы, и счётчик их не путает.
