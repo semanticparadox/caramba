@@ -12,21 +12,25 @@ import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/protocol.dart';
 import 'package:caramba_client/data/models/relay.dart';
 import 'package:caramba_client/data/models/server.dart';
+import 'package:caramba_client/data/models/subscription.dart' show AccessState;
 import 'package:caramba_client/domain/offering/availability.dart';
 import 'package:caramba_client/domain/offering/offering_providers.dart';
 import 'package:caramba_client/features/csm/config_age_card.dart';
 import 'package:caramba_client/features/csm/keep_or_revert_card.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
+import 'package:caramba_client/features/servers/access_card.dart';
 import 'package:caramba_client/features/servers/relay_screen.dart'
     show effectiveRelayIndex;
 import 'package:caramba_client/features/settings/applied_route_card.dart';
 import 'package:caramba_client/features/settings/reconnect_banner.dart';
 import 'package:caramba_client/features/settings/route_picker.dart';
 import 'package:caramba_client/router/routes.dart';
+import 'package:caramba_client/state/access_guard.dart';
 import 'package:caramba_client/state/account_state.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
+import 'package:caramba_client/state/core_error.dart';
 import 'package:caramba_client/state/exit_inventory_state.dart';
 import 'package:caramba_client/state/servers_state.dart';
 import 'package:caramba_client/state/settings_state.dart';
@@ -72,9 +76,15 @@ String panelDialSubtitle({
   required Availability chaining,
   required String? serverName,
   required String protocolName,
+  String? detail,
+  AccessState? access,
 }) {
   switch (stage) {
     case VpnStage.connected:
+      // Туннель поднят, а доступ закрыт: цепочка и имя узла в этот момент
+      // правдивы и совершенно бесполезны — человеку нужна причина, по которой
+      // через них ничего не идёт.
+      if (access != null && access.isBlocked) return access.shortReason;
       final chained =
           chaining.isAvailable &&
           relay != null &&
@@ -88,10 +98,29 @@ String panelDialSubtitle({
     case VpnStage.reconnecting:
       return '${serverName ?? 'Сервер'} · $protocolName';
     case VpnStage.error:
-      return 'Проверьте сеть и нажмите снова';
+      // ЗДЕСЬ БЫЛА ЖЁСТКО ЗАШИТАЯ СТРОКА «Проверьте сеть и нажмите снова».
+      // Она говорила неправду ровно тогда, когда правда была нужнее всего: с
+      // сетью всё было в порядке, у человека кончился дневной трафик, а
+      // причину ядро сообщило и её выбросили. Причина доезжает в
+      // `VpnStatus.detail` и до этой правки не читалась НИ РАЗУ.
+      return dialErrorLabel(detail: detail, access: access);
     case VpnStage.disconnected:
       return 'Нажмите, чтобы подключиться';
   }
+}
+
+/// Подпись под дайлом в состоянии ошибки: причина, а не догадка про сеть.
+///
+/// Дайл узкий, поэтому здесь короткая фраза; полное объяснение с числами и
+/// кнопкой оплаты живёт в [AccessCard] под дайлом. Ничего не зная о причине,
+/// строка честно предлагает повтор — но именно как последний вариант, а не как
+/// первый ответ на любую поломку.
+String dialErrorLabel({String? detail, AccessState? access}) {
+  if (access != null && access.isBlocked) return access.shortReason;
+  final failure = describeText(detail, access: access);
+  if (failure?.access != null) return failure!.text.split('.').first;
+  if (failure != null && !failure.retryable) return failure.text;
+  return 'Не удалось подключиться. Проверьте сеть и нажмите снова';
 }
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -229,6 +258,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final String csub;
     final List<Widget> cards;
     final Widget headerTrailing;
+    // Право подключаться: сначала ЖИВОЙ ответ (его получает сторож перед
+    // подключением и пока туннель поднят), затем панельный снимок.
+    //
+    // Порядок именно такой, и он важен дважды. Панельный снимок делается один
+    // раз при логине и после полуночи весь день утверждал бы вчерашний отказ.
+    // А в generic-режиме панели нет вовсе — и до живой проверки объяснять
+    // владельцу, почему через его собственный туннель ничего не идёт, было
+    // просто нечем.
+    final AccessState? live = ref.watch(liveAccessRefusalProvider);
+    final AccessState? access =
+        live ?? (guest ? null : ref.watch(subscriptionAccessProvider));
+    // Туннель поднят, а доступа нет: щит в этом состоянии — ложь, и дайл
+    // обязан сказать это словами.
+    final accessBlocked =
+        status.isConnected && access != null && access.isBlocked;
     if (guest) {
       final profile = ref.watch(activeConnectionProfileProvider);
       final proxy = ref.watch(activeProxyProvider);
@@ -239,6 +283,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         proxy: proxy,
         node: node,
         protocol: protocols[cfg.protocol].name,
+        access: access,
       );
       // Колокола и плана здесь нет, но высота шапки обязана остаться прежней:
       // атмосферный слой зарегистрирован на измеренную геометрию, и сдвиг дайла
@@ -285,6 +330,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         chaining: ref.watch(capabilitiesProvider).relayChaining.availability,
         serverName: server?.name,
         protocolName: protocols[cfg.protocol].name,
+        detail: status.detail,
+        access: access,
       );
       headerTrailing = Row(
         mainAxisSize: MainAxisSize.min,
@@ -360,7 +407,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         dialKey: _dialKey,
                         labelKey: _labelKey,
                         stage: status.stage,
-                        subLabel: status.stage == VpnStage.connected
+                        accessBlocked: accessBlocked,
+                        // Идущий таймер под закрытым доступом читается как
+                        // «работает уже 1м43с» — ровно та строка, которая и
+                        // сделала ложную защиту убедительной. Пока доступа нет,
+                        // на её месте стоит причина; сам таймер остаётся в
+                        // ячейке «Сессия», где он говорит про туннель, а не про
+                        // защиту, и там он правда.
+                        subLabel:
+                            status.stage == VpnStage.connected && !accessBlocked
                             ? _session(status.connectedSince)
                             : csub,
                         onTap: () {
@@ -392,6 +447,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       // шапки и дайла, и любой сдвиг ломает её инвариант.
                       if (needsReconnect) ...[
                         const ReconnectBanner(),
+                        const SizedBox(height: AppSpace.s4),
+                      ],
+                      // Стена, в которую упирается человек, стоит там же, где
+                      // он в неё упирается: под дайлом, который отказался
+                      // подключаться. Раньше единственное объяснение жило в
+                      // профиле, за двумя переходами, и называло недельную
+                      // квоту, которой не существует.
+                      if (access != null && access.isBlocked) ...[
+                        AccessCard(access: access),
                         const SizedBox(height: AppSpace.s4),
                       ],
                       // INV-21 и INV-22 живут здесь же, ниже дайла: возраст
@@ -736,15 +800,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     required String? proxy,
     required String? node,
     required String protocol,
+    AccessState? access,
   }) {
     final name = (profile == null || profile.displayName.isEmpty)
         ? null
         : profile.displayName;
     return switch (status.stage) {
-      VpnStage.connected => proxy ?? node ?? name ?? 'Защищено',
+      // Имя узла под живым туннелем без доступа называло бы работающим то, что
+      // не работает: причина важнее адреса.
+      VpnStage.connected =>
+        (access != null && access.isBlocked)
+            ? access.shortReason
+            : proxy ?? node ?? name ?? 'Защищено',
       VpnStage.connecting ||
       VpnStage.reconnecting => '${node ?? name ?? 'Узел'} · $protocol',
-      VpnStage.error => 'Проверьте сеть и нажмите снова',
+      // Своей подписке панель отказывает тем же 403, что и панельной: причина
+      // приезжает в detail, и выбрасывать её здесь так же нельзя.
+      VpnStage.error => dialErrorLabel(detail: status.detail, access: access),
       VpnStage.disconnected =>
         profile == null
             ? 'Импортируйте подписку'

@@ -4,8 +4,10 @@ import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/server.dart';
+import 'package:caramba_client/data/models/subscription.dart' show AccessState;
 import 'package:caramba_client/domain/offering/panel_fleet.dart'
     show panelRelayHopOf;
+import 'package:caramba_client/state/access_guard.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/probe_state.dart';
 import 'package:caramba_client/state/providers.dart';
@@ -36,6 +38,31 @@ import 'package:caramba_client/state/subscription_state.dart';
 /// пустой список без причины не допускается ни в одном режиме.
 final csmExitCatalogProvider = Provider<ExitInventory?>((ref) => null);
 
+/// Право подключаться по подписке панели; `null` — панели за профилем нет и
+/// спрашивать не у кого.
+///
+/// Живёт здесь, а не в экране: тот же ответ нужен и инвентарю (чем пометить
+/// строки), и Home, и замеру. Второй источник этого знания разошёлся бы с
+/// первым — а расхождение здесь означает «список говорит одно, кнопка делает
+/// другое».
+///
+/// Проверка `isRaw` не косметическая: у импортированной подписки панельной
+/// сессии нет вовсе, и запрос за состоянием ушёл бы в 401.
+///
+/// Живой отказ ([liveAccessRefusalProvider]) старше панельного снимка и потому
+/// стоит первым. Снимок делается один раз при логине и после этого не
+/// обновляется: он одинаково уверенно утверждал бы вчерашний отказ весь
+/// сегодняшний день и не знал бы о лимите, который кончился десять минут назад.
+/// А у импортированной подписки панели нет вовсе — и до живой проверки на этот
+/// вопрос в её режиме не отвечал никто.
+final subscriptionAccessProvider = Provider<AccessState?>((ref) {
+  final live = ref.watch(liveAccessRefusalProvider);
+  if (live != null) return live;
+  final profile = ref.watch(activeConnectionProfileProvider);
+  if (profile == null || profile.isRaw) return null;
+  return ref.watch(subscriptionProvider).valueOrNull?.access;
+});
+
 /// Снимок инвентаря: страны, узлы, происхождение и текущий выбор.
 class ExitInventory {
   final ExitInventorySource source;
@@ -62,6 +89,21 @@ class ExitInventory {
   /// Закреплённый узел: `nodes.id` в панельном режиме, имя прокси в импорте.
   final String? selectedNodeKey;
 
+  /// Состояние доступа по подписке; `null` — панели нет или доступ не ограничен
+  /// ничем, о чём стоит говорить. Когда оно есть и закрыто, СПИСОК ОСТАЁТСЯ:
+  /// исчерпанный трафик не делает флот оператора несуществующим, он делает его
+  /// временно недоступным — и это разные новости.
+  final AccessState? access;
+
+  /// Список показан по памяти прошлой удачной выдачи.
+  ///
+  /// Старая панель выкидывает подписку с исчерпанной нормой из выдачи `/servers`
+  /// целиком и отвечает пустым массивом. Показать вместо стран «серверов нет»
+  /// значило бы соврать: серверы есть, к ним сейчас нельзя. Пока панель не
+  /// научится отдавать их и в этом состоянии, показываем последний известный
+  /// список, помеченный причиной и этим флагом.
+  final bool remembered;
+
   const ExitInventory({
     required this.source,
     this.locations = const <ExitLocation>[],
@@ -71,7 +113,15 @@ class ExitInventory {
     this.relayAvailability = ExitAvailability.available,
     this.selectedCountry,
     this.selectedNodeKey,
+    this.access,
+    this.remembered = false,
   });
+
+  /// Доступ закрыт и это стоит объяснить; `null` — объяснять нечего.
+  AccessState? get blockedBy {
+    final a = access;
+    return (a != null && a.isBlocked) ? a : null;
+  }
 
   /// Инвентаря нет и не будет, пока не изменится причина.
   factory ExitInventory.unavailable(
@@ -120,6 +170,8 @@ class ExitInventory {
     ExitAvailability? relayAvailability,
     String? selectedCountry,
     String? selectedNodeKey,
+    AccessState? access,
+    bool? remembered,
   }) => ExitInventory(
     source: source,
     locations: locations ?? this.locations,
@@ -129,6 +181,8 @@ class ExitInventory {
     relayAvailability: relayAvailability ?? this.relayAvailability,
     selectedCountry: selectedCountry ?? this.selectedCountry,
     selectedNodeKey: selectedNodeKey ?? this.selectedNodeKey,
+    access: access ?? this.access,
+    remembered: remembered ?? this.remembered,
   );
 }
 
@@ -173,22 +227,107 @@ ExitInventory _panelInventory(
   // Панель отдаёт СВОЁ число задержки; собственный замер накладывается сверху и
   // вытесняет его, как только придёт. Список при этом не ждёт замера — он
   // строится из ответа `/servers` и рисуется сразу.
-  final nodes = _withMeasurements(
+  var nodes = _withMeasurements(
     servers.map(ExitNode.fromServer).toList(growable: false),
     ref.watch(clientLatencyProvider),
     ref.watch(probeRunProvider).measuring,
   );
+
+  final blocked = ref.watch(subscriptionAccessProvider);
+  final block = (blocked != null && blocked.isBlocked) ? blocked : null;
+
+  // Память списка. Пока панель не отдаёт узлы пользователю с исчерпанной
+  // нормой, единственный способ не соврать «серверов нет» — показать те, что
+  // она отдавала минуту назад. Память заполняется ТОЛЬКО удачной выдачей и
+  // читается только под закрытым доступом: в остальных случаях пустой ответ
+  // панели — это ответ, а не повод показывать вчерашний день.
+  final memory = ref.read(_panelFleetMemoryProvider);
+  if (nodes.isNotEmpty) {
+    memory.nodes = nodes;
+    memory.profileId = profile.id;
+  }
+  var remembered = false;
+  // Только СВОЙ профиль: узлы другого оператора здесь были бы не «последним
+  // известным списком», а чужим флотом под чужой подпиской.
+  if (nodes.isEmpty &&
+      block != null &&
+      memory.nodes.isNotEmpty &&
+      memory.profileId == profile.id) {
+    nodes = memory.nodes;
+    remembered = true;
+  }
+
+  // Страны считаются по НЕпомеченным узлам: пометка убирает их из «живых», а
+  // вместе с ними исчезли бы и числа задержки, которые пользователь уже видел.
+  // Отказ подписки не портит измерения — он запрещает подключение.
+  final locations = _group(
+    nodes,
+    ExitInventorySource.panelRest,
+    blockedBy: block,
+  );
   final selectedKey = profile.selectedExitNodeId?.toString();
   return ExitInventory(
     source: ExitInventorySource.panelRest,
-    locations: _group(nodes, ExitInventorySource.panelRest),
-    nodes: nodes,
+    locations: locations,
+    nodes: block == null ? nodes : _markBlocked(nodes, block),
     loading: async.isLoading,
     error: async.hasError ? async.error : null,
     relayAvailability: _panelRelayAvailability(servers),
     selectedCountry: selectedCountry,
     selectedNodeKey: selectedKey,
+    access: blocked,
+    remembered: remembered,
   );
+}
+
+/// Память последней непустой выдачи `/servers` в пределах контейнера.
+///
+/// Обычный объект, а не состояние провайдера: он читается и пишется во время
+/// сборки инвентаря, и настоящее состояние здесь запустило бы перестроение на
+/// собственную запись. Живёт ровно столько, сколько контейнер, поэтому тест
+/// одного случая не подсматривает в другой.
+final _panelFleetMemoryProvider = Provider<_FleetMemory>(
+  (ref) => _FleetMemory(),
+);
+
+class _FleetMemory {
+  List<ExitNode> nodes = const <ExitNode>[];
+
+  /// Чей это список. Профиль сменился — память не годится.
+  String? profileId;
+}
+
+/// Помечает узлы причиной отказа подписки, сохраняя уже названные причины.
+///
+/// Переполненный узел остаётся переполненным: своя причина точнее общей, и
+/// затирать её значило бы потерять единственное, что отличает «узел занят» от
+/// «у вас закончился трафик».
+List<ExitNode> _markBlocked(List<ExitNode> nodes, AccessState access) {
+  final reason = ExitAvailability.unavailable(
+    ExitUnavailableReason.panelRejected,
+    detail: access.shortReason,
+  );
+  return nodes
+      .map(
+        (n) => n.isAvailable
+            ? ExitNode(
+                key: n.key,
+                name: n.name,
+                countryCode: n.countryCode,
+                source: n.source,
+                flag: n.flag,
+                panelNodeId: n.panelNodeId,
+                pingMs: n.pingMs,
+                measuredMs: n.measuredMs,
+                measuring: n.measuring,
+                proxyNames: n.proxyNames,
+                protocol: n.protocol,
+                load: n.load,
+                availability: reason,
+              )
+            : n,
+      )
+      .toList(growable: false);
 }
 
 /// Работает ли выбор входа на панельном пути — по тому, что говорит сама
@@ -295,7 +434,11 @@ List<ExitNode> _withMeasurements(
 
 /// Группирует узлы по стране и сортирует: доступные раньше недоступных, внутри
 /// — по лучшему пингу (неизмеренные в конец), затем по имени.
-List<ExitLocation> _group(List<ExitNode> nodes, ExitInventorySource source) {
+List<ExitLocation> _group(
+  List<ExitNode> nodes,
+  ExitInventorySource source, {
+  AccessState? blockedBy,
+}) {
   final byCountry = <String, List<ExitNode>>{};
   for (final n in nodes) {
     byCountry.putIfAbsent(n.countryCode, () => <ExitNode>[]).add(n);
@@ -314,6 +457,28 @@ List<ExitLocation> _group(List<ExitNode> nodes, ExitInventorySource source) {
     if (pa != pb) return pa.compareTo(pb);
     return a.displayName.compareTo(b.displayName);
   });
+  if (blockedBy != null) {
+    // Причина накладывается ПОСЛЕ сортировки: порядок по пингу — то немногое,
+    // что у пользователя остаётся, пока он решает, платить или ждать полуночи.
+    final reason = ExitAvailability.unavailable(
+      ExitUnavailableReason.panelRejected,
+      detail: blockedBy.shortReason,
+    );
+    return List<ExitLocation>.unmodifiable(
+      locations.map(
+        (l) => ExitLocation(
+          countryCode: l.countryCode,
+          displayName: l.displayName,
+          nodeCount: l.nodeCount,
+          source: l.source,
+          flag: l.flag,
+          bestLatency: l.bestLatency,
+          protocols: l.protocols,
+          availability: reason,
+        ),
+      ),
+    );
+  }
   return List<ExitLocation>.unmodifiable(locations);
 }
 

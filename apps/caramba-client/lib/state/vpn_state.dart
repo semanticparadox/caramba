@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/server.dart';
+import 'package:caramba_client/state/access_guard.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
 import 'package:caramba_client/state/core_policy_mapping.dart';
@@ -29,12 +30,23 @@ import 'package:caramba_vpn/caramba_vpn.dart' show jsonEncodePolicy;
 /// Перед КАЖДЫМ поднятием туннеля в ядро уходят политика ([CorePolicy], ABI v2
 /// `setPolicy`) и способ захвата трафика (`setTunnelMode`): оба действуют со
 /// следующего `Up`, поэтому применяются именно здесь, а не при правке настроек.
+///
+/// И перед каждым же поднятием спрашивается ПРАВО подключаться ([AccessGuard]).
+/// Раньше не спрашивалось нигде: raw-путь поднимает туннель из кэша, не
+/// обращаясь никуда вовсе, — и подписка с исчерпанным трафиком давала полностью
+/// исправный туннель, через который не проходило ничего. Экран при этом говорил
+/// «Защищено».
 class VpnNotifier extends StateNotifier<VpnStatus> {
   final VpnConnection _conn;
   final Server? Function() _recommended;
   final ConnectionProfile? Function() _activeProfile;
   final CorePolicy Function() _policy;
   final TunnelMode Function() _tunnelMode;
+
+  /// Сторож доступа; `null` — проверять некому (сборка без него, тест).
+  /// Разрешается лениво: сторож сам смотрит на стадию туннеля.
+  final AccessGuard? Function() _guard;
+
   StreamSubscription<VpnStatus>? _sub;
 
   /// Политика, реально отданная ядру при последнем поднятии туннеля (JSON).
@@ -52,10 +64,20 @@ class VpnNotifier extends StateNotifier<VpnStatus> {
     this._recommended,
     this._activeProfile,
     this._policy,
-    this._tunnelMode,
-  ) : super(_conn.currentStatus) {
-    _sub = _conn.status.listen((s) => state = s);
+    this._tunnelMode, {
+    AccessGuard? Function()? guard,
+  }) : _guard = (guard ?? _noGuard),
+       super(_conn.currentStatus) {
+    _sub = _conn.status.listen((s) {
+      state = s;
+      // Сторож просыпается на живом туннеле: пока он поднят, право подключаться
+      // может кончиться прямо в сессии (свип панели троттлит подписку и рвёт
+      // соединения раз в 600 с), и узнать об этом больше неоткуда.
+      _guard()?.onStage(s.stage);
+    });
   }
+
+  static AccessGuard? _noGuard() => null;
 
   /// Подключиться согласно активному профилю подключения.
   ///
@@ -73,6 +95,7 @@ class VpnNotifier extends StateNotifier<VpnStatus> {
         state = const VpnStatus(stage: VpnStage.error, detail: 'Empty profile');
         return false;
       }
+      if (await _refusedNow()) return false;
       await _applyCorePreferences();
       await _conn.connectRaw(
         raw: raw,
@@ -91,8 +114,27 @@ class VpnNotifier extends StateNotifier<VpnStatus> {
       );
       return false;
     }
+    if (await _refusedNow()) return false;
     await _applyCorePreferences();
     await _conn.connect(target);
+    return true;
+  }
+
+  /// Спрашивает право подключаться и, если в нём отказано, переводит состояние
+  /// в ошибку с НАЗВАННОЙ причиной вместо поднятия туннеля.
+  ///
+  /// Отказом считается только явный ответ оператора. Молчащая сеть, таймаут,
+  /// упавшая панель — не отказ: подключаемся. Отказать по неответу значило бы
+  /// запретить человеку VPN ровно тогда, когда сеть плохая, — то есть тогда,
+  /// когда VPN и нужен.
+  Future<bool> _refusedNow() async {
+    final guard = _guard();
+    if (guard == null) return false;
+    final verdict = await guard.checkBeforeConnect();
+    if (!verdict.blocked) return false;
+    // Причина уходит в detail уликой; человеческий текст экран берёт из
+    // состояния доступа, которое сторож только что записал.
+    state = VpnStatus(stage: VpnStage.error, detail: verdict.detail);
     return true;
   }
 
@@ -149,6 +191,9 @@ final vpnProvider = StateNotifierProvider<VpnNotifier, VpnStatus>((ref) {
     () => ref.read(activeConnectionProfileProvider),
     () => ref.read(corePolicyProvider),
     () => ref.read(tunnelModeProvider),
+    // Через замыкание, а не значением: сторож читает активный профиль и сессию
+    // на момент вопроса, и создавать его раньше, чем он понадобится, незачем.
+    guard: () => ref.read(accessGuardProvider.notifier),
   );
 });
 

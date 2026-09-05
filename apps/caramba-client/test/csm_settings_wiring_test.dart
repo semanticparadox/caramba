@@ -482,7 +482,13 @@ void main() {
       selectedServerId: selectedId,
     );
 
-    Future<void> pumpServers(
+    /// Возвращает контейнер, чтобы тест мог закрыть его ДО конца тела.
+    ///
+    /// `UncontrolledProviderScope` при размонтировании контейнер не закрывает —
+    /// в этом его смысл, — а на поднятом туннеле в контейнере живёт сторож
+    /// доступа со своим таймером. Закрытия в `addTearDown` мало: проверка
+    /// «висящих таймеров» у flutter_test идёт раньше tearDown.
+    Future<ProviderContainer> pumpServers(
       WidgetTester tester, {
       required String? selectedId,
       required String? activeProxy,
@@ -503,13 +509,14 @@ void main() {
         ),
       );
       await _settle(tester);
+      return container;
     }
 
     testWidgets('смена узла выхода при поднятом туннеле поднимает баннер', (
       tester,
     ) async {
       _phone(tester);
-      await pumpServers(
+      final container = await pumpServers(
         tester,
         selectedId: 'nl-1',
         activeProxy: 'Amsterdam #2',
@@ -521,13 +528,14 @@ void main() {
         findsOneWidget,
       );
       await tester.pumpWidget(const SizedBox.shrink());
+      container.dispose();
     });
 
     testWidgets('туннель уже на закреплённом узле: баннера нет', (
       tester,
     ) async {
       _phone(tester);
-      await pumpServers(
+      final container = await pumpServers(
         tester,
         selectedId: 'nl-1',
         activeProxy: 'Amsterdam #1',
@@ -535,6 +543,7 @@ void main() {
 
       expect(find.byType(ReconnectBanner), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
+      container.dispose();
     });
 
     testWidgets('вне сессии баннера нет никогда', (tester) async {

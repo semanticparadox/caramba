@@ -3,12 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/models/exit_location.dart';
+import 'package:caramba_client/data/models/subscription.dart' show AccessState;
 import 'package:caramba_client/domain/offering/offering_providers.dart';
+import 'package:caramba_client/features/servers/access_card.dart';
 import 'package:caramba_client/features/servers/country_nodes_view.dart';
 import 'package:caramba_client/features/servers/fleet_alignment.dart';
 import 'package:caramba_client/features/settings/reconnect_banner.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
+import 'package:caramba_client/state/core_error.dart';
 import 'package:caramba_client/state/exit_inventory_state.dart';
 import 'package:caramba_client/state/probe_state.dart';
 import 'package:caramba_client/state/servers_state.dart';
@@ -100,13 +103,34 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
                 ),
                 const SizedBox(height: AppSpace.s4),
               ],
+              // Отказ подписки стоит ВЫШЕ замера и списка: он объясняет и то,
+              // почему строки не нажимаются, и почему замер не прошёл. Список
+              // при этом остаётся на месте — исчерпанный трафик не отменяет
+              // существования флота оператора.
+              if (inventory.blockedBy != null) ...[
+                AccessCard(access: inventory.blockedBy),
+                const SizedBox(height: AppSpace.s4),
+                if (inventory.remembered) ...[
+                  const InlineBanner(
+                    tone: BannerTone.info,
+                    glyph: Lucide.clock,
+                    text:
+                        'Оператор сейчас не отдаёт список узлов по этой '
+                        'подписке. Показан последний, который он присылал.',
+                  ),
+                  const SizedBox(height: AppSpace.s4),
+                ],
+              ],
               ..._probeHeader(inventory),
               if (inventory.loading && inventory.isEmpty)
                 const _Loading()
               else if (inventory.error != null && inventory.isEmpty)
-                _Error(onRetry: () => _refresh(inventory.source))
+                _Error(
+                  error: inventory.error!,
+                  onRetry: () => _refresh(inventory.source),
+                )
               else if (inventory.isEmpty)
-                _Empty(source: inventory.source)
+                _Empty(source: inventory.source, access: inventory.blockedBy)
               else if (drilled)
                 CountryNodesView(
                   location: location,
@@ -173,8 +197,15 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
         style: AppType.bodySm.copyWith(color: c.textLow),
       ),
       const SizedBox(height: AppSpace.s5),
+      // Ошибка замера — уже переведённая строка; сырой текст ядра лежит рядом
+      // и достаётся по «Подробности». Повтор предлагаем только там, где отказ
+      // не объяснён подпиской: под исчерпанным лимитом он вернёт то же самое.
       if (run.error != null) ...[
-        InlineError(message: run.error!, onRetry: _probe),
+        FailureNotice.fromText(
+          run.error!,
+          onRetry: inventory.blockedBy == null ? _probe : null,
+          payable: inventory.blockedBy != null,
+        ),
         const SizedBox(height: AppSpace.s5),
       ],
     ];
@@ -394,10 +425,26 @@ class _CountryRow extends StatelessWidget {
 /// не из чего вообще.
 class _Empty extends StatelessWidget {
   final ExitInventorySource source;
-  const _Empty({required this.source});
+
+  /// Доступ закрыт — тогда пустой список объясняется подпиской, а не молчанием
+  /// оператора, и совет «потяните, чтобы повторить» был бы враньём.
+  final AccessState? access;
+
+  const _Empty({required this.source, this.access});
 
   @override
   Widget build(BuildContext context) {
+    final blocked = access;
+    if (blocked != null) {
+      return ScreenEmpty(
+        glyph: Lucide.globe,
+        title: 'Узлы сейчас недоступны',
+        message:
+            'Оператор не отдаёт список узлов по этой подписке, пока '
+            '${blocked.shortReason.toLowerCase()}. Список вернётся вместе с '
+            'доступом.',
+      );
+    }
     return switch (source) {
       ExitInventorySource.importedSub => const ScreenEmpty(
         glyph: Lucide.globe,
@@ -439,25 +486,23 @@ class _Loading extends StatelessWidget {
   }
 }
 
+/// Список не загрузился. Экран называет причину словами и держит исходный
+/// текст под «Подробности»: «Не удалось загрузить серверы» без причины — это
+/// ровно та строка, из-за которой отказ по трафику диагностировали часами.
 class _Error extends StatelessWidget {
+  final Object error;
   final VoidCallback onRetry;
-  const _Error({required this.onRetry});
+  const _Error({required this.error, required this.onRetry});
   @override
   Widget build(BuildContext context) {
-    final c = context.c;
+    final failure = describeFailure(error);
     return Padding(
-      padding: const EdgeInsets.only(top: AppSpace.s12),
-      child: Column(
-        children: [
-          LucideIcon(Lucide.alert, color: c.textMed, size: 28),
-          const SizedBox(height: AppSpace.s3),
-          Text(
-            'Не удалось загрузить серверы',
-            style: AppType.bodyMd.copyWith(color: c.textMed),
-          ),
-          const SizedBox(height: AppSpace.s4),
-          GhostButton(label: 'Повторить', onPressed: onRetry),
-        ],
+      padding: const EdgeInsets.only(top: AppSpace.s8),
+      child: FailureNotice(
+        message: failure?.text ?? 'Не удалось загрузить список серверов.',
+        technical: failure?.technical,
+        onRetry: (failure?.retryable ?? true) ? onRetry : null,
+        payable: failure?.payable ?? false,
       ),
     );
   }

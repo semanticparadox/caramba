@@ -19,9 +19,31 @@ import 'package:caramba_client/data/safe_url.dart';
 const int kSubscriptionMaxRedirects = 5;
 
 /// Ошибка загрузки подписки с текстом для inline-показа.
+///
+/// Кроме текста несёт САМ ОТВЕТ. Раньше от отказа оставалось одно число в
+/// строке, и «оператор больше не выдаёт конфигурацию по исчерпанной дневной
+/// норме» было неотличимо от «сеть отвалилась»: причину панель печатает
+/// заголовками `x-caramba-*` и `subscription-userinfo`, а их выбрасывали
+/// вместе с ответом. Разбирает их [refusalFromResponse].
 class SubscriptionFetchException implements Exception {
   final String message;
-  const SubscriptionFetchException(this.message);
+
+  /// Код ответа. `null` — ответа не было вовсе (сеть, таймаут, схема).
+  final int? statusCode;
+
+  /// Тело ответа как пришло.
+  final String body;
+
+  /// Заголовки ответа; имена приведены к нижнему регистру.
+  final Map<String, String> headers;
+
+  const SubscriptionFetchException(
+    this.message, {
+    this.statusCode,
+    this.body = '',
+    this.headers = const <String, String>{},
+  });
+
   @override
   String toString() => 'SubscriptionFetchException: $message';
 }
@@ -86,7 +108,12 @@ Future<String> fetchSubscriptionBody(String url, {Dio? client}) async {
     final body = res?.data?.trim() ?? '';
     final code = res?.statusCode;
     if (code == null || code < 200 || code >= 300) {
-      throw SubscriptionFetchException('ответ сервера $code');
+      throw SubscriptionFetchException(
+        'ответ сервера $code',
+        statusCode: code,
+        body: res?.data ?? '',
+        headers: _headersOf(res),
+      );
     }
     if (body.isEmpty) {
       throw const SubscriptionFetchException('пустой ответ');
@@ -97,4 +124,14 @@ Future<String> fetchSubscriptionBody(String url, {Dio? client}) async {
   } finally {
     if (client == null) dio.close();
   }
+}
+
+/// Заголовки ответа плоской картой с именами в нижнем регистре. Повторяющиеся
+/// имена склеиваются через запятую — по правилу HTTP для списочных значений.
+Map<String, String> _headersOf(Response<String>? res) {
+  final map = res?.headers.map;
+  if (map == null || map.isEmpty) return const <String, String>{};
+  return <String, String>{
+    for (final e in map.entries) e.key.toLowerCase(): e.value.join(', '),
+  };
 }

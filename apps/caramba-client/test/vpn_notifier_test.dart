@@ -11,6 +11,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/server.dart';
+import 'package:caramba_client/data/models/subscription.dart';
+import 'package:caramba_client/state/access_guard.dart';
 import 'package:caramba_client/state/vpn_state.dart';
 import 'package:caramba_client/vpn/vpn_service.dart';
 import 'package:caramba_client/vpn/vpn_status.dart';
@@ -92,6 +94,10 @@ class FakeVpnConnection with FakeCsmDevice implements VpnConnection {
   @override
   Future<void> disconnect() async => calls.add('disconnect');
 
+  /// Стадия «пришла от ядра»: нотифаер обязан не только показать её, но и
+  /// разбудить сторожа доступа.
+  void emit(VpnStatus status) => _statusCtrl.add(status);
+
   @override
   Future<void> dispose() async => _statusCtrl.close();
 }
@@ -117,12 +123,36 @@ VpnNotifier build(
   ConnectionProfile? profile,
   Server? recommended,
   TunnelMode mode = TunnelMode.proxy,
+  AccessGuard? guard,
 }) => VpnNotifier(
   conn,
   () => recommended,
   () => profile,
   () => _policy,
   () => mode,
+  guard: guard == null ? null : () => guard,
+);
+
+/// Сторож с заранее известным ответом.
+AccessGuard guardAnswering(
+  AccessVerdict verdict, {
+  Duration first = const Duration(milliseconds: 5),
+}) => AccessGuard(
+  check: (_) async => verdict,
+  first: first,
+  every: const Duration(milliseconds: 5),
+);
+
+/// Отказ оператора: дневная норма исчерпана.
+final _quotaRefusal = AccessVerdict.refused(
+  const AccessState(
+    mayConnect: false,
+    kind: AccessKind.dailyQuota,
+    usedBytes: 263 * 1024 * 1024,
+    limitBytes: 200 * 1024 * 1024,
+    period: 'day',
+  ),
+  statusCode: 403,
 );
 
 void main() {
@@ -220,5 +250,101 @@ void main() {
     expect(await notifier.connect(), isFalse);
     expect(notifier.state.stage, VpnStage.error);
     expect(conn.calls, isEmpty);
+  });
+
+  group('право подключаться проверяется ДО поднятия туннеля', () {
+    // ВОСПРОИЗВЕДЁННАЯ ПОЛОМКА. Профиль импортирован, пока подписка была
+    // здорова; трафик кончился; ядро в raw-режиме не спрашивает никого и
+    // поднимает туннель из кэша. Туннель при этом исправен — а через него не
+    // проходит ничего, и экран говорит «Защищено» с идущим таймером.
+    test('закрытая подписка не поднимает туннель на кэше конфигурации', () async {
+      final conn = FakeVpnConnection();
+      final guard = guardAnswering(_quotaRefusal);
+      final notifier = build(
+        conn,
+        profile: rawProfile(rawConfig: 'proxies: [{name: DE-01}]'),
+        guard: guard,
+      );
+
+      expect(await notifier.connect(), isFalse);
+
+      // Ядра не касались вовсе: ни политики, ни режима, ни connectRaw.
+      expect(conn.calls, isEmpty);
+      expect(conn.lastRawArgs, isNull);
+      // И это не зелёный щит.
+      expect(notifier.state.stage, VpnStage.error);
+      expect(notifier.state.isConnected, isFalse);
+      // Причина названа, и код, по которому её узнали, остался уликой.
+      expect(notifier.state.detail, contains('403'));
+      expect(notifier.state.detail, contains('Дневной лимит израсходован'));
+      // Экран берёт человеческий текст из состояния, которое записал сторож.
+      expect(guard.state.refusal!.kind, AccessKind.dailyQuota);
+      guard.dispose();
+    });
+
+    test('панельный путь закрытая подписка тоже не поднимает', () async {
+      final conn = FakeVpnConnection();
+      final guard = guardAnswering(_quotaRefusal);
+      const server = Server(id: 7, name: 'Node #7', countryCode: 'NL');
+      final notifier = build(conn, recommended: server, guard: guard);
+
+      expect(await notifier.connect(), isFalse);
+
+      expect(conn.calls, isEmpty);
+      expect(notifier.state.stage, VpnStage.error);
+      guard.dispose();
+    });
+
+    test('открытая подписка подключается как раньше', () async {
+      final conn = FakeVpnConnection();
+      final guard = guardAnswering(AccessVerdict.allowed());
+      final notifier = build(conn, profile: rawProfile(), guard: guard);
+
+      expect(await notifier.connect(), isTrue);
+
+      expect(conn.calls, ['setTunnelMode', 'setPolicy', 'connectRaw']);
+      guard.dispose();
+    });
+
+    test('молчащая сеть подключаться НЕ запрещает', () async {
+      // Отказать по неответу значило бы запретить VPN ровно там, где сеть
+      // плохая, то есть там, где он и нужен. Судить о туннеле будет сам
+      // туннель.
+      final conn = FakeVpnConnection();
+      final guard = guardAnswering(AccessVerdict.unknown);
+      final notifier = build(conn, profile: rawProfile(), guard: guard);
+
+      expect(await notifier.connect(), isTrue);
+
+      expect(conn.calls, contains('connectRaw'));
+      expect(notifier.state.stage, isNot(VpnStage.error));
+      guard.dispose();
+    });
+
+    test('живой туннель будит сторожа, оборванный — усыпляет', () async {
+      var asked = 0;
+      final conn = FakeVpnConnection();
+      final guard = AccessGuard(
+        check: (_) async {
+          asked++;
+          return AccessVerdict.unknown;
+        },
+        first: const Duration(milliseconds: 5),
+        every: const Duration(milliseconds: 5),
+      );
+      build(conn, profile: rawProfile(), guard: guard);
+
+      conn.emit(const VpnStatus(stage: VpnStage.connected));
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(asked, greaterThan(0), reason: 'сессия обязана проверяться');
+
+      conn.emit(const VpnStatus.disconnected());
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      final afterStop = asked;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(asked, afterStop, reason: 'вне сессии спрашивать некого и незачем');
+      guard.dispose();
+    });
   });
 }

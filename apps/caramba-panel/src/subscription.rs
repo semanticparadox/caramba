@@ -6,6 +6,8 @@ use axum::{
 use serde::Deserialize;
 use tracing::{error, warn};
 
+use caramba_shared::csm::directive::{ReasonCode, Status};
+
 use crate::AppState;
 
 /// Rate-limits the "device limit reached" Telegram notification so a client that keeps
@@ -318,7 +320,11 @@ pub(crate) async fn mirror_serves_country(state: &AppState, client_cc: Option<&s
 /// Чистая половина [`mirror_serves_country`]: всё решение без базы и настроек.
 /// Вынесена ради тестов — ветки здесь такие, что ошибка в любой из них тихо
 /// уводит целую страну не туда.
-fn mirror_country_decision(mode: &str, relay_countries: &[String], client_cc: Option<&str>) -> bool {
+fn mirror_country_decision(
+    mode: &str,
+    relay_countries: &[String],
+    client_cc: Option<&str>,
+) -> bool {
     let mode = mode.trim();
 
     if mode == "*" {
@@ -392,7 +398,8 @@ pub async fn subscription_handler(
     // минуту на подписку. Побочный эффект: клиент, упёршийся в лимит, получает
     // 429 там, где раньше получал редирект. Это правильнее — редирект теперь
     // решение, а не константа, и стоит запроса к геобазе.
-    let client_cc = resolve_client_country(&state, &client_ip, client_country_header.as_deref()).await;
+    let client_cc =
+        resolve_client_country(&state, &client_ip, client_country_header.as_deref()).await;
 
     // 2. Куда отдавать тело: с панели напрямую или через зеркало подписки.
     //
@@ -469,12 +476,99 @@ pub async fn subscription_handler(
         }
     };
 
-    // 3. Check if active
+    // 3.1 Факты плана и расхода — ДО первого отказа, а не после него.
+    //
+    // Раньше весь этот блок стоял в шаге 4.5, то есть за всеми тремя
+    // проверками, и отказ уходил клиенту раньше, чем панель успевала посчитать,
+    // сколько трафика израсходовано и из какого потолка. Отсюда и брался
+    // единственный сигнал отказа — код 403: цифр в тот момент ещё не
+    // существовало. Теперь они считаются первыми и едут вместе с отказом.
+    //
+    // Цена перестановки: подписка, которой откажут, платит те же три запроса,
+    // что и успешная. Путь ограничен 30 запросами в минуту на UUID (шаг 1), так
+    // что верхняя граница известна и мала, а покупается на неё ровно то, ради
+    // чего всё это делается.
+    //
+    // Один запрос к `plans` вместо прежней пары «get_user_subscriptions +
+    // SELECT is_free»: имя тарифа и потолок лежат в одной строке, а прежний
+    // вызов тянул ВСЕ подписки пользователя с двумя JOIN'ами ради двух полей.
+    let plan_facts: Option<(String, i32, bool, i32, i32)> = sqlx::query_as(
+        "SELECT COALESCE(name, 'VPN Plan'), COALESCE(traffic_limit_gb, 0), \
+         COALESCE(is_free, FALSE), COALESCE(daily_traffic_mb, 0), COALESCE(device_limit, 0) \
+         FROM plans WHERE id = $1",
+    )
+    .bind(sub.plan_id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+    let (plan_name, traffic_limit_gb, is_free, daily_traffic_mb, plan_device_limit) =
+        plan_facts.unwrap_or_else(|| ("VPN Plan".to_string(), 0, false, 0, 0));
+
+    let banned: bool =
+        sqlx::query_scalar("SELECT COALESCE(is_banned, FALSE) FROM users WHERE id = $1")
+            .bind(sub.user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None)
+            .unwrap_or(false);
+
+    let bonus_traffic_mb = crate::services::bonus_traffic::balance_mb(&state.pool, sub.user_id)
+        .await
+        .unwrap_or(0);
+
+    // Ровно тот потолок, по которому подписку истекают/троттлят: лимит плана
+    // (суточный на free, общий на платном) плюс бонусный трафик. None = безлимит.
+    let enforced_limit_bytes = crate::services::bonus_traffic::plan_quota_limit_bytes(
+        is_free,
+        traffic_limit_gb as i64,
+        daily_traffic_mb as i64,
+        bonus_traffic_mb,
+    );
+
+    // Клампим used_traffic к нулю. Отрицательных значений в базе больше нет —
+    // одноразовый онбординг-headroom засевал used_traffic в минус и был убран
+    // вместе с ним (миграция 20260831120000), — но Subscription-Userinfo уходит
+    // клиенту, и отрицательный download в нём нестандартен в любом случае.
+    let used_traffic_bytes = (sub.used_traffic as i64).max(0);
+    let expire_timestamp = sub.expires_at.timestamp();
+
+    // Заготовка фактов доступа. `device_used` дозаполняется на шаге 3.5 — до
+    // него число активных адресов ещё не прочитано, а врать нулём в ответе,
+    // который про устройства и не говорит, дешевле, чем делать лишний запрос
+    // на каждом отказе по совершенно другой причине.
+    let mut access_facts = access::AccessFacts {
+        status: sub.status.clone(),
+        banned,
+        expires_at: expire_timestamp,
+        used_bytes: used_traffic_bytes,
+        limit_bytes: enforced_limit_bytes,
+        is_free,
+        daily_traffic_mb: daily_traffic_mb as i64,
+        device_used: 0,
+        device_limit: plan_device_limit as i64,
+        now: chrono::Utc::now().timestamp(),
+    };
+
+    // Тот же заголовок расхода, что уезжает с успешным конфигом. На отказе он
+    // важнее, чем на успехе: для клиента за зеркалом подписки это единственная
+    // цифра, которая доедет (caramba-sub копирует ровно три заголовка, и
+    // `subscription-userinfo` — один из них).
+    let userinfo =
+        access::userinfo_header(used_traffic_bytes, enforced_limit_bytes, expire_timestamp);
+
+    // 3.2 Статус подписки. Тело и код те же, что были всегда; новое — заголовки.
     if sub.status != "active" {
-        return (StatusCode::FORBIDDEN, "Subscription inactive or expired").into_response();
+        let a = access::compute(&access_facts, None);
+        return access::refusal_response(
+            StatusCode::FORBIDDEN,
+            "Subscription inactive or expired",
+            &a,
+            Some(userinfo),
+        );
     }
 
-    // 3.2 Check traffic quota immediately on subscription fetch to enforce limits in real-time.
+    // 3.3 Проверка квоты на самом запросе конфига — энфорсмент в реальном
+    // времени, а не раз в десять минут свипом.
     match state
         .subscription_service
         .ensure_subscription_within_quota(sub.id)
@@ -482,11 +576,21 @@ pub async fn subscription_handler(
     {
         Ok(true) => {}
         Ok(false) => {
-            return (
+            // Исход навязан, а не выведен из строки: `ensure_...` только что
+            // перевёл её в 'throttled'/'expired', и наш снимок `sub` этого
+            // перевода уже не видит. Спрашивать базу второй раз ради статуса,
+            // который мы и так знаем, незачем.
+            let a = access::compute_as(
+                &access_facts,
+                Some((Status::QuotaExceeded, access::quota_reason(&access_facts))),
+                None,
+            );
+            return access::refusal_response(
                 StatusCode::FORBIDDEN,
                 "Traffic limit reached. Subscription is expired.",
-            )
-                .into_response();
+                &a,
+                Some(userinfo),
+            );
         }
         Err(e) => {
             error!(
@@ -551,7 +655,23 @@ pub async fn subscription_handler(
                 }
             }
 
-            return (StatusCode::FORBIDDEN, "Device limit reached").into_response();
+            // Лимит устройств — свойство ЗАПРОСА, а не строки подписки: сама
+            // подписка в этот момент исправна, и вывести отказ из её статуса
+            // невозможно. Поэтому исход навязывается явно — только этот путь
+            // его и видит.
+            access_facts.device_used = active_ips.len() as i64;
+            access_facts.device_limit = device_limit as i64;
+            let a = access::compute_as(
+                &access_facts,
+                Some((Status::DeviceLimit, ReasonCode::DEVICE_LIMIT_REACHED)),
+                None,
+            );
+            return access::refusal_response(
+                StatusCode::FORBIDDEN,
+                "Device limit reached",
+                &a,
+                Some(userinfo),
+            );
         }
     }
 
@@ -561,68 +681,18 @@ pub async fn subscription_handler(
         .track_access(sub.id, &client_ip, user_agent.as_deref())
         .await;
 
-    // 4.5 Prepare Usage Headers (for Hiddify/Sing-box)
-    let plan_details = match state
-        .subscription_service
-        .get_user_subscriptions(sub.user_id)
-        .await
-    {
-        Ok(subs) => subs
-            .iter()
-            .find(|s| s.sub.id == sub.id)
-            .map(|s| (s.plan_name.clone(), s.traffic_limit_gb.unwrap_or(0)))
-            .unwrap_or(("VPN Plan".to_string(), 0)),
-        Err(_) => ("VPN Plan".to_string(), 0),
-    };
-
-    let traffic_limit_gb = plan_details.1;
-
-    // Класс тарифа. На бесплатном плане энфорсмент считает по daily_traffic_mb,
-    // а не по traffic_limit_gb, и без этих двух колонок весь показ ниже
-    // (Subscription-Userinfo и HTML-страница) врал бы ровно на разницу между
-    // 10 ГБ в колонке и 200 МБ, которые на самом деле разрешены.
-    let (is_free, daily_traffic_mb): (bool, i32) = sqlx::query_as(
-        "SELECT COALESCE(is_free, FALSE), COALESCE(daily_traffic_mb, 0) FROM plans WHERE id = $1",
-    )
-    .bind(sub.plan_id)
-    .fetch_optional(&state.pool)
-    .await
-    .unwrap_or(None)
-    .unwrap_or((false, 0));
-    let bonus_traffic_mb = crate::services::bonus_traffic::balance_mb(&state.pool, sub.user_id)
-        .await
-        .unwrap_or(0);
-    // Ровно тот потолок, по которому подписку истекают/троттлят: лимит плана
-    // (суточный на free, общий на платном) плюс бонусный трафик. None = безлимит.
-    let enforced_limit_bytes = crate::services::bonus_traffic::plan_quota_limit_bytes(
-        is_free,
-        traffic_limit_gb as i64,
-        daily_traffic_mb as i64,
-        bonus_traffic_mb,
-    );
-
-    // Клампим used_traffic к нулю. Отрицательных значений в базе больше нет —
-    // одноразовый онбординг-headroom засевал used_traffic в минус и был убран
-    // вместе с ним (миграция 20260831120000), — но заголовок
-    // Subscription-Userinfo уходит клиенту, и отрицательный download в нём
-    // нестандартен в любом случае.
-    let used_traffic_bytes = (sub.used_traffic as i64).max(0);
-    let expire_timestamp = sub.expires_at.timestamp();
-
-    // upload=0; download=used; total=limit; expire=timestamp.
-    // Безлимит (None) отдаём без `total`, чтобы клиент нарисовал ∞. На
-    // суточном плане `total` — это норма на сутки: клиент покажет расход из
-    // 200 МБ, что совпадает с тем, за что его отключат, а не из 10 ГБ.
-    let user_info_header = match enforced_limit_bytes {
-        Some(total_traffic_bytes) => format!(
-            "upload=0; download={}; total={}; expire={}",
-            used_traffic_bytes, total_traffic_bytes, expire_timestamp
-        ),
-        None => format!(
-            "upload=0; download={}; expire={}",
-            used_traffic_bytes, expire_timestamp
-        ),
-    };
+    // 4.5 Заголовок расхода для Hiddify/sing-box.
+    //
+    // Считать здесь больше нечего: тариф, потолок и расход посчитаны на шаге
+    // 3.1, до первого отказа. Одна и та же строка уезжает и с успешным
+    // конфигом, и с отказом — иначе клиент видел бы цифры только тогда, когда
+    // они ему не нужны.
+    //
+    // upload=0; download=used; total=limit; expire=timestamp. Безлимит отдаём
+    // без `total`, чтобы клиент нарисовал ∞. На суточном плане `total` — это
+    // норма на сутки: клиент покажет расход из 200 МБ, что совпадает с тем, за
+    // что его отключат, а не из 10 ГБ.
+    let user_info_header = userinfo;
 
     // ===================================================================
     // client autodetection or raw config mode
@@ -641,9 +711,6 @@ pub async fn subscription_handler(
 
     // If still no client (or it's explicitly "html" detected), serve HTML
     if selected_client.is_none() {
-        // Use already fetched plan_details
-        let plan_name = plan_details;
-
         // Страница считает по тому же потолку в байтах, что и заголовок выше:
         // проценты и подпись должны сходиться с причиной блокировки, иначе
         // отключённый бесплатник видит «2% из 10 ГБ» и решает, что сервис сломан.
@@ -859,7 +926,7 @@ function copyLink(){{
 </script>
 </body>
 </html>"##,
-            plan_name = plan_name.0,
+            plan_name = plan_name,
             traffic_display = traffic_display,
             expires_display = expires_display,
             sub_url = sub_url,
@@ -901,6 +968,24 @@ function copyLink(){{
         }
     };
 
+    // «Серверов нет» — это отказ ПАРКА, а не подписки, и клиент обязан уметь
+    // отличить его от исчерпанного трафика: в первом случае надо подождать, во
+    // втором — заплатить. Без кода причины оба приезжали одинаковым «не удалось
+    // загрузить подписку», и подсказать человеку было нечего.
+    let fleet_unavailable = || {
+        let a = access::compute_as(
+            &access_facts,
+            Some((Status::Suspended, ReasonCode::FLEET_UNAVAILABLE)),
+            None,
+        );
+        access::refusal_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "No servers available",
+            &a,
+            None,
+        )
+    };
+
     // Fetch and filter nodes (Refactored Phase 1.8: Use Plan Groups)
     // Fallback to all active nodes if plan bindings are temporarily missing.
     let nodes_raw = match state.store_service.get_user_nodes(sub.user_id).await {
@@ -908,18 +993,18 @@ function copyLink(){{
         Ok(_) => match state.store_service.get_active_nodes().await {
             Ok(nodes) => nodes,
             Err(_) => {
-                return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response();
+                return fleet_unavailable();
             }
         },
         Err(_) => match state.store_service.get_active_nodes().await {
             Ok(nodes) => nodes,
             Err(_) => {
-                return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response();
+                return fleet_unavailable();
             }
         },
     };
     if nodes_raw.is_empty() {
-        return (StatusCode::SERVICE_UNAVAILABLE, "No servers available").into_response();
+        return fleet_unavailable();
     }
 
     // `?node_id=` is the ONLY thing that narrows the body. The stored pin
@@ -968,7 +1053,17 @@ function copyLink(){{
             ),
             None => "No exit servers available to this subscription".to_string(),
         };
-        return (StatusCode::NOT_FOUND, reason).into_response();
+        // Тело динамическое (в него подставлен номер узла), поэтому здесь
+        // используется не `refusal_response`, а те же заголовки поверх готового
+        // ответа: тело остаётся ровно тем, что было, а причина становится
+        // читаемой. Для клиента это тот же «парк недоступен» — просто в срезе
+        // одной подписки.
+        let a = access::compute_as(
+            &access_facts,
+            Some((Status::Suspended, ReasonCode::FLEET_UNAVAILABLE)),
+            None,
+        );
+        return (StatusCode::NOT_FOUND, access::refusal_headers(&a), reason).into_response();
     }
 
     if requested_node_id.is_none() {
@@ -1072,7 +1167,7 @@ function copyLink(){{
                 ),
                 (
                     header::HeaderName::from_static("profile-title"),
-                    plan_details.0.as_str(),
+                    plan_name.as_str(),
                 ),
                 (
                     header::HeaderName::from_static("profile-update-interval"),
@@ -1214,7 +1309,7 @@ function copyLink(){{
             ),
             (
                 header::HeaderName::from_static("profile-title"),
-                plan_details.0.as_str(),
+                plan_name.as_str(),
             ),
             (
                 header::HeaderName::from_static("profile-update-interval"),
@@ -1233,6 +1328,563 @@ function copyLink(){{
         content,
     )
         .into_response()
+}
+
+// ============================================================================
+// Причина отказа как данные, а не как проза
+// ============================================================================
+
+/// Почему панель отказала и что с этим делать — в машинном виде.
+///
+/// # Зачем модуль вообще существует
+///
+/// До него отказ выражался ровно одним числом — HTTP-кодом — и одной английской
+/// строкой в теле. Три разные жизненные ситуации (подписка не активна, кончился
+/// трафик, занято устройство) отдавали 403 и текст, который клиент не разбирает.
+/// Go-ядро на любом не-200 выбрасывало и заголовки, и тело
+/// (`transport/ladder.go`, «код состояния %d»), четыре слоя обёрток дописывали
+/// свои префиксы, и до человека доезжало «transport: код состояния 403» — фраза,
+/// по которой нельзя понять ни причины, ни что нажать.
+///
+/// Дальше это чинили догадками: сначала подозревали протухший токен, потом
+/// российский прокси, потом блокировку. Настоящей причиной было «на бесплатном
+/// тарифе кончились 200 МБ за сегодня» — факт, который панель знала всё это
+/// время и не сказала.
+///
+/// Поэтому здесь считается ОДНО состояние доступа, и его отдают все три пути:
+/// JSON приложения (`api/v2/app.rs`, `api/v2/app_account.rs`) и заголовки
+/// отказа на `/sub/{uuid}`. Один источник — единственная защита от того, чтобы
+/// экран приложения и заголовок ответа рассказывали про одного пользователя
+/// разные истории.
+///
+/// # Что здесь принципиально не делается
+///
+/// Не меняется НИ ОДИН код состояния и НИ ОДНО тело ответа на `/sub/{uuid}`.
+/// Happ, Hiddify и clash-клиенты читают «конфиг или не-200 с текстом», и
+/// `06-MIGRATION.md` 6.1 фиксирует эти тела побайтово. Всё новое едет
+/// заголовками, которых старый клиент не запрашивал и потому игнорирует.
+///
+/// Слово `throttled` наружу не выходит. Оно остаётся в базе и в логах, где оно
+/// и означает то, что означает; клиенту едет `quota_exceeded` + `rc` 3003 и
+/// русский текст без единого внутреннего термина.
+pub mod access {
+    use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
+    use axum::response::{IntoResponse, Response};
+    use caramba_shared::csm::directive::{ReasonCode, Status};
+    use serde::Serialize;
+
+    /// Насколько поздно может приехать суточное пополнение относительно 00:00 UTC.
+    ///
+    /// `monitoring::start` тикает раз в 30 секунд и запускает
+    /// `daily_traffic_topup` каждые 60 тиков — то есть раз в полчаса, а не в
+    /// полночь. Пользователю нельзя обещать «ровно в 00:00»: он проверит в
+    /// 00:05, увидит тот же отказ и решит, что его обманули. Обещаем окно.
+    pub const RESET_LAG_SECONDS: i64 = 1800;
+
+    /// Факты, от которых зависит состояние доступа. Собираются вызывающим из
+    /// строки подписки и колонок плана; сама функция в базу не ходит и потому
+    /// проверяема целиком.
+    #[derive(Debug, Clone)]
+    pub struct AccessFacts {
+        /// Сырой статус из базы (`active` | `throttled` | `expired` | …).
+        /// Наружу он не попадает — только внутрь `classify`.
+        pub status: String,
+        pub banned: bool,
+        /// Unix-время окончания подписки.
+        pub expires_at: i64,
+        pub used_bytes: i64,
+        /// Тот же потолок, по которому работает энфорсмент
+        /// (`bonus_traffic::plan_quota_limit_bytes`). `None` — безлимит.
+        pub limit_bytes: Option<i64>,
+        pub is_free: bool,
+        /// Суточная норма плана в МБ (без бонуса). 0 — суточной нормы нет.
+        pub daily_traffic_mb: i64,
+        pub device_used: i64,
+        /// 0 — устройства не ограничены.
+        pub device_limit: i64,
+        pub now: i64,
+    }
+
+    /// Период, за который посчитаны `used_bytes` и `limit_bytes`.
+    ///
+    /// Выводится ровно из той же ветки, по которой потолок и считался: суточная
+    /// колонка участвует только на бесплатном плане с включённым ограничением.
+    /// Отдельно хранить период нельзя — разъехавшись с потолком, он превращает
+    /// счётчик в число без смысла.
+    fn period_of(f: &AccessFacts) -> &'static str {
+        if f.is_free && f.daily_traffic_mb > 0 && f.limit_bytes.is_some() {
+            "day"
+        } else {
+            "total"
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize)]
+    pub struct Devices {
+        pub used: i64,
+        /// 0 — план не ограничивает число устройств.
+        pub limit: i64,
+    }
+
+    /// Куда идти платить. `None`, если у установки не настроен бот — тогда
+    /// приложению нечего показать, и врать ссылкой хуже, чем промолчать.
+    #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+    pub struct PayLinks {
+        /// Экран тарифов мини-аппа, `https://` — работает везде.
+        pub miniapp_url: Option<String>,
+        /// Он же в нативной форме: открывает уже установленный Telegram без
+        /// прыжка через браузер. Приложение пробует его первым.
+        pub miniapp_native: Option<String>,
+        /// Чат бота. Последний рубеж: экрана тарифов там нет, но первая кнопка
+        /// главного меню — «Купить».
+        pub bot_url: String,
+    }
+
+    /// Состояние доступа — то, против чего кодирует приложение.
+    #[derive(Debug, Clone, Serialize)]
+    pub struct AccessState {
+        /// ЕДИНСТВЕННЫЙ флаг, по которому приложение решает, пускать ли в
+        /// подключение. Всё остальное здесь — текст и цифры для экрана.
+        pub may_connect: bool,
+        /// Имя статуса из словаря CSM (`02-SPEC.md` 4.6.1).
+        pub state: &'static str,
+        /// Числовой `st` того же словаря.
+        pub st: u64,
+        /// Числовой код причины `rc`. Клиент ОБЯЗАН принять незнакомый код и
+        /// показать общий текст своего статуса.
+        pub rc: u64,
+        /// Имя `rc` в snake_case; `unknown` для кода вне словаря.
+        pub reason: &'static str,
+        pub used_bytes: i64,
+        /// `null` — безлимит.
+        pub limit_bytes: Option<i64>,
+        /// `day` | `total`.
+        pub period: &'static str,
+        /// Когда придёт следующее суточное пополнение, RFC3339. `null` для
+        /// накопительного периода.
+        pub resets_at: Option<String>,
+        /// Насколько пополнение может опоздать относительно `resets_at`.
+        pub reset_lag_seconds: Option<i64>,
+        /// Сколько трафика останется сразу после пополнения. `0` — честное
+        /// «завтра доступ ещё не откроется»: пополнение вычитает суточную норму,
+        /// а не обнуляет расход, поэтому перерасход переносится на следующие
+        /// сутки. `null` для накопительного периода.
+        pub bytes_after_reset: Option<i64>,
+        pub devices: Devices,
+        pub pay: Option<PayLinks>,
+        /// Готовая русская строка. Приложение вправе показать её как есть —
+        /// это гарантия, что даже клиент, не знающий нового `rc`, покажет
+        /// человеку правду, а не «код состояния 403».
+        pub message_ru: String,
+    }
+
+    fn state_name(s: Status) -> &'static str {
+        match s {
+            Status::PendingApproval => "pending_approval",
+            Status::Onboarding => "onboarding",
+            Status::Active => "active",
+            Status::Expired => "expired",
+            Status::Revoked => "revoked",
+            Status::Suspended => "suspended",
+            Status::QuotaExceeded => "quota_exceeded",
+            Status::DeviceLimit => "device_limit",
+        }
+    }
+
+    fn reason_name(rc: ReasonCode) -> &'static str {
+        match rc {
+            ReasonCode::NONE => "none",
+            ReasonCode::AWAITING_APPROVAL => "awaiting_approval",
+            ReasonCode::ACCOUNT_SUSPENDED => "account_suspended",
+            ReasonCode::ACCOUNT_CLOSED => "account_closed",
+            ReasonCode::TERM_ENDED => "term_ended",
+            ReasonCode::PAYMENT_FAILED => "payment_failed",
+            ReasonCode::TRIAL_ENDED => "trial_ended",
+            ReasonCode::TRAFFIC_QUOTA_EXHAUSTED => "traffic_quota_exhausted",
+            ReasonCode::ONBOARDING_GRANT_EXHAUSTED => "onboarding_grant_exhausted",
+            ReasonCode::DAILY_ALLOWANCE_EXHAUSTED => "daily_allowance_exhausted",
+            ReasonCode::DEVICE_LIMIT_REACHED => "device_limit_reached",
+            ReasonCode::DEVICE_REVOKED_BY_USER => "device_revoked_by_user",
+            ReasonCode::DEVICE_REVOKED_BY_OPERATOR => "device_revoked_by_operator",
+            ReasonCode::PLAN_WITHDRAWN => "plan_withdrawn",
+            ReasonCode::FLEET_UNAVAILABLE => "fleet_unavailable",
+            _ => "unknown",
+        }
+    }
+
+    /// Начало ближайших суток UTC строго после `now`.
+    fn next_utc_midnight(now: i64) -> i64 {
+        const DAY: i64 = 86_400;
+        // Целочисленное деление в Rust усекает к нулю, поэтому для
+        // доисторических отрицательных отметок нужен пол, а не усечение.
+        let day_start = now.div_euclid(DAY) * DAY;
+        day_start + DAY
+    }
+
+    /// Сколько трафика останется сразу после суточного пополнения.
+    ///
+    /// Повторяет арифметику `monitoring::daily_traffic_topup`: пополнение НЕ
+    /// обнуляет расход, оно вычитает из него ровно одну суточную норму с полом
+    /// в нуле. Разница видна сразу: человек, спаливший 263 МБ при норме 200,
+    /// завтра начнёт не с нуля, а с 63 — и ему останется 137 МБ, а не 200. Тот,
+    /// кто спалил 450, завтра всё ещё будет за потолком, и приложение обязано
+    /// сказать это заранее, а не заставлять его ждать полуночи впустую.
+    fn bytes_after_reset(used: i64, limit: i64, daily_mb: i64) -> i64 {
+        let daily_bytes = daily_mb.max(0).saturating_mul(1024 * 1024);
+        let used_after = (used - daily_bytes).max(0);
+        (limit - used_after).max(0)
+    }
+
+    /// «263 МБ», «1.4 ГБ» — то, что человек прочитает вслух.
+    fn human_bytes(b: i64) -> String {
+        const MIB: f64 = 1024.0 * 1024.0;
+        const GIB: f64 = MIB * 1024.0;
+        let b = b.max(0) as f64;
+        if b >= GIB {
+            format!("{:.1} ГБ", b / GIB)
+        } else if b >= MIB {
+            format!("{:.0} МБ", b / MIB)
+        } else {
+            format!("{:.0} КБ", (b / 1024.0).ceil())
+        }
+    }
+
+    /// Дата окончания в виде, привычном русскому глазу. Бесплатный план живёт
+    /// до 9999-12-31 — это не дата, а «никогда», и печатать её нельзя.
+    fn human_date(ts: i64) -> Option<String> {
+        let dt = chrono::DateTime::from_timestamp(ts, 0)?;
+        if chrono::Datelike::year(&dt) >= 9999 {
+            return None;
+        }
+        Some(dt.format("%d.%m.%Y").to_string())
+    }
+
+    /// Русский текст состояния.
+    ///
+    /// Пишется для человека, который не знает слова «throttled» и никогда не
+    /// узнает. Ни «403», ни «inactive», ни «expired», ни имени статуса из базы
+    /// здесь появиться не может — только что случилось, сколько израсходовано и
+    /// что сделать дальше.
+    fn message_ru(f: &AccessFacts, st: Status, rc: ReasonCode, period: &str) -> String {
+        let used = human_bytes(f.used_bytes);
+        let limit = f.limit_bytes.map(human_bytes);
+
+        match (st, rc) {
+            (Status::QuotaExceeded, _) if period == "day" => {
+                let limit = limit.unwrap_or_else(|| "суточной нормы".to_string());
+                let left = f
+                    .limit_bytes
+                    .map(|l| bytes_after_reset(f.used_bytes, l, f.daily_traffic_mb));
+                let tail = match left {
+                    Some(0) => " Израсходовано больше суточной нормы, поэтому одного пополнения не хватит — доступ откроется через сутки после этого."
+                        .to_string(),
+                    Some(left) => format!(
+                        " После пополнения останется {}.",
+                        human_bytes(left)
+                    ),
+                    None => String::new(),
+                };
+                format!(
+                    "Дневной лимит бесплатного тарифа израсходован: {} из {}. \
+                     Новая порция придёт после 00:00 UTC (03:00 МСК), обычно в течение получаса.{} \
+                     Не ждать — оплатить тариф.",
+                    used, limit, tail
+                )
+            }
+            (Status::QuotaExceeded, _) => {
+                let limit = limit.unwrap_or_else(|| "лимита тарифа".to_string());
+                format!(
+                    "Трафик тарифа израсходован: {} из {}. Чтобы продолжить, продлите или смените тариф.",
+                    used, limit
+                )
+            }
+            (Status::DeviceLimit, _) => {
+                if f.device_limit > 0 {
+                    format!(
+                        "На этом тарифе можно подключить {} устройств(а), и они уже заняты. \
+                         Отключите VPN на другом устройстве или перейдите на тариф, где устройств больше.",
+                        f.device_limit
+                    )
+                } else {
+                    "Свободных мест для устройств нет. Отключите VPN на другом устройстве и попробуйте снова."
+                        .to_string()
+                }
+            }
+            (Status::Expired, _) => match human_date(f.expires_at) {
+                Some(date) => format!(
+                    "Подписка закончилась {}. Продлите её, чтобы снова подключаться.",
+                    date
+                ),
+                None => "Подписка закончилась. Продлите её, чтобы снова подключаться.".to_string(),
+            },
+            (Status::PendingApproval, _) => {
+                "Подписка ждёт подтверждения. Обычно это занимает несколько минут.".to_string()
+            }
+            (Status::Suspended, _) | (Status::Revoked, _) => {
+                "Доступ приостановлен. Напишите в поддержку — там видно, что произошло.".to_string()
+            }
+            (Status::Onboarding, _) if period == "day" => {
+                let limit = limit.unwrap_or_else(|| "суточной нормы".to_string());
+                format!(
+                    "Бесплатный тариф: сегодня израсходовано {} из {}. \
+                     Норма обновляется после 00:00 UTC (03:00 МСК).",
+                    used, limit
+                )
+            }
+            (Status::Onboarding, _) | (Status::Active, _) => match &limit {
+                Some(limit) => format!("Подписка активна: израсходовано {} из {}.", used, limit),
+                None => "Подписка активна, трафик не ограничен.".to_string(),
+            },
+        }
+    }
+
+    /// Ссылки на оплату из настроек установки.
+    ///
+    /// Формат ссылки не сочиняется на месте: `https`-форма берётся у
+    /// `notification_templates::deep_link` — той же функции, которая печатает
+    /// кнопки в уведомлениях бота. Нативная форма (`tg://`) собирается здесь,
+    /// потому что нужна только приложению: она открывает уже установленный
+    /// Telegram, не прогоняя человека через браузер.
+    pub fn pay_links(bot_username: &str, mini_app_short_name: &str) -> Option<PayLinks> {
+        let bot = bot_username.trim().trim_start_matches('@');
+        if bot.is_empty() {
+            return None;
+        }
+        let short = mini_app_short_name.trim();
+        let (miniapp_url, miniapp_native) = if short.is_empty() {
+            (None, None)
+        } else {
+            (
+                crate::services::notification_templates::deep_link(
+                    Some(bot),
+                    short,
+                    crate::services::notification_templates::ButtonTarget::Plans,
+                ),
+                Some(format!(
+                    "tg://resolve?domain={}&appname={}&startapp=plans",
+                    bot, short
+                )),
+            )
+        };
+        Some(PayLinks {
+            miniapp_url,
+            miniapp_native,
+            bot_url: format!("https://t.me/{}", bot),
+        })
+    }
+
+    /// Код причины для «трафик кончился».
+    ///
+    /// `classify` не различает бесплатный план с СУТОЧНОЙ нормой и бесплатный
+    /// план с разовым онбординг-грантом: у обоих `is_free`, и оба получают
+    /// 3002. Для человека это два разных мира — «приходи после полуночи» против
+    /// «грант кончился насовсем», — и различает их ровно период. На этой
+    /// установке бесплатный план суточный, так что почти всегда это 3003; ветка
+    /// 3002 сохранена для плана, у которого суточной нормы нет.
+    pub fn quota_reason(f: &AccessFacts) -> ReasonCode {
+        if period_of(f) == "day" {
+            ReasonCode::DAILY_ALLOWANCE_EXHAUSTED
+        } else if f.is_free {
+            ReasonCode::ONBOARDING_GRANT_EXHAUSTED
+        } else {
+            ReasonCode::TRAFFIC_QUOTA_EXHAUSTED
+        }
+    }
+
+    /// Состояние доступа по фактам подписки.
+    pub fn compute(f: &AccessFacts, pay: Option<PayLinks>) -> AccessState {
+        compute_as(f, None, pay)
+    }
+
+    /// То же, но с навязанным исходом.
+    ///
+    /// Нужно ровно одному вызывающему: лимит устройств — это свойство ЗАПРОСА
+    /// (пришёл новый адрес, а мест нет), а не строки подписки. Из базы его не
+    /// вывести: подписка в этот момент совершенно исправна, и `classify` честно
+    /// скажет «active». Поэтому путь `/sub/{uuid}`, который единственный это
+    /// видит, передаёт исход явно.
+    pub fn compute_as(
+        f: &AccessFacts,
+        forced: Option<(Status, ReasonCode)>,
+        pay: Option<PayLinks>,
+    ) -> AccessState {
+        let (mut st, mut rc) = forced.unwrap_or_else(|| {
+            caramba_shared::csm::directive::classify(&caramba_shared::csm::directive::StatusFacts {
+                status: &f.status,
+                expires_at: f.expires_at,
+                used_traffic: f.used_bytes,
+                // `StatusFacts` кодирует безлимит нулём, а не `None`.
+                limit_bytes: f.limit_bytes.unwrap_or(0),
+                free_plan: f.is_free,
+                banned: f.banned,
+                now: f.now,
+            })
+        });
+
+        // Два уточнения там, где `classify` физически не может различить
+        // случаи, разные для человека. Оба применяются ТОЛЬКО к выведенному
+        // исходу: сфорсированный приходит с пути, который знает про запрос
+        // больше, чем строка подписки, и перебивать его нельзя.
+        if forced.is_none() {
+            let over_quota = f.limit_bytes.is_some_and(|l| l > 0 && f.used_bytes >= l);
+
+            // Статус 'expired' ставят ДВА разных гейта: срок
+            // (`monitoring::check_expirations`) и трафик
+            // (`expire_over_quota_subscriptions`). В строке они неразличимы, а
+            // для человека это противоположные новости. Различает их дата:
+            // подписка, у которой срок ещё впереди, закрыта трафиком.
+            //
+            // Без этого уточнения платный пользователь, упёршийся в лимит
+            // гигабайтов, получал «подписка закончилась» — и шёл продлевать то,
+            // что не истекло, вместо того чтобы взять тариф потолще. Хуже того,
+            // он получал ДВА разных ответа на один и тот же вопрос: 3001 на
+            // первом отказе (пока строка ещё 'active') и 2001 на всех
+            // последующих.
+            if st == Status::Expired && over_quota && f.expires_at > f.now {
+                st = Status::QuotaExceeded;
+            }
+
+            if st == Status::QuotaExceeded {
+                rc = quota_reason(f);
+            }
+        }
+
+        let period = period_of(f);
+        let daily = period == "day";
+
+        AccessState {
+            may_connect: st.may_connect(),
+            state: state_name(st),
+            st: st as u64,
+            rc: rc.0,
+            reason: reason_name(rc),
+            used_bytes: f.used_bytes.max(0),
+            limit_bytes: f.limit_bytes,
+            period,
+            resets_at: if daily {
+                chrono::DateTime::from_timestamp(next_utc_midnight(f.now), 0)
+                    .map(|d| d.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+            } else {
+                None
+            },
+            reset_lag_seconds: if daily { Some(RESET_LAG_SECONDS) } else { None },
+            bytes_after_reset: if daily {
+                f.limit_bytes
+                    .map(|l| bytes_after_reset(f.used_bytes, l, f.daily_traffic_mb))
+            } else {
+                None
+            },
+            devices: Devices {
+                used: f.device_used.max(0),
+                limit: f.device_limit.max(0),
+            },
+            pay,
+            message_ru: message_ru(f, st, rc, period),
+        }
+    }
+
+    // ---------------------------------------------------------------- заголовки
+
+    /// Префикс всех заголовков причины. Ни один существующий клиент их не
+    /// запрашивал, поэтому добавление не может ничего сломать: HTTP обязывает
+    /// получателя игнорировать незнакомый заголовок.
+    pub const HDR_STATE: &str = "x-caramba-state";
+    pub const HDR_ST: &str = "x-caramba-st";
+    pub const HDR_REASON: &str = "x-caramba-reason";
+    pub const HDR_REASON_NAME: &str = "x-caramba-reason-name";
+    pub const HDR_USED: &str = "x-caramba-used";
+    pub const HDR_LIMIT: &str = "x-caramba-limit";
+    pub const HDR_PERIOD: &str = "x-caramba-period";
+    pub const HDR_RESETS_AT: &str = "x-caramba-resets-at";
+    pub const HDR_RESET_LAG: &str = "x-caramba-reset-lag";
+    pub const HDR_BYTES_AFTER_RESET: &str = "x-caramba-bytes-after-reset";
+
+    fn put(map: &mut HeaderMap, name: &'static str, value: String) {
+        // Имена — константы этого модуля, они валидны по построению; значения
+        // собираются из чисел и ASCII-идентификаторов. Отбрасываем молча ту
+        // единственную теоретическую ветку, где значение оказалось непечатным:
+        // потерять один заголовок причины лучше, чем уронить ответ, который
+        // клиент ждёт.
+        if let Ok(v) = HeaderValue::from_str(&value) {
+            map.insert(HeaderName::from_static(name), v);
+        }
+    }
+
+    /// Заголовки причины для устаревшего пути `/sub/{uuid}`.
+    ///
+    /// Только ASCII и только цифры/идентификаторы: `message_ru` сюда НЕ едет.
+    /// Заголовок обязан быть латиницей (RFC 9110 полагает значения ISO-8859-1),
+    /// а кодировать русский текст в заголовок ради клиента, который всё равно
+    /// покажет свой перевод, — способ получить мусор на экране Happ.
+    pub fn refusal_headers(a: &AccessState) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        put(&mut map, HDR_STATE, a.state.to_string());
+        put(&mut map, HDR_ST, a.st.to_string());
+        put(&mut map, HDR_REASON, a.rc.to_string());
+        put(&mut map, HDR_REASON_NAME, a.reason.to_string());
+        put(&mut map, HDR_USED, a.used_bytes.to_string());
+        if let Some(limit) = a.limit_bytes {
+            put(&mut map, HDR_LIMIT, limit.to_string());
+        }
+        put(&mut map, HDR_PERIOD, a.period.to_string());
+        // Unix-секунды, а не RFC3339: клиент отказа — Go-ядро, ему нужна
+        // отметка времени, а не строка на разбор.
+        if let Some(resets_at) = a.resets_at.as_deref()
+            && let Ok(dt) = chrono::DateTime::parse_from_rfc3339(resets_at)
+        {
+            put(&mut map, HDR_RESETS_AT, dt.timestamp().to_string());
+        }
+        if let Some(lag) = a.reset_lag_seconds {
+            put(&mut map, HDR_RESET_LAG, lag.to_string());
+        }
+        if let Some(left) = a.bytes_after_reset {
+            put(&mut map, HDR_BYTES_AFTER_RESET, left.to_string());
+        }
+        map
+    }
+
+    /// Заголовок `Subscription-Userinfo` в грамматике, которую читают Hiddify,
+    /// Happ и clash-клиенты.
+    ///
+    /// Он стоит отдельно от `X-Caramba-*` по одной практической причине:
+    /// зеркало подписки (`caramba-sub`) переписывает ответ панели и копирует
+    /// ровно три заголовка, и `subscription-userinfo` — один из них. Значит для
+    /// клиента за зеркалом это ЕДИНСТВЕННЫЙ способ узнать цифры расхода в
+    /// момент отказа. Пока белый список зеркала не расширен, `X-Caramba-*`
+    /// доезжают только до тех, кто ходит на панель напрямую.
+    pub fn userinfo_header(used_bytes: i64, limit_bytes: Option<i64>, expires_at: i64) -> String {
+        match limit_bytes {
+            Some(total) => format!(
+                "upload=0; download={}; total={}; expire={}",
+                used_bytes.max(0),
+                total,
+                expires_at
+            ),
+            None => format!(
+                "upload=0; download={}; expire={}",
+                used_bytes.max(0),
+                expires_at
+            ),
+        }
+    }
+
+    /// Отказ на устаревшем пути: прежний код, прежнее тело, новые заголовки.
+    ///
+    /// `body` берётся `&'static str` намеренно — тела отказов зафиксированы
+    /// побайтово (`06-MIGRATION.md` 6.1), и подстановка в них чего-либо
+    /// вычисляемого была бы началом их расползания.
+    pub fn refusal_response(
+        code: StatusCode,
+        body: &'static str,
+        a: &AccessState,
+        userinfo: Option<String>,
+    ) -> Response {
+        let mut headers = refusal_headers(a);
+        if let Some(info) = userinfo {
+            put(&mut headers, "subscription-userinfo", info);
+        }
+        (code, headers, body).into_response()
+    }
 }
 
 #[cfg(test)]
@@ -1376,5 +2028,667 @@ mod tests {
         let mut nodes = original.clone();
         promote_pinned_node(&mut nodes, None, |node| node.id);
         assert_eq!(nodes, original);
+    }
+}
+
+// ==========================================================================
+// Причина отказа: словарь, арифметика и совместимость со сторонними клиентами
+// ==========================================================================
+#[cfg(test)]
+mod access_tests {
+    use super::access::*;
+    use axum::http::StatusCode;
+    use caramba_shared::csm::directive::{ReasonCode, Status};
+
+    const MIB: i64 = 1024 * 1024;
+    const GIB: i64 = MIB * 1024;
+
+    /// 2026-09-05 03:04:09 UTC — время, в которое живая панель отдала последний
+    /// отказ, снятый вручную. Ближайшая полночь после него — 2026-09-06.
+    const NOW: i64 = 1_788_577_449;
+    const NEXT_MIDNIGHT: i64 = 1_788_652_800;
+
+    /// Живой бесплатный тариф этой установки: план 3, `is_free`,
+    /// `traffic_limit_gb` 10 (включатель ограничения), `daily_traffic_mb` 200,
+    /// `device_limit` 1. Потолок — 200 МБ, а НЕ 10 ГБ.
+    fn free(status: &str, used_mb: i64) -> AccessFacts {
+        AccessFacts {
+            status: status.to_string(),
+            banned: false,
+            // Бесплатная подписка выдана «навсегда»: 9999-12-31.
+            expires_at: 253_402_300_799,
+            used_bytes: used_mb * MIB,
+            limit_bytes: Some(200 * MIB),
+            is_free: true,
+            daily_traffic_mb: 200,
+            device_used: 1,
+            device_limit: 1,
+            now: NOW,
+        }
+    }
+
+    /// Платный тариф с накопительным лимитом (Starter: 100 ГБ, 1 устройство).
+    fn paid(status: &str, used_gb: i64, expires_at: i64) -> AccessFacts {
+        AccessFacts {
+            status: status.to_string(),
+            banned: false,
+            expires_at,
+            used_bytes: used_gb * GIB,
+            limit_bytes: Some(100 * GIB),
+            is_free: false,
+            daily_traffic_mb: 0,
+            device_used: 1,
+            device_limit: 1,
+            now: NOW,
+        }
+    }
+
+    // ---------------------------------------------------------------- словарь
+
+    /// Тот самый случай владельца: подписка 27, бесплатный тариф, 263 МБ при
+    /// норме 200. До этого изменения клиент получал 403 и текст
+    /// «Subscription inactive or expired» — ту же строку, что и человек с
+    /// закончившимся платным тарифом, и что человек, чью подписку ещё не
+    /// подтвердили. Теперь три ситуации различимы числом.
+    #[test]
+    fn the_owners_case_is_a_daily_allowance_not_an_expiry() {
+        let a = compute(&free("throttled", 263), None);
+        assert_eq!(a.state, "quota_exceeded");
+        assert_eq!(a.st, Status::QuotaExceeded as u64);
+        assert_eq!(a.rc, ReasonCode::DAILY_ALLOWANCE_EXHAUSTED.0);
+        assert_eq!(a.reason, "daily_allowance_exhausted");
+        assert!(!a.may_connect);
+    }
+
+    /// Каждая причина отказа получает СВОЮ пару (st, rc). Тест держит именно
+    /// различимость: до него все эти строки приезжали клиенту одним 403.
+    #[test]
+    fn every_refusal_reason_is_distinct_on_the_wire() {
+        let daily = compute(&free("throttled", 263), None);
+        let paid_quota = compute(&paid("active", 100, NOW + 86_400), None);
+        let term = compute(&paid("expired", 1, NOW - 86_400), None);
+        let pending = compute(&free("pending", 0), None);
+        let device = compute_as(
+            &free("active", 10),
+            Some((Status::DeviceLimit, ReasonCode::DEVICE_LIMIT_REACHED)),
+            None,
+        );
+        let mut banned_facts = free("active", 10);
+        banned_facts.banned = true;
+        let banned = compute(&banned_facts, None);
+        let fleet = compute_as(
+            &free("active", 10),
+            Some((Status::Suspended, ReasonCode::FLEET_UNAVAILABLE)),
+            None,
+        );
+
+        let seen: Vec<(u64, u64)> = [
+            &daily,
+            &paid_quota,
+            &term,
+            &pending,
+            &device,
+            &banned,
+            &fleet,
+        ]
+        .iter()
+        .map(|a| (a.st, a.rc))
+        .collect();
+
+        let mut uniq = seen.clone();
+        uniq.sort_unstable();
+        uniq.dedup();
+        assert_eq!(uniq.len(), seen.len(), "коды причин слиплись: {:?}", seen);
+
+        assert_eq!(daily.rc, 3003);
+        assert_eq!(paid_quota.rc, 3001);
+        assert_eq!(term.rc, 2001);
+        assert_eq!(pending.rc, 1001);
+        assert_eq!(device.rc, 4001);
+        assert_eq!(banned.rc, 1002);
+        assert_eq!(fleet.rc, 5002);
+    }
+
+    /// Единственный флаг, по которому приложению разрешено принимать решение.
+    /// Онбординг (бесплатный активный) подключаться МОЖЕТ — иначе бесплатный
+    /// тариф перестал бы существовать.
+    #[test]
+    fn may_connect_is_true_only_where_the_tunnel_would_actually_come_up() {
+        assert!(compute(&free("active", 10), None).may_connect);
+        assert!(compute(&paid("active", 1, NOW + 86_400), None).may_connect);
+        assert!(!compute(&free("throttled", 263), None).may_connect);
+        assert!(!compute(&paid("expired", 1, NOW - 86_400), None).may_connect);
+        assert!(!compute(&free("pending", 0), None).may_connect);
+    }
+
+    /// Бесплатный план с суточной нормой и бесплатный план без неё — разные
+    /// причины: в первом случае человеку надо дождаться полуночи, во втором
+    /// ждать нечего. `classify` их не различает, поэтому уточнение живёт здесь.
+    #[test]
+    fn a_daily_allowance_is_not_the_same_reason_as_a_one_off_grant() {
+        assert_eq!(
+            compute(&free("throttled", 263), None).rc,
+            ReasonCode::DAILY_ALLOWANCE_EXHAUSTED.0
+        );
+
+        // Бесплатный план БЕЗ суточной нормы: потолок накопительный.
+        let mut grant = free("active", 11 * 1024);
+        grant.daily_traffic_mb = 0;
+        grant.limit_bytes = Some(10 * GIB);
+        grant.used_bytes = 11 * GIB;
+        let a = compute(&grant, None);
+        assert_eq!(a.rc, ReasonCode::ONBOARDING_GRANT_EXHAUSTED.0);
+        assert_eq!(a.period, "total");
+        assert_eq!(a.resets_at, None, "у накопительного лимита нет полуночи");
+    }
+
+    /// Один и тот же платный пользователь, упёршийся в лимит гигабайтов,
+    /// обязан получать ОДИН ответ — и на первом отказе, когда строка ещё
+    /// 'active', и на всех следующих, когда гейт уже переписал её в 'expired'.
+    ///
+    /// До уточнения он получал сначала «трафик кончился», потом «подписка
+    /// закончилась» — и шёл продлевать срок, который не истёк.
+    #[test]
+    fn a_paid_plan_out_of_traffic_says_so_before_and_after_the_gate_rewrites_the_row() {
+        let future = NOW + 30 * 86_400;
+        let first = compute(&paid("active", 100, future), None);
+        let after_sweep = compute(&paid("expired", 100, future), None);
+
+        assert_eq!(first.state, "quota_exceeded");
+        assert_eq!(first.rc, ReasonCode::TRAFFIC_QUOTA_EXHAUSTED.0);
+        assert_eq!(after_sweep.state, first.state);
+        assert_eq!(after_sweep.rc, first.rc);
+        assert!(after_sweep.message_ru.contains("Трафик тарифа"));
+
+        // А настоящее истечение по сроку так и остаётся истечением по сроку.
+        let by_time = compute(&paid("expired", 1, NOW - 86_400), None);
+        assert_eq!(by_time.state, "expired");
+        assert_eq!(by_time.rc, ReasonCode::TERM_ENDED.0);
+    }
+
+    /// Незнакомый код обязан оставаться числом, а не превращаться в панику или
+    /// пустую строку: клиент по контракту показывает общий текст статуса.
+    #[test]
+    fn an_unknown_reason_code_survives_as_a_number() {
+        let a = compute_as(
+            &free("active", 10),
+            Some((Status::Suspended, ReasonCode(1099))),
+            None,
+        );
+        assert_eq!(a.rc, 1099);
+        assert_eq!(a.reason, "unknown");
+        assert_eq!(a.state, "suspended");
+    }
+
+    // ------------------------------------------------------- арифметика сброса
+
+    /// Ровно случай владельца: 263 МБ при норме 200. Пополнение НЕ обнуляет
+    /// расход — оно вычитает одну норму, — поэтому завтра останется 137 МБ, а
+    /// не 200. Приложение обязано назвать это число: «завтра будет как новый»
+    /// было бы враньём на 63 МБ.
+    #[test]
+    fn a_reset_subtracts_one_allowance_it_does_not_zero_the_counter() {
+        let a = compute(&free("throttled", 263), None);
+        assert_eq!(a.period, "day");
+        assert_eq!(a.bytes_after_reset, Some(137 * MIB));
+    }
+
+    /// Перерасход больше нормы: одного пополнения не хватит, и человек должен
+    /// узнать это СЕЙЧАС, а не прождав полночь впустую.
+    #[test]
+    fn an_overrun_larger_than_the_allowance_reports_zero_not_a_full_tank() {
+        let a = compute(&free("throttled", 450), None);
+        assert_eq!(a.bytes_after_reset, Some(0));
+        assert!(
+            a.message_ru.contains("одного пополнения не хватит"),
+            "{}",
+            a.message_ru
+        );
+    }
+
+    /// Момент сброса — ближайшая полночь UTC, и вместе с ним едет окно
+    /// опоздания: пополнение крутится раз в полчаса, а не в 00:00:00.
+    #[test]
+    fn the_reset_is_the_next_utc_midnight_with_an_honest_lag() {
+        let a = compute(&free("throttled", 263), None);
+        assert_eq!(a.resets_at.as_deref(), Some("2026-09-06T00:00:00Z"));
+        assert_eq!(a.reset_lag_seconds, Some(RESET_LAG_SECONDS));
+        assert_eq!(RESET_LAG_SECONDS, 1800);
+
+        let dt = chrono::DateTime::parse_from_rfc3339(a.resets_at.as_deref().unwrap()).unwrap();
+        assert_eq!(dt.timestamp(), NEXT_MIDNIGHT);
+        assert!(dt.timestamp() > NOW);
+        assert!(dt.timestamp() - NOW <= 86_400);
+    }
+
+    /// Ровно в полночь сброс — СЛЕДУЮЩАЯ полночь, а не текущая секунда: иначе
+    /// приложение показало бы «обновится прямо сейчас» и осталось бы так висеть.
+    #[test]
+    fn exactly_at_midnight_the_next_reset_is_a_full_day_out() {
+        let mut f = free("throttled", 263);
+        f.now = NEXT_MIDNIGHT;
+        let a = compute(&f, None);
+        let dt = chrono::DateTime::parse_from_rfc3339(a.resets_at.as_deref().unwrap()).unwrap();
+        assert_eq!(dt.timestamp(), NEXT_MIDNIGHT + 86_400);
+    }
+
+    /// Накопительный период не получает ни момента сброса, ни остатка после
+    /// него: сбрасывать нечему, и `null` здесь — единственный честный ответ.
+    #[test]
+    fn a_total_period_carries_no_reset_fields() {
+        let a = compute(&paid("active", 100, NOW + 86_400), None);
+        assert_eq!(a.period, "total");
+        assert_eq!(a.resets_at, None);
+        assert_eq!(a.reset_lag_seconds, None);
+        assert_eq!(a.bytes_after_reset, None);
+    }
+
+    /// Безлимит: потолка нет, значит нет и периода со сбросом. Ноль в
+    /// `limit_bytes` был бы «израсходовано всё», поэтому именно `null`.
+    #[test]
+    fn an_unlimited_plan_reports_a_null_ceiling_not_a_zero_one() {
+        let mut f = paid("active", 500, NOW + 86_400);
+        f.limit_bytes = None;
+        let a = compute(&f, None);
+        assert_eq!(a.limit_bytes, None);
+        assert_eq!(a.period, "total");
+        assert!(a.may_connect);
+        assert!(a.message_ru.contains("не ограничен"), "{}", a.message_ru);
+    }
+
+    // ------------------------------------------------------------------ текст
+
+    /// Внутренние слова не выходят наружу. `throttled` живёт в базе и в логах;
+    /// человек, который его увидит, не поймёт ничего — ровно это и случилось.
+    #[test]
+    fn no_internal_vocabulary_ever_reaches_a_human() {
+        let cases = [
+            compute(&free("throttled", 263), None),
+            compute(&free("throttled", 450), None),
+            compute(&paid("expired", 1, NOW - 86_400), None),
+            compute(&paid("active", 100, NOW + 86_400), None),
+            compute(&free("pending", 0), None),
+            compute(&free("active", 10), None),
+            compute_as(
+                &free("active", 10),
+                Some((Status::DeviceLimit, ReasonCode::DEVICE_LIMIT_REACHED)),
+                None,
+            ),
+        ];
+        for a in &cases {
+            let text = a.message_ru.to_lowercase();
+            for banned in [
+                "throttl",
+                "expired",
+                "inactive",
+                "403",
+                "код состояния",
+                "quota",
+                "device limit",
+                "subscription",
+            ] {
+                assert!(
+                    !text.contains(banned),
+                    "внутреннее слово {:?} уехало в текст: {}",
+                    banned,
+                    a.message_ru
+                );
+            }
+            assert!(!a.message_ru.is_empty());
+        }
+    }
+
+    /// Текст суточного отказа обязан нести ТРИ вещи, иначе он бесполезен:
+    /// сколько израсходовано, из чего, и когда снова можно.
+    #[test]
+    fn the_daily_message_carries_the_numbers_a_person_needs() {
+        let a = compute(&free("throttled", 263), None);
+        assert!(a.message_ru.contains("263 МБ"), "{}", a.message_ru);
+        assert!(a.message_ru.contains("200 МБ"), "{}", a.message_ru);
+        assert!(a.message_ru.contains("00:00 UTC"), "{}", a.message_ru);
+        assert!(a.message_ru.contains("137 МБ"), "{}", a.message_ru);
+    }
+
+    /// «Бессрочная» подписка бесплатного тарифа живёт до 9999-12-31. Печатать
+    /// эту дату человеку нельзя — это не срок, это отсутствие срока.
+    #[test]
+    fn the_year_9999_placeholder_is_never_printed_as_a_date() {
+        let mut f = free("expired", 0);
+        f.expires_at = 253_402_300_799;
+        let a = compute(&f, None);
+        assert!(!a.message_ru.contains("9999"), "{}", a.message_ru);
+        assert!(!a.message_ru.contains("31.12"), "{}", a.message_ru);
+
+        // Настоящая дата, наоборот, обязана быть названа.
+        let real = compute(&paid("expired", 1, 1_788_480_000), None);
+        assert!(real.message_ru.contains("2026"), "{}", real.message_ru);
+    }
+
+    // ------------------------------------------------------------ оплата
+
+    /// Ссылки берутся из настроек установки; нативная форма — та, что открывает
+    /// уже установленный Telegram, `https` — та, что работает всегда.
+    #[test]
+    fn pay_links_offer_a_native_hop_an_https_hop_and_the_bare_bot() {
+        let p = pay_links("exa_robot", "exaconnect").unwrap();
+        assert_eq!(
+            p.miniapp_url.as_deref(),
+            Some("https://t.me/exa_robot/exaconnect?startapp=plans")
+        );
+        assert_eq!(
+            p.miniapp_native.as_deref(),
+            Some("tg://resolve?domain=exa_robot&appname=exaconnect&startapp=plans")
+        );
+        assert_eq!(p.bot_url, "https://t.me/exa_robot");
+    }
+
+    /// Собачка перед именем бота — обычная опечатка оператора в настройках, и
+    /// она не должна превращать ссылку в мёртвую.
+    #[test]
+    fn a_leading_at_sign_in_the_setting_does_not_break_the_link() {
+        let p = pay_links("@exa_robot", " exaconnect ").unwrap();
+        assert_eq!(p.bot_url, "https://t.me/exa_robot");
+        assert_eq!(
+            p.miniapp_url.as_deref(),
+            Some("https://t.me/exa_robot/exaconnect?startapp=plans")
+        );
+    }
+
+    /// Без мини-аппа остаётся чат бота: экрана тарифов там нет, но первая
+    /// кнопка главного меню — «Купить». Без бота вообще — `None`: мёртвая
+    /// кнопка хуже отсутствующей.
+    #[test]
+    fn a_missing_mini_app_degrades_to_the_bot_and_a_missing_bot_to_nothing() {
+        let p = pay_links("exa_robot", "").unwrap();
+        assert_eq!(p.miniapp_url, None);
+        assert_eq!(p.miniapp_native, None);
+        assert_eq!(p.bot_url, "https://t.me/exa_robot");
+
+        assert_eq!(pay_links("", "exaconnect"), None);
+        assert_eq!(pay_links("   ", ""), None);
+        assert_eq!(pay_links("@", "x"), None);
+    }
+
+    // ------------------------------------- совместимость со сторонними клиентами
+
+    /// Исторические тела трёх отказов. Happ, Hiddify и clash-клиенты читают
+    /// «конфиг или не-200 с текстом», а `06-MIGRATION.md` 6.1 фиксирует эти
+    /// строки побайтово. Тест держит их именно как байты: изменить их можно
+    /// только осознанно, сломав этот тест.
+    const BODY_INACTIVE: &str = "Subscription inactive or expired";
+    const BODY_QUOTA: &str = "Traffic limit reached. Subscription is expired.";
+    const BODY_DEVICE: &str = "Device limit reached";
+
+    async fn parts(r: axum::response::Response) -> (StatusCode, axum::http::HeaderMap, String) {
+        let (p, body) = r.into_parts();
+        let bytes = axum::body::to_bytes(body, 64 * 1024).await.unwrap();
+        (
+            p.status,
+            p.headers,
+            String::from_utf8(bytes.to_vec()).unwrap(),
+        )
+    }
+
+    /// Главная гарантия обратной совместимости: код и тело отказа не менялись.
+    /// Клиент, который умеет только «200 или ошибка», видит ровно то же, что
+    /// видел вчера.
+    #[tokio::test]
+    async fn the_legacy_refusal_bodies_are_unchanged_to_the_byte() {
+        let a = compute(&free("throttled", 263), None);
+        for (body, code) in [
+            (BODY_INACTIVE, StatusCode::FORBIDDEN),
+            (BODY_QUOTA, StatusCode::FORBIDDEN),
+            (BODY_DEVICE, StatusCode::FORBIDDEN),
+        ] {
+            let (status, _, got) = parts(refusal_response(code, body, &a, None)).await;
+            assert_eq!(status, code);
+            assert_eq!(got, body);
+            assert_eq!(got.as_bytes(), body.as_bytes());
+        }
+    }
+
+    /// Всё новое едет заголовками, и ни один из них не трогает то, что старый
+    /// клиент читает. Разрешённый список ровно два вида имён: `x-caramba-*`
+    /// (никто их не запрашивал, HTTP обязывает игнорировать незнакомое) и
+    /// `subscription-userinfo` — заголовок, который Hiddify и Happ уже читают и
+    /// который на успешном ответе и так был.
+    #[tokio::test]
+    async fn everything_added_is_a_header_a_third_party_client_already_ignores() {
+        let a = compute(&free("throttled", 263), None);
+        let userinfo = userinfo_header(263 * MIB, Some(200 * MIB), 253_402_300_799);
+        let (_, headers, _) = parts(refusal_response(
+            StatusCode::FORBIDDEN,
+            BODY_QUOTA,
+            &a,
+            Some(userinfo),
+        ))
+        .await;
+
+        for name in headers.keys() {
+            let n = name.as_str();
+            let benign = n.starts_with("x-caramba-")
+                || n == "subscription-userinfo"
+                || n == "content-type"
+                || n == "content-length";
+            assert!(benign, "неожиданный заголовок в отказе: {}", n);
+        }
+
+        // Content-Type не поменялся: тело как было текстом, так и осталось.
+        assert_eq!(
+            headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default(),
+            "text/plain; charset=utf-8"
+        );
+    }
+
+    /// Значения заголовков — только печатный ASCII. Русский текст в заголовок
+    /// не едет: RFC 9110 трактует значения как ISO-8859-1, и Happ показал бы
+    /// мусор вместо объяснения. Объяснение живёт в JSON приложения.
+    #[tokio::test]
+    async fn header_values_stay_ascii_so_no_client_renders_mojibake() {
+        let a = compute(&free("throttled", 263), None);
+        let (_, headers, _) = parts(refusal_response(
+            StatusCode::FORBIDDEN,
+            BODY_QUOTA,
+            &a,
+            Some(userinfo_header(263 * MIB, Some(200 * MIB), 1_788_652_800)),
+        ))
+        .await;
+        for (name, value) in headers.iter() {
+            let v = value
+                .to_str()
+                .expect("значение заголовка должно быть ASCII");
+            assert!(
+                v.chars().all(|c| c.is_ascii_graphic() || c == ' '),
+                "непечатное значение в {}: {:?}",
+                name,
+                v
+            );
+        }
+    }
+
+    /// Цифры, которые едут с отказом, — те же, что и в JSON: заголовок и экран
+    /// приложения не могут показать разное, потому что источник один.
+    #[tokio::test]
+    async fn the_refusal_headers_carry_the_same_numbers_as_the_json() {
+        let a = compute(&free("throttled", 263), None);
+        let (_, h, _) = parts(refusal_response(
+            StatusCode::FORBIDDEN,
+            BODY_QUOTA,
+            &a,
+            None,
+        ))
+        .await;
+        let get = |k: &str| {
+            h.get(k)
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+        };
+
+        assert_eq!(get(HDR_STATE).as_deref(), Some("quota_exceeded"));
+        assert_eq!(get(HDR_ST).as_deref(), Some("7"));
+        assert_eq!(get(HDR_REASON).as_deref(), Some("3003"));
+        assert_eq!(
+            get(HDR_REASON_NAME).as_deref(),
+            Some("daily_allowance_exhausted")
+        );
+        assert_eq!(get(HDR_USED), Some((263 * MIB).to_string()));
+        assert_eq!(get(HDR_LIMIT), Some((200 * MIB).to_string()));
+        assert_eq!(get(HDR_PERIOD).as_deref(), Some("day"));
+        // Отметка времени — Unix-секунды: клиент отказа это Go-ядро, ему нужно
+        // число, а не строка на разбор.
+        assert_eq!(get(HDR_RESETS_AT), Some(NEXT_MIDNIGHT.to_string()));
+        assert_eq!(get(HDR_RESET_LAG).as_deref(), Some("1800"));
+        assert_eq!(get(HDR_BYTES_AFTER_RESET), Some((137 * MIB).to_string()));
+
+        // Ни один заголовок не содержит внутреннего слова.
+        for value in h.values() {
+            let v = value.to_str().unwrap_or_default();
+            assert!(!v.contains("throttl"), "{}", v);
+        }
+    }
+
+    /// Безлимитный план не печатает `x-caramba-limit`: пустой заголовок или
+    /// ноль клиент прочитал бы как «лимит равен нулю».
+    #[tokio::test]
+    async fn an_unlimited_plan_omits_the_limit_header_rather_than_sending_zero() {
+        let mut f = paid("expired", 5, NOW - 10);
+        f.limit_bytes = None;
+        let a = compute(&f, None);
+        let (_, h, _) = parts(refusal_response(
+            StatusCode::FORBIDDEN,
+            BODY_INACTIVE,
+            &a,
+            None,
+        ))
+        .await;
+        assert!(h.get(HDR_LIMIT).is_none());
+        assert!(h.get(HDR_RESETS_AT).is_none());
+        assert_eq!(
+            h.get(HDR_PERIOD).and_then(|v| v.to_str().ok()),
+            Some("total")
+        );
+    }
+
+    /// `Subscription-Userinfo` в грамматике, которую Hiddify/Happ уже разбирают.
+    /// На отказе он ВАЖНЕЕ, чем на успехе: зеркало подписки (`caramba-sub`)
+    /// копирует ровно три заголовка, и это единственный из наших, который
+    /// доезжает до клиента за зеркалом.
+    #[test]
+    fn the_userinfo_header_keeps_the_grammar_third_party_clients_parse() {
+        let with_limit = userinfo_header(263 * MIB, Some(200 * MIB), 253_402_300_799);
+        assert_eq!(
+            with_limit,
+            "upload=0; download=275775488; total=209715200; expire=253402300799"
+        );
+
+        // Разбор в стиле клиента: пары `ключ=значение` через `; `.
+        let pairs: std::collections::BTreeMap<&str, &str> = with_limit
+            .split("; ")
+            .filter_map(|kv| kv.split_once('='))
+            .collect();
+        assert_eq!(pairs.get("upload"), Some(&"0"));
+        assert_eq!(pairs.get("download"), Some(&"275775488"));
+        assert_eq!(pairs.get("total"), Some(&"209715200"));
+        assert!(pairs.contains_key("expire"));
+
+        // Безлимит — БЕЗ `total`: клиент рисует ∞. Ноль он показал бы как
+        // «исчерпано полностью».
+        let unlimited = userinfo_header(5 * GIB, None, 1_788_652_800);
+        assert_eq!(
+            unlimited,
+            "upload=0; download=5368709120; expire=1788652800"
+        );
+        assert!(!unlimited.contains("total"));
+    }
+
+    // --------------------------------------------------------- форма на проводе
+
+    /// Точная форма объекта `access`. Приложение кодирует ПРОТИВ этого снимка,
+    /// поэтому тест держит и набор ключей, и значения: молча переименованное
+    /// поле — это молча сломанный экран у всех, кто уже обновился.
+    #[test]
+    fn the_access_object_has_exactly_this_shape_on_the_wire() {
+        let a = compute(
+            &free("throttled", 263),
+            pay_links("exa_robot", "exaconnect"),
+        );
+        let v = serde_json::to_value(&a).unwrap();
+
+        let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec![
+                "bytes_after_reset",
+                "devices",
+                "limit_bytes",
+                "may_connect",
+                "message_ru",
+                "pay",
+                "period",
+                "rc",
+                "reason",
+                "reset_lag_seconds",
+                "resets_at",
+                "st",
+                "state",
+                "used_bytes",
+            ]
+        );
+
+        assert_eq!(v["may_connect"], serde_json::json!(false));
+        assert_eq!(v["state"], serde_json::json!("quota_exceeded"));
+        assert_eq!(v["st"], serde_json::json!(7));
+        assert_eq!(v["rc"], serde_json::json!(3003));
+        assert_eq!(v["reason"], serde_json::json!("daily_allowance_exhausted"));
+        assert_eq!(v["used_bytes"], serde_json::json!(275_775_488i64));
+        assert_eq!(v["limit_bytes"], serde_json::json!(209_715_200i64));
+        assert_eq!(v["period"], serde_json::json!("day"));
+        assert_eq!(v["resets_at"], serde_json::json!("2026-09-06T00:00:00Z"));
+        assert_eq!(v["reset_lag_seconds"], serde_json::json!(1800));
+        assert_eq!(v["bytes_after_reset"], serde_json::json!(143_654_912i64));
+        assert_eq!(v["devices"], serde_json::json!({"used": 1, "limit": 1}));
+        assert_eq!(
+            v["pay"],
+            serde_json::json!({
+                "miniapp_url": "https://t.me/exa_robot/exaconnect?startapp=plans",
+                "miniapp_native": "tg://resolve?domain=exa_robot&appname=exaconnect&startapp=plans",
+                "bot_url": "https://t.me/exa_robot"
+            })
+        );
+        assert!(v["message_ru"].as_str().unwrap().contains("263 МБ"));
+    }
+
+    /// Необязательные поля приезжают как `null`, а не пропадают: клиент,
+    /// читающий ключ, обязан получить ответ «не применимо», а не наткнуться на
+    /// его отсутствие и решить, что панель старая.
+    #[test]
+    fn inapplicable_fields_are_null_not_absent() {
+        let mut f = paid("expired", 5, NOW - 10);
+        f.limit_bytes = None;
+        let v = serde_json::to_value(compute(&f, None)).unwrap();
+        for key in [
+            "limit_bytes",
+            "resets_at",
+            "reset_lag_seconds",
+            "bytes_after_reset",
+            "pay",
+        ] {
+            assert!(v.get(key).is_some(), "ключ {} пропал", key);
+            assert!(v[key].is_null(), "ключ {} должен быть null", key);
+        }
+    }
+
+    /// Отрицательного расхода в базе больше нет, но заголовок уходит наружу, и
+    /// `download=-1` для стороннего клиента — нестандартное значение.
+    #[test]
+    fn a_negative_usage_never_leaks_into_the_wire() {
+        assert!(userinfo_header(-1, Some(200 * MIB), 0).contains("download=0"));
+        let mut f = free("throttled", 0);
+        f.used_bytes = -5;
+        assert_eq!(compute(&f, None).used_bytes, 0);
     }
 }

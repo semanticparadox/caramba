@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/data/models/exit_location.dart';
+import 'package:caramba_client/data/models/subscription.dart' show AccessState;
 import 'package:caramba_client/domain/offering/offering.dart';
 import 'package:caramba_client/domain/offering/offering_providers.dart';
+import 'package:caramba_client/features/servers/access_card.dart';
 import 'package:caramba_client/features/servers/fleet_alignment.dart';
 import 'package:caramba_client/state/exit_inventory_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
@@ -52,6 +54,10 @@ class CountryNodesView extends ConsumerWidget {
     final nodes = ref.watch(exitNodesInCountryProvider(location.countryCode));
     final offering = ref.watch(offeringProvider);
     final selectedKey = inventory.selectedNodeKey;
+    // Отказ подписки накрывает ВСЕ строки страны разом, включая те, что
+    // пришли из предложения: они описывают тот же флот, и оставить их
+    // нажимаемыми значило бы обещать подключение, которого не будет.
+    final blocked = inventory.blockedBy;
 
     // Предложение описывает ЭТОТ же источник — только тогда его машинам можно
     // верить. Пока каталог CSM ведёт инвентарь, а предложение ещё нет, обе
@@ -81,11 +87,14 @@ class CountryNodesView extends ConsumerWidget {
             style: AppType.bodySm.copyWith(color: c.textLow),
           ),
         ),
-        if (!location.isAvailable) ...[
+        if (blocked != null) ...[
+          AccessCard(access: blocked, compact: true),
+          const SizedBox(height: AppSpace.s4),
+        ] else if (!location.isAvailable) ...[
           InlineBanner(
             tone: BannerTone.warning,
             glyph: Lucide.alert,
-            text: location.availability.message,
+            text: exitUnavailableText(location.availability),
           ),
           const SizedBox(height: AppSpace.s4),
         ],
@@ -115,6 +124,7 @@ class CountryNodesView extends ConsumerWidget {
                 selected: exitHoldsKey(e, selectedKey),
                 node: nodeForExit(e, nodes),
                 onSelect: onSelect,
+                blockedBy: blocked,
               ),
         ],
       ],
@@ -135,17 +145,21 @@ class _ExitRow extends StatelessWidget {
 
   final void Function(ExitNode? node) onSelect;
 
+  /// Отказ подписки: строка остаётся видимой, но не нажимается и несёт причину.
+  final AccessState? blockedBy;
+
   const _ExitRow({
     required this.exit,
     required this.selected,
     required this.node,
     required this.onSelect,
+    this.blockedBy,
   });
 
   @override
   Widget build(BuildContext context) {
     final n = node;
-    final off = !exit.isAvailable || n == null;
+    final off = !exit.isAvailable || n == null || blockedBy != null;
     // Задержку берём у УЗЛА, если машина в списке выбора представлена: там
     // лежит собственный замер вместе с именем автора. У предложения автора нет
     // — его `pingMs` пришёл с панели, и назвать его можно только операторским.
@@ -188,6 +202,10 @@ class _ExitRow extends StatelessWidget {
   }
 
   String? _subtitle() {
+    // Причина подписки идёт ПЕРВОЙ: пока она в силе, всё остальное про эту
+    // машину — правда, которая ничего не меняет.
+    final blocked = blockedBy;
+    if (blocked != null) return '${blocked.shortReason} · ${blocked.badge}';
     if (!exit.isAvailable) return exit.availability.message;
     if (node == null) {
       return 'Эта машина есть в предложении, но в списке выбора её нет: '
@@ -230,7 +248,7 @@ class _NodeRow extends StatelessWidget {
       child: ListItemCard(
         leading: FlagChip(flag: node.flag, code: node.countryCode),
         title: node.name.isEmpty ? node.key : node.name,
-        subtitle: off ? node.availability.message : _subtitle(),
+        subtitle: off ? exitUnavailableText(node.availability) : _subtitle(),
         selected: selected,
         // Тип outbound'а показывается там, где источник его знает: у
         // импортированной подписки и у каталога он есть, у панельного

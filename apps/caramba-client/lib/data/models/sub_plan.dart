@@ -1,3 +1,4 @@
+import 'package:caramba_client/data/models/subscription.dart' show AccessState;
 import 'package:caramba_client/widgets/lucide.dart';
 
 enum SubKind { free, unlimited, pool }
@@ -44,6 +45,9 @@ class SubPlan {
   final int devUsed;
   final int devLimit;
 
+  /// Право подключаться по ЭТОЙ подписке, с причиной. См. [AccessState].
+  final AccessState access;
+
   const SubPlan({
     required this.id,
     this.subscriptionUuid = '',
@@ -60,9 +64,12 @@ class SubPlan {
     this.relayCountry,
     required this.devUsed,
     required this.devLimit,
+    this.access = AccessState.allowed,
   });
 
-  bool get isActive => status == 'active';
+  /// Подключаться можно. Не `status == 'active'`: у исчерпанной дневной нормы
+  /// статус не активный, а подписка живая — она сама починится в полночь.
+  bool get isActive => access.mayConnect;
   bool get shareable => kind != SubKind.free;
 
   int get freeSlots => (devLimit - devUsed).clamp(0, devLimit);
@@ -104,13 +111,16 @@ class SubPlan {
       _ => SubKind.unlimited,
     };
     final weeklyFree = (json['weekly_free_refill_gb'] as num?)?.toDouble() ?? 0;
+    final status = (json['status'] as String?) ?? 'active';
+    final devUsed = (json['device_used'] as num?)?.toInt() ?? 0;
+    final devLimit = (json['device_limit'] as num?)?.toInt() ?? 1;
     return SubPlan(
       id: (json['id'] as num?)?.toInt() ?? 0,
       subscriptionUuid: (json['subscription_uuid'] as String?) ?? '',
       name:
           (json['plan_name'] as String?) ?? (json['name'] as String?) ?? 'План',
       kind: kind,
-      status: (json['status'] as String?) ?? 'active',
+      status: status,
       icon: switch (kind) {
         SubKind.free => Lucide.gift,
         SubKind.unlimited => Lucide.infinity,
@@ -126,8 +136,21 @@ class SubPlan {
       expiresAt: _parseDate(json['expires_at']),
       poolName: json['pool_name'] as String?,
       relayCountry: json['relay_country'] as String?,
-      devUsed: (json['device_used'] as num?)?.toInt() ?? 0,
-      devLimit: (json['device_limit'] as num?)?.toInt() ?? 1,
+      devUsed: devUsed,
+      devLimit: devLimit,
+      access:
+          AccessState.fromJson(json['access']) ??
+          AccessState.fromLegacy(
+            status: status,
+            usedBytes: (json['used_traffic_bytes'] as num?)?.toInt() ?? 0,
+            limitBytes: (json['traffic_limit_bytes'] as num?)?.toInt() ?? 0,
+            period: (json['quota_period'] as String?) ?? '',
+            isFree: kind == SubKind.free,
+            dailyTrafficMb: (json['daily_traffic_mb'] as num?)?.toInt() ?? 0,
+            expiresAt: _parseDate(json['expires_at']),
+            devicesUsed: devUsed,
+            devicesLimit: devLimit,
+          ),
     );
   }
 

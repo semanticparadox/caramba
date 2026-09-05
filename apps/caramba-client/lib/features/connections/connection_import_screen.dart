@@ -15,6 +15,7 @@ import 'package:caramba_client/features/enroll/connect_link.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
+import 'package:caramba_client/features/servers/access_card.dart';
 import 'package:caramba_client/state/core_error.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/state/settings_state.dart';
@@ -162,6 +163,13 @@ class _ConnectionImportScreenState
   bool _busy = false;
   String? _error;
 
+  /// Исходный текст отказа — под «Подробности». На экран идёт перевод.
+  String? _errorDetail;
+
+  /// Отказ по подписке (трафик/срок/устройства): предлагаем оплату, а не
+  /// «повторить» — повтор вернёт тот же ответ.
+  bool _errorPayable = false;
+
   /// Разбор ядра: заполнен после успешной проверки, обнуляется при правке ввода.
   ImportResult? _preview;
 
@@ -291,7 +299,12 @@ class _ConnectionImportScreenState
             const SizedBox(height: AppSpace.s6),
 
             if (_error != null) ...[
-              InlineError(message: _error!, onRetry: _check),
+              FailureNotice(
+                message: _error!,
+                technical: _errorDetail,
+                onRetry: _errorPayable ? null : _check,
+                payable: _errorPayable,
+              ),
               const SizedBox(height: AppSpace.s5),
             ],
 
@@ -333,6 +346,8 @@ class _ConnectionImportScreenState
     if (_error == null && _preview == null) return;
     setState(() {
       _error = null;
+      _errorDetail = null;
+      _errorPayable = false;
       _preview = null;
       _fetchedRaw = null;
     });
@@ -382,6 +397,8 @@ class _ConnectionImportScreenState
     setState(() {
       _busy = true;
       _error = null;
+      _errorDetail = null;
+      _errorPayable = false;
       _preview = null;
     });
 
@@ -402,18 +419,25 @@ class _ConnectionImportScreenState
       });
     } on SubscriptionFetchException catch (e) {
       if (!mounted) return;
+      // Владелец увидел здесь «ответ сервера 403» и три часа искал прокси и
+      // истёкший токен. Отказ панели теперь называется тем, чем он является.
+      final failure = describeFailure(e);
       setState(() {
         _busy = false;
-        _error = 'Не удалось загрузить подписку: ${e.message}';
+        _error = failure?.text ?? 'Не удалось загрузить подписку: ${e.message}';
+        _errorDetail = failure?.technical;
+        _errorPayable = failure?.payable ?? false;
       });
     } catch (e) {
       if (!mounted) return;
+      final failure = describeFailure(e);
       setState(() {
         _busy = false;
-        // Текст ядра объясняет проблему точнее любой нашей формулировки.
         _error =
-            coreErrorText(e) ??
+            failure?.text ??
             'Не удалось разобрать подписку. Проверьте ссылку, конфиг и формат.';
+        _errorDetail = failure?.technical;
+        _errorPayable = failure?.payable ?? false;
       });
     }
   }

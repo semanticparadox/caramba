@@ -6,10 +6,12 @@ import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/protocol.dart';
+import 'package:caramba_client/features/servers/access_card.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
 import 'package:caramba_client/state/core_error.dart';
+import 'package:caramba_client/state/exit_inventory_state.dart';
 import 'package:caramba_client/state/probe_state.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/state/servers_state.dart';
@@ -55,6 +57,14 @@ class _AutotuneScreenState extends ConsumerState<AutotuneScreen> {
   bool _done = false;
   String? _error;
 
+  /// Сырой текст отказа — под «Подробности», не на экран. Он и есть та самая
+  /// цепочка Go-обёрток, которую владелец увидел вместо причины.
+  String? _errorDetail;
+
+  /// Отказал ли доступ по подписке: тогда вместо «повторить» предлагается
+  /// оплата, а замер честно говорит, что повторять нечего.
+  bool _errorPayable = false;
+
   /// Победитель реального замера (нативный путь). `null` в моке и до финиша.
   ProbeResult? _best;
 
@@ -82,6 +92,8 @@ class _AutotuneScreenState extends ConsumerState<AutotuneScreen> {
       _current = 0;
       _done = false;
       _error = null;
+      _errorDetail = null;
+      _errorPayable = false;
       _best = null;
     });
     if (ref.read(isNativeVpnProvider)) {
@@ -155,8 +167,16 @@ class _AutotuneScreenState extends ConsumerState<AutotuneScreen> {
       });
     } catch (e) {
       if (!mounted) return;
+      // Состояние подписки, если панель его уже назвала, точнее любого разбора
+      // текста ошибки: в нём есть числа и срок возврата нормы.
+      final failure = describeFailure(
+        e,
+        access: ref.read(subscriptionAccessProvider),
+      );
       setState(() {
-        _error = coreErrorText(e) ?? 'Не удалось замерить узлы.';
+        _error = failure?.text ?? 'Не удалось замерить узлы.';
+        _errorDetail = failure?.technical;
+        _errorPayable = failure?.payable ?? false;
         _done = true;
       });
     }
@@ -223,8 +243,19 @@ class _AutotuneScreenState extends ConsumerState<AutotuneScreen> {
                 if (!_done)
                   ...List.generate(steps.length, (i) => _stepRow(steps, i))
                 else ...[
-                  if (_error != null) ...[
-                    _Notice(text: _error!),
+                  // Отказ подписки объясняется карточкой с числами и кнопкой
+                  // оплаты, а не строкой «не удалось замерить»: замер тут ни
+                  // при чём, у человека кончился трафик.
+                  if (ref.watch(subscriptionAccessProvider)?.isBlocked ??
+                      false) ...[
+                    const AccessCard(),
+                    const SizedBox(height: AppSpace.s5),
+                  ] else if (_error != null) ...[
+                    FailureNotice(
+                      message: _error!,
+                      technical: _errorDetail,
+                      payable: _errorPayable,
+                    ),
                     const SizedBox(height: AppSpace.s5),
                   ],
                   _result(),
@@ -359,35 +390,6 @@ class _AutotuneScreenState extends ConsumerState<AutotuneScreen> {
                 color: done ? c.textMed : c.textHi,
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Плоское предупреждение под итогом: замер прошёл, но результат не тот,
-/// которого ждали. Это не отказ экрана, дальше пройти можно.
-class _Notice extends StatelessWidget {
-  final String text;
-  const _Notice({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    return Container(
-      padding: const EdgeInsets.all(AppSpace.s4),
-      decoration: BoxDecoration(
-        color: c.surface1,
-        borderRadius: AppRadius.r14,
-        border: Border.all(color: c.borderSubtle),
-      ),
-      child: Row(
-        children: [
-          LucideIcon(Lucide.alert, color: c.warning, size: 18),
-          const SizedBox(width: AppSpace.s3),
-          Expanded(
-            child: Text(text, style: AppType.bodySm.copyWith(color: c.textMed)),
           ),
         ],
       ),

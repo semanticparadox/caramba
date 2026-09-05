@@ -8,8 +8,11 @@ import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/models/sub_plan.dart';
+import 'package:caramba_client/data/models/subscription.dart'
+    show AccessState, formatBytesRu;
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
 import 'package:caramba_client/features/profile/panel_required.dart';
+import 'package:caramba_client/features/servers/access_card.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/account_state.dart';
 import 'package:caramba_client/state/branding_state.dart';
@@ -136,7 +139,7 @@ class ProfileScreen extends ConsumerWidget {
                     : Column(
                         children: [
                           for (var i = 0; i < subs.length; i++)
-                            _SubCard(sub: subs[i]),
+                            SubscriptionCard(sub: subs[i]),
                         ],
                       ),
                 loading: () => const InlineLoading(),
@@ -338,9 +341,14 @@ class _ReferralSection extends StatelessWidget {
   }
 }
 
-class _SubCard extends ConsumerWidget {
+/// Карточка одной подписки в списке профиля. Публичный класс (а не приватный
+/// `_SubCard`) намеренно: это позволяет тестам монтировать карточку саму по
+/// себе, без всего auth-стека `ProfileScreen`, и проверять на РЕНДЕРЕ, что
+/// сырой статус панели («throttled», «expired», ...) никогда не долетает до
+/// текста на экране.
+class SubscriptionCard extends ConsumerWidget {
   final SubPlan sub;
-  const _SubCard({required this.sub});
+  const SubscriptionCard({required this.sub, super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -367,22 +375,41 @@ class _SubCard extends ConsumerWidget {
                   style: AppType.bodyMd.copyWith(color: c.textHi),
                 ),
               ),
-              Tag(sub.isActive ? 'Активна' : sub.status, ok: sub.isActive),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 130),
+                child: Tag(_statusLabel(sub), ok: sub.isActive),
+              ),
             ],
           ),
           const SizedBox(height: AppSpace.s3),
-          if (sub.kind == SubKind.free && sub.quotaGb > 0) ...[
+          // Панель считает бесплатную норму СУТКАМИ (`plans.daily_traffic_mb`,
+          // `quota_period == "day"`), а не неделями — `weekly_free_refill_gb`
+          // ниже лишь домножает суточную цифру на 7 для другой витрины. Читать
+          // отсюда нужно `access.usedBytes`/`access.limitBytes`: это ровно те
+          // байты, которые enforcement считает за сегодня.
+          if (sub.kind == SubKind.free && sub.access.limitBytes > 0) ...[
             Text(
-              '${_gb(sub.usedGb)} из ${_gb(sub.quotaGb)} ГБ в неделю',
+              '${formatBytesRu(sub.access.usedBytes)} из '
+              '${formatBytesRu(sub.access.limitBytes)} в день',
               style: AppType.bodySm.copyWith(color: c.textMed),
             ),
             const SizedBox(height: AppSpace.s3),
-            QuotaMeter(fraction: sub.quotaFraction, low: sub.quotaLow),
+            QuotaMeter(
+              fraction: _dailyFraction(sub.access),
+              low: _dailyFraction(sub.access) > 0.8,
+            ),
           ] else
             Text(
               [sub.meta, sub.expiresLabel].where((s) => s != null).join(' · '),
               style: AppType.bodySm.copyWith(color: c.textMed),
             ),
+          // Причина отказа и путь к оплате — тот же виджет, что на экранах
+          // серверов/дома: второй копии этого текста в приложении быть не
+          // должно (см. комментарий в access_card.dart).
+          if (!sub.isActive) ...[
+            const SizedBox(height: AppSpace.s3),
+            AccessCard(access: sub.access),
+          ],
           const SizedBox(height: AppSpace.s3),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -414,9 +441,6 @@ class _SubCard extends ConsumerWidget {
       ),
     );
   }
-
-  String _gb(double v) =>
-      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
 
   void _openFamily(BuildContext context, WidgetRef ref, SubPlan sub) {
     showModalBottomSheet<void>(
@@ -550,6 +574,27 @@ class _FamilySheet extends ConsumerWidget {
       if (context.mounted) showCarambaToast(context, e.message);
     }
   }
+}
+
+/// Человеческая метка статуса подписки для бейджа в карточке.
+///
+/// НИКОГДА не показывает сырое значение `sub.status` панели («throttled»,
+/// «expired», «pending», «banned» — внутренние слова, которых пользователь не
+/// должен видеть ни разу). Активная подписка — фиксированное «Активна»; для
+/// любого заблокированного состояния текст берётся из [AccessState.shortReason]
+/// — готового человеческого предложения, которое уже знает разницу между
+/// «сгорела дневная норма» (сама вернётся) и «подписка кончилась» (нужна
+/// оплата). Второй словарь строк здесь не заводится: непризнанный статус
+/// панели [AccessState.fromLegacy] уже относит к `AccessKind.unknown`, и
+/// `shortReason` для него тоже человеческий, а не сырой.
+String _statusLabel(SubPlan sub) =>
+    sub.isActive ? 'Активна' : sub.access.shortReason;
+
+/// Доля израсходованной дневной нормы 0..1, для полосы прогресса.
+double _dailyFraction(AccessState access) {
+  final limit = access.limitBytes;
+  if (limit <= 0) return 0;
+  return (access.usedBytes / limit).clamp(0.0, 1.0);
 }
 
 /// Ссылка «тарифы»: её даёт подключённая панель в брендинге. Хардкод бота
