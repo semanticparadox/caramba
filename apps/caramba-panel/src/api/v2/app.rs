@@ -18,12 +18,26 @@ use sqlx::Row;
 /// Определяет базовый URL для ссылок подписки (subscription_domain → panel_url →
 /// Host-заголовок). Логика дублирует api/client.rs::resolve_subscription_base_url,
 /// но локальна, чтобы не делать ту функцию публичной.
-async fn resolve_base_url(state: &AppState, headers: &HeaderMap) -> String {
+///
+/// `client_cc` — страна, которую панель увидела у ЭТОГО клиента (`None` —
+/// не определилась). От неё зависит первое звено: домен зеркала подписки
+/// выдаётся только тем, кого зеркало обслуживает
+/// (см. `subscription::mirror_serves_country`). Всем остальным выдаётся адрес
+/// панели, и их клиент забирает конфиг одним запросом — без 308 и без крюка
+/// через страну зеркала. Это и есть то, ради чего 308 перестал быть безусловным:
+/// убрать не только редирект, но и повод для него.
+async fn resolve_base_url(
+    state: &AppState,
+    headers: &HeaderMap,
+    client_cc: Option<&str>,
+) -> String {
     let sub_domain = state
         .settings
         .get_or_default("subscription_domain", "")
         .await;
-    let base_domain = if !sub_domain.is_empty() {
+    let use_mirror = !sub_domain.is_empty()
+        && crate::subscription::mirror_serves_country(state, client_cc).await;
+    let base_domain = if use_mirror {
         sub_domain
     } else {
         let panel = state.settings.get_or_default("panel_url", "").await;
@@ -112,6 +126,21 @@ pub async fn get_me(
 ///
 /// Возвращает subscription_uuid + набор URL для разных клиентов. Ключевой для
 /// Go-ядра — `clash_url` (mihomo тянет именно его, amnezia-wg уже в конфиге).
+/// Ссылки на оплату для этой установки.
+///
+/// Читаются из настроек, а не зашиты: имя бота и короткое имя мини-аппа —
+/// свойство инсталляции, и любая вторая копия этих строк однажды разъедется с
+/// первой. `None` — бот не настроен; тогда приложение просто не рисует кнопку,
+/// что честнее мёртвой ссылки.
+async fn pay_links(state: &AppState) -> Option<crate::subscription::access::PayLinks> {
+    let bot = state.settings.get_or_default("bot_username", "").await;
+    let short = state
+        .settings
+        .get_or_default("mini_app_short_name", "")
+        .await;
+    crate::subscription::access::pay_links(&bot, &short)
+}
+
 pub async fn get_subscription(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -133,10 +162,18 @@ pub async fn get_subscription(
         }
     };
 
-    // Берём активную подписку, иначе первую доступную.
+    // Активная, иначе задушенная за трафик, иначе первая доступная.
+    //
+    // Средняя ступень появилась не для красоты: без неё пользователь, у
+    // которого бесплатная подписка ушла в суточную блокировку, а рядом лежит
+    // старая закрытая, получал в приложении карточку СТАРОЙ — с чужим тарифом,
+    // чужим сроком и совершенно посторонним объяснением, почему нет связи.
+    // Подписка, которая станет рабочей сама после полуночи, — это та, о которой
+    // человек спрашивает.
     let sub = subs
         .iter()
         .find(|s| s.sub.status == "active")
+        .or_else(|| subs.iter().find(|s| s.sub.status == "throttled"))
         .or_else(|| subs.first());
 
     let sub = match sub {
@@ -144,7 +181,21 @@ pub async fn get_subscription(
         None => return (StatusCode::NOT_FOUND, "No subscription found").into_response(),
     };
 
-    let base_url = resolve_base_url(&state, &headers).await;
+    // Та же цепочка, что и в `subscription::subscription_handler`: заголовок
+    // обратного прокси, иначе GeoIP по адресу клиента. Одна функция на оба
+    // пути — разъехавшись, они выдали бы клиенту URL одного домена, а тело
+    // отдали бы с другого.
+    let client_ip = crate::subscription::extract_client_ip(&headers);
+    let header_cc = headers
+        .get("x-country-code")
+        .or_else(|| headers.get("cf-ipcountry"))
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.trim().to_uppercase())
+        .filter(|cc| cc.len() == 2 && cc != "XX" && cc != "T1");
+    let client_cc =
+        crate::subscription::resolve_client_country(&state, &client_ip, header_cc.as_deref()).await;
+
+    let base_url = resolve_base_url(&state, &headers, client_cc.as_deref()).await;
     let uuid = &sub.sub.subscription_uuid;
 
     let used_gb = sub.sub.used_traffic as f64 / 1024.0 / 1024.0 / 1024.0;
@@ -185,11 +236,62 @@ pub async fn get_subscription(
         "total"
     };
 
+    // Состояние доступа: одна структура, по которой приложение решает, пускать
+    // ли в подключение, и один текст, который оно вправе показать как есть.
+    //
+    // Всё, что ниже в этом JSON, — сырые числа: приложение обязано было само
+    // сложить из них вывод «трафик кончился, приходи после полуночи», и не
+    // складывало, потому что не знало ни про суточный период, ни про то, что
+    // пополнение вычитает норму, а не обнуляет расход. Вывод теперь делает
+    // панель — тем же кодом, которым она объясняет отказ на `/sub/{uuid}`, так
+    // что экран приложения и заголовок ответа физически не могут разойтись.
+    let (device_used, device_limit): (i64, i32) = sqlx::query_as(
+        "SELECT (SELECT COUNT(*) FROM subscription_device_leases sdl \
+                 WHERE sdl.subscription_id = $1 \
+                   AND sdl.last_seen_at > NOW() - INTERVAL '15 minutes' \
+                   AND sdl.last_ip <> '0.0.0.0'), \
+                COALESCE((SELECT device_limit FROM plans WHERE id = $2), 0)",
+    )
+    .bind(sub.sub.id)
+    .bind(sub.sub.plan_id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None)
+    .unwrap_or((0, 0));
+
+    let banned: bool =
+        sqlx::query_scalar("SELECT COALESCE(is_banned, FALSE) FROM users WHERE id = $1")
+            .bind(auth.user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None)
+            .unwrap_or(false);
+
+    let access = crate::subscription::access::compute(
+        &crate::subscription::access::AccessFacts {
+            status: sub.sub.status.clone(),
+            banned,
+            expires_at: sub.sub.expires_at.timestamp(),
+            used_bytes: (sub.sub.used_traffic as i64).max(0),
+            limit_bytes: traffic_limit_bytes,
+            is_free,
+            daily_traffic_mb: daily_traffic_mb as i64,
+            device_used,
+            device_limit: device_limit as i64,
+            now: chrono::Utc::now().timestamp(),
+        },
+        pay_links(&state).await,
+    );
+
     Json(serde_json::json!({
         "id": sub.sub.id,
         "subscription_uuid": uuid,
         "plan_name": sub.plan_name,
+        // Сырой статус базы. Остаётся ради уже выпущенных клиентов и НЕ является
+        // тем, что показывают человеку: слово `throttled` внутреннее, объяснение
+        // живёт в `access`.
         "status": sub.sub.status,
+        "access": access,
         // На суточном плане это расход, ещё не прощённый суточным пополнением
         // (monitoring::daily_traffic_topup вычитает норму с полом 0), то есть
         // фактически «сегодня»; на остальных — расход за весь срок подписки.
@@ -215,6 +317,17 @@ pub async fn get_subscription(
         "singbox_url": format!("{}/sub/{}?client=singbox", base_url, uuid),
         "v2ray_url": format!("{}/sub/{}?client=v2ray", base_url, uuid),
         "subscription_url": format!("{}/sub/{}", base_url, uuid),
+        // Страна, которую панель увидела у этого клиента; `null` — не
+        // определилась (нет MaxMind-базы, не ответил внешний сервис, приватный
+        // адрес). Клиент своей страны не знает ниоткуда больше: геобазы он не
+        // носит, а спрашивать её у пользователя значит спрашивать о том, что
+        // сервер и так видит.
+        //
+        // Нужна ему для двух решений, у которых сегодня зашита Россия: пресет
+        // маршрутизации по умолчанию и домашний резолвер. `null` обязан
+        // оставаться `null` — подставленная сюда страна увела бы человека в
+        // чужой национальный режим молча.
+        "client_country": client_cc,
     }))
     .into_response()
 }
@@ -384,15 +497,58 @@ fn clash_inbound_availability(protocol: &str, network: &str) -> Option<&'static 
 /// выход — `/servers` + `?node_id=`, вход — `/relays` + `?relay_country=`.
 /// Здесь релэй появляется только как `via_relay` — контекст выбранного узла,
 /// доступный на чтение.
+/// План, по которому строится СПИСОК серверов приложения.
+///
+/// Отличается от `subscription_repo::get_active_plan_id_by_user` ровно одним:
+/// сюда попадает и подписка, задушенная за суточный трафик. Это намеренно и
+/// ограничено показом — раздача узлам и генерация конфига остались на
+/// `'active'`. Константа вынесена, чтобы у расширения был тест: вернуть его
+/// обратно к одному `'active'` можно только осознанно.
+const LISTING_PLAN_SQL: &str = "SELECT plan_id, status FROM subscriptions WHERE user_id = $1 \
+       AND status IN ('active', 'throttled') \
+     ORDER BY (status = 'active') DESC, id ASC LIMIT 1";
+
 pub async fn list_servers(
     State(state): State<AppState>,
     axum::Extension(auth): axum::Extension<AuthUser>,
 ) -> impl IntoResponse {
-    let nodes: Vec<caramba_db::models::node::Node> = state
-        .store_service
-        .get_user_nodes(auth.user_id)
+    // Список серверов НЕ зависит от квоты — и обязан не зависеть.
+    //
+    // `store_service::get_user_nodes` ищет план по `status = 'active'`, и для
+    // пользователя, задушенного за суточный трафик, возвращал пустой вектор.
+    // Приложение показывало пустой экран серверов ровно в тот момент, когда
+    // человеку надо было понять, что именно он теряет и за что платит: список
+    // исчезал, а причина не появлялась. Вопрос «какие у меня есть сервера» на
+    // квоту не завязан, значит и ответ на него завязывать нельзя.
+    //
+    // Расширяется ТОЛЬКО этот путь — показ. Выдача конфига
+    // (`subscription.rs`) и раздача узлам (`subscription_repo`) остаются на
+    // `'active'`: задушенный пользователь должен видеть список и не должен
+    // получать по нему доступ.
+    let plan_row: Option<(i64, String)> = sqlx::query_as(LISTING_PLAN_SQL)
+        .bind(auth.user_id)
+        .fetch_optional(&state.pool)
         .await
-        .unwrap_or_default();
+        .unwrap_or(None);
+
+    let nodes: Vec<caramba_db::models::node::Node> = match plan_row.as_ref() {
+        Some((id, _)) => state
+            .store_service
+            .node_repo
+            .get_nodes_for_plan(*id)
+            .await
+            .unwrap_or_default(),
+        None => Vec::new(),
+    };
+
+    // Подсказка «этот список показывается, но подключиться по нему сейчас
+    // нельзя» — одним заголовком, без второго запроса к `/subscription`.
+    // Приложение по нему гасит строки и вешает бейдж сразу, вместе с самим
+    // списком. Внутреннего слова в заголовке нет: наружу едет `quota_exceeded`.
+    let access_header = plan_row
+        .as_ref()
+        .filter(|(_, status)| status == "throttled")
+        .map(|_| "quota_exceeded");
 
     let nodes: Vec<caramba_db::models::node::Node> = nodes
         .into_iter()
@@ -480,7 +636,14 @@ pub async fn list_servers(
         })
         .collect();
 
-    Json(servers).into_response()
+    match access_header {
+        Some(state_name) => (
+            [(crate::subscription::access::HDR_STATE, state_name)],
+            Json(servers),
+        )
+            .into_response(),
+        None => Json(servers).into_response(),
+    }
 }
 
 /// Разворачивает узел в строки пикера протокола, повторяя разбор и подписи
@@ -547,7 +710,30 @@ fn build_inbound_rows(ni: &crate::singbox::subscription_generator::NodeInfo) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::{build_inbound_rows, clash_inbound_availability, server_status};
+    use super::{LISTING_PLAN_SQL, build_inbound_rows, clash_inbound_availability, server_status};
+
+    /// Вопрос «какие у меня есть сервера» не зависит от квоты, и ответ на него
+    /// зависеть не должен. Пользователь, задушенный за суточный трафик, получал
+    /// пустой экран серверов ровно в момент, когда ему надо было понять, что он
+    /// теряет и за что платит.
+    ///
+    /// Тест держит границу с двух сторон: строка обязана пускать задушенную
+    /// подписку И обязана предпочитать активную, если у человека есть обе, —
+    /// иначе список серверов приехал бы от чужого плана.
+    #[test]
+    fn the_servers_listing_survives_a_quota_block() {
+        assert!(
+            LISTING_PLAN_SQL.contains("status IN ('active', 'throttled')"),
+            "список серверов снова спрашивает только активную подписку: {}",
+            LISTING_PLAN_SQL
+        );
+        assert!(
+            LISTING_PLAN_SQL.contains("ORDER BY (status = 'active') DESC"),
+            "активная подписка обязана выигрывать у задушенной: {}",
+            LISTING_PLAN_SQL
+        );
+    }
+
     use crate::singbox::subscription_generator::NodeInfo;
     use caramba_db::models::network::Inbound;
 
