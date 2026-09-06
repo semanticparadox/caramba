@@ -635,6 +635,14 @@ struct AppSubscription {
     /// Имя пула узлов (node group через plan_groups), если назначен.
     pool_name: Option<String>,
     relay_country: Option<String>,
+    /// Состояние доступа этой подписки: пускать ли в подключение, почему нет,
+    /// когда снова можно и куда идти платить. Считается тем же кодом, что
+    /// объясняет отказ на `/sub/{uuid}` и наполняет `GET /subscription`, —
+    /// три экрана про одну подписку не могут разойтись, потому что вывод один.
+    ///
+    /// `status` выше остаётся сырой колонкой базы для уже выпущенных клиентов;
+    /// показывать пользователю надо отсюда.
+    access: crate::subscription::access::AccessState,
 }
 
 /// GET /api/v2/app/subscriptions — список подписок пользователя для UI.
@@ -694,7 +702,24 @@ pub async fn list_subscriptions(
             0
         });
 
+    // Бан пользователя и ссылки на оплату одинаковы для всех его подписок —
+    // читаем по разу на запрос, а не по разу на строку.
+    let banned: bool =
+        sqlx::query_scalar("SELECT COALESCE(is_banned, FALSE) FROM users WHERE id = $1")
+            .bind(auth.user_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None)
+            .unwrap_or(false);
+    let bot_username = state.settings.get_or_default("bot_username", "").await;
+    let mini_app_short_name = state
+        .settings
+        .get_or_default("mini_app_short_name", "")
+        .await;
+    let pay = crate::subscription::access::pay_links(&bot_username, &mini_app_short_name);
+
     let now = chrono::Utc::now();
+    let now_ts = now.timestamp();
     let subs: Vec<AppSubscription> = rows
         .into_iter()
         .map(|r| {
@@ -746,11 +771,31 @@ pub async fn list_subscriptions(
                 "total"
             };
 
+            let device_used: i64 = r.try_get("device_used").unwrap_or(0);
+            let device_limit: i32 = r.try_get("device_limit").unwrap_or(0);
+            let status: String = r.try_get("status").unwrap_or_default();
+
+            let access = crate::subscription::access::compute(
+                &crate::subscription::access::AccessFacts {
+                    status: status.clone(),
+                    banned,
+                    expires_at: expires.timestamp(),
+                    used_bytes: used,
+                    limit_bytes: traffic_limit_bytes,
+                    is_free,
+                    daily_traffic_mb: daily_mb as i64,
+                    device_used,
+                    device_limit: device_limit as i64,
+                    now: now_ts,
+                },
+                pay.clone(),
+            );
+
             AppSubscription {
                 id: r.try_get("id").unwrap_or(0),
                 subscription_uuid: r.try_get("subscription_uuid").unwrap_or_default(),
                 plan_name: r.try_get("plan_name").unwrap_or_default(),
-                status: r.try_get("status").unwrap_or_default(),
+                status,
                 kind: kind.to_string(),
                 used_traffic_bytes: used,
                 used_traffic_gb: format!("{:.2}", used_gb),
@@ -763,13 +808,14 @@ pub async fn list_subscriptions(
                 bonus_traffic_mb,
                 expires_at: expires.to_rfc3339(),
                 days_left: (expires - now).num_days().max(0),
-                device_used: r.try_get("device_used").unwrap_or(0),
-                device_limit: r.try_get("device_limit").unwrap_or(0),
+                device_used,
+                device_limit,
                 pool_name: r.try_get::<Option<String>, _>("pool_name").ok().flatten(),
                 relay_country: r
                     .try_get::<Option<String>, _>("relay_country")
                     .ok()
                     .flatten(),
+                access,
             }
         })
         .collect();
@@ -1130,7 +1176,71 @@ pub async fn update_subscription_selection(
 
 #[cfg(test)]
 mod tests {
-    use super::{UpdateSelectionRequest, normalize_relay_country};
+    use super::{AppSubscription, UpdateSelectionRequest, normalize_relay_country};
+
+    // --- состояние доступа в списке подписок ---
+
+    /// Список подписок обязан нести объяснение вместе с каждой строкой.
+    ///
+    /// Раньше он отдавал только сырой `status`, и приложение показывало его как
+    /// есть — человек читал «throttled» и не понимал ничего. Тест держит две
+    /// вещи разом: что поле называется `access` (по нему кодирует приложение) и
+    /// что сырой `status` остался рядом для уже выпущенных клиентов.
+    #[test]
+    fn a_listed_subscription_carries_its_access_state() {
+        let facts = crate::subscription::access::AccessFacts {
+            status: "throttled".to_string(),
+            banned: false,
+            expires_at: 253_402_300_799,
+            used_bytes: 263 * 1024 * 1024,
+            limit_bytes: Some(200 * 1024 * 1024),
+            is_free: true,
+            daily_traffic_mb: 200,
+            device_used: 1,
+            device_limit: 1,
+            now: 1_788_577_449,
+        };
+        let row = AppSubscription {
+            id: 27,
+            subscription_uuid: "feb7e480-314d-4834-8304-220db70684c2".to_string(),
+            plan_name: "Free".to_string(),
+            status: "throttled".to_string(),
+            kind: "free".to_string(),
+            used_traffic_bytes: 263 * 1024 * 1024,
+            used_traffic_gb: "0.26".to_string(),
+            traffic_quota_gb: Some(10),
+            weekly_free_refill_gb: Some(1.37),
+            traffic_limit_bytes: Some(200 * 1024 * 1024),
+            quota_period: "day",
+            is_free: true,
+            daily_traffic_mb: 200,
+            bonus_traffic_mb: 0,
+            expires_at: "9999-12-31T23:59:59+00:00".to_string(),
+            days_left: 2_912_195,
+            device_used: 1,
+            device_limit: 1,
+            pool_name: None,
+            relay_country: None,
+            access: crate::subscription::access::compute(&facts, None),
+        };
+
+        let v = serde_json::to_value(&row).unwrap();
+        assert_eq!(v["access"]["state"], serde_json::json!("quota_exceeded"));
+        assert_eq!(v["access"]["rc"], serde_json::json!(3003));
+        assert_eq!(v["access"]["may_connect"], serde_json::json!(false));
+        assert_eq!(
+            v["access"]["resets_at"],
+            serde_json::json!("2026-09-06T00:00:00Z")
+        );
+
+        // Сырая колонка остаётся — но объяснением она больше не является.
+        assert_eq!(v["status"], serde_json::json!("throttled"));
+        assert!(
+            !v["access"].to_string().contains("throttled"),
+            "внутреннее слово уехало в объяснение: {}",
+            v["access"]
+        );
+    }
 
     // --- трёхзначный разбор: отсутствует / null / значение ---
 
