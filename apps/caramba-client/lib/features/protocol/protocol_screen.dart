@@ -174,15 +174,15 @@ class _ProtocolScreenState extends ConsumerState<ProtocolScreen> {
                 tone: entry.userSet
                     ? BannerTone.info
                     : (entry.src == CsmProvenance.operator
-                        ? BannerTone.warning
-                        : BannerTone.info),
+                          ? BannerTone.warning
+                          : BannerTone.info),
                 glyph: Lucide.shield,
                 text: entry.userSet
                     ? 'Тип подключения выбрали вы. Оператор не перезапишет его '
-                        'молча: на попытку поднимется карточка с вопросом.'
+                          'молча: на попытку поднимется карточка с вопросом.'
                     : 'Текущее значение поставил '
-                        '${csmProvenanceTitle(entry.src)}. Выбрав своё, вы '
-                        'закрепите его за собой.',
+                          '${csmProvenanceTitle(entry.src)}. Выбрав своё, вы '
+                          'закрепите его за собой.',
               ),
             ],
             // Источник не назвал форм — про это говорим ДО списка: иначе
@@ -231,14 +231,8 @@ class _ProtocolScreenState extends ConsumerState<ProtocolScreen> {
                   familyName: _familyNameOf(row, options),
                   latency: probe.of(row),
                   selected: _isSelected(row, options, cfg.protocol),
-                  onTap: (int index, String label) => _apply(
-                    context,
-                    ref,
-                    row,
-                    index,
-                    label,
-                    probe.of(row),
-                  ),
+                  onTap: (int index, String label) =>
+                      _apply(context, ref, row, index, label, probe.of(row)),
                 )
             else
               ..._silentRows(context, ref, slate, options, cfg.protocol),
@@ -304,9 +298,9 @@ class _ProtocolScreenState extends ConsumerState<ProtocolScreen> {
         at == null
             ? 'Пока не мерили: задержки входов появятся после замера.'
             : (probe.byProxyName.isEmpty
-                ? 'Замер прошёл (${measuredAgoText(at, DateTime.now())}), '
-                    'но ядро не назвало ни одного входа.'
-                : 'Ваш замер: ${measuredAgoText(at, DateTime.now())}'),
+                  ? 'Замер прошёл (${measuredAgoText(at, DateTime.now())}), '
+                        'но ядро не назвало ни одного входа.'
+                  : 'Ваш замер: ${measuredAgoText(at, DateTime.now())}'),
         style: AppType.bodySm.copyWith(color: c.textLow),
       ),
       const SizedBox(height: AppSpace.s3),
@@ -532,8 +526,9 @@ class _ProtocolScreenState extends ConsumerState<ProtocolScreen> {
       if (n.key == name) node = n;
     }
     if (node == null || !node.isAvailable) return false;
-    final outcome =
-        await ref.read(exitSelectionControllerProvider).selectNode(node);
+    final outcome = await ref
+        .read(exitSelectionControllerProvider)
+        .selectNode(node);
     return outcome.applied;
   }
 
@@ -562,6 +557,61 @@ String _prettyChoice(String choice, List<ProtocolRow> rows) {
   return choice;
 }
 
+/// Три текста строки «Авто» — отдельно от виджета, чтобы словарь проверялся
+/// таблицей, а не прогоном дерева под каждую причину устаревания.
+///
+/// Тем же приёмом собрана кнопка автоподбора на Главной
+/// (`autopilotButtonModel`), и это не совпадение: обе называют ОДНО состояние,
+/// и разъезжаются такие пары именно в ветке, которую не догадались отрисовать.
+class AutoRowTexts {
+  final String title;
+
+  /// Слово рядом с заголовком; пусто — плашки нет.
+  final String badge;
+
+  final String subtitle;
+
+  const AutoRowTexts({
+    required this.title,
+    required this.badge,
+    required this.subtitle,
+  });
+}
+
+/// Что показывает строка «Авто».
+///
+/// [choice] — [AutoLabel.choice], уже переведённый на язык этого списка.
+///
+/// Бейдж БЕРЁТСЯ У [AutoLabel], а не пишется здесь. Собственное «устарело» на
+/// все случаи сразу расходилось с Главной и «Серверами», которые в том же
+/// состоянии говорят «не в силе»: расхождение с держателем свежий замер не
+/// лечит, и слово «устарело» посылало перезамерять там, где надо снять пин. Два
+/// экрана, называющие одно состояние разными словами, — это два разных
+/// состояния для того, кто на них смотрит.
+AutoRowTexts autoRowTexts({
+  required ProtocolOption option,
+  required AutoLabel label,
+  required String choice,
+}) => AutoRowTexts(
+  // Выбор стоит В ЗАГОЛОВКЕ, а не в подписи: заголовок — единственное, что
+  // читают в списке наверняка.
+  title: label.hasChoice ? '${option.name} · $choice' : option.name,
+  badge: label.badge,
+  subtitle: '${option.desc} ${_sentence(label.subtitle)}',
+);
+
+/// Дописывает точку тому, кто предложение не закончил.
+///
+/// Причина устаревания приезжает от [AutoLabel] уже с точкой на конце
+/// («…Пересчитается при переподключении.»), а «сейчас в туннеле» — без неё.
+/// Точка, дописанная вслепую, давала на строке «Авто» вторую («..»), и глаз
+/// спотыкался об неё раньше, чем прочитывал смысл.
+String _sentence(String text) {
+  final t = text.trimRight();
+  if (t.isEmpty) return t;
+  return '.!?…'.contains(t[t.length - 1]) ? t : '$t.';
+}
+
 /// Строка «Авто».
 class _AutoRow extends StatelessWidget {
   final ProtocolOption option;
@@ -584,20 +634,21 @@ class _AutoRow extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => ListItemCard(
-        leading: IBox(option.icon),
-        // Выбор стоит В ЗАГОЛОВКЕ, а не в подписи: заголовок — единственное, что
-        // читают в списке наверняка.
-        title: label.hasChoice ? '${option.name} · $choice' : option.name,
-        // Бейджа «умный» тут больше нет. Он ничего не сообщал: «умный» — это
-        // похвала выбору, а не сам выбор, и на строке, которая до сих пор не
-        // называла результат, он был единственным словом про качество. Его место
-        // заняла пометка «устарело» — единственная, которая что-то меняет.
-        titleBadges: [if (label.isStale) const Tag('устарело')],
-        subtitle: '${option.desc} ${label.subtitle}.',
-        selected: selected,
-        onTap: onTap,
-      );
+  Widget build(BuildContext context) {
+    // Бейджа «умный» тут больше нет. Он ничего не сообщал: «умный» — это
+    // похвала выбору, а не сам выбор, и на строке, которая до сих пор не
+    // называла результат, он был единственным словом про качество. Его место
+    // заняла пометка о том, что с выбором не так.
+    final t = autoRowTexts(option: option, label: label, choice: choice);
+    return ListItemCard(
+      leading: IBox(option.icon),
+      title: t.title,
+      titleBadges: [if (t.badge.isNotEmpty) Tag(t.badge)],
+      subtitle: t.subtitle,
+      selected: selected,
+      onTap: onTap,
+    );
+  }
 }
 
 /// Строка запроса к ядру — путь для молчащего источника. Нажимается, но
@@ -629,29 +680,29 @@ class _AskRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Opacity(
-        opacity: blocked ? 0.45 : 1,
-        child: ListItemCard(
-          leading: IBox(option.icon),
-          title: option.name,
-          subtitle: <String>[
-            if (!blocked) option.desc,
-            reason,
-            if (collapse != null) collapse!,
-          ].where((p) => p.isNotEmpty).join(' '),
-          selected: selected,
-          // Плашка ровно одна: строка узкая, и две уводят заголовок за край. У
-          // непроверенной строки побеждает именно эта пометка — «рекоменд.» на
-          // протоколе, существование которого источник не подтвердил, обещает
-          // больше, чем мы знаем.
-          titleBadges: [
-            if (!blocked)
-              const Tag('не проверено')
-            else if (option.recommended)
-              const Tag('рекоменд.'),
-          ],
-          onTap: blocked ? null : onTap,
-        ),
-      );
+    opacity: blocked ? 0.45 : 1,
+    child: ListItemCard(
+      leading: IBox(option.icon),
+      title: option.name,
+      subtitle: <String>[
+        if (!blocked) option.desc,
+        reason,
+        if (collapse != null) collapse!,
+      ].where((p) => p.isNotEmpty).join(' '),
+      selected: selected,
+      // Плашка ровно одна: строка узкая, и две уводят заголовок за край. У
+      // непроверенной строки побеждает именно эта пометка — «рекоменд.» на
+      // протоколе, существование которого источник не подтвердил, обещает
+      // больше, чем мы знаем.
+      titleBadges: [
+        if (!blocked)
+          const Tag('не проверено')
+        else if (option.recommended)
+          const Tag('рекоменд.'),
+      ],
+      onTap: blocked ? null : onTap,
+    ),
+  );
 }
 
 /// Строка инбаунда. Недоступный рисуется тем же приёмом, что и выключенный
@@ -699,10 +750,10 @@ class _InboundRow extends StatelessWidget {
     final String? blocked = row.availability.isUnavailable
         ? row.availability.message
         : (i == null
-            ? const ProtocolAvailability.unavailable(
-                ProtocolUnavailableReason.notRequestable,
-              ).message
-            : null);
+              ? const ProtocolAvailability.unavailable(
+                  ProtocolUnavailableReason.notRequestable,
+                ).message
+              : null);
 
     return Opacity(
       opacity: blocked == null ? 1 : 0.45,
@@ -775,11 +826,11 @@ String protocolRowTitle(ProtocolKey key) {
 
 /// Иконка семейства; незнакомому — общая.
 String protocolGlyph(String protocol) => switch (protocol) {
-      'vless' || 'vmess' || 'trojan' => Lucide.shield,
-      'hysteria2' || 'hysteria' || 'tuic' => Lucide.zap,
-      'wireguard' || 'amneziawg' => Lucide.lock,
-      _ => Lucide.globe,
-    };
+  'vless' || 'vmess' || 'trojan' => Lucide.shield,
+  'hysteria2' || 'hysteria' || 'tuic' => Lucide.zap,
+  'wireguard' || 'amneziawg' => Lucide.lock,
+  _ => Lucide.globe,
+};
 
 /// Индекс опции ядра, которой просят этот инбаунд; `null` — такой строки у
 /// ядра нет.

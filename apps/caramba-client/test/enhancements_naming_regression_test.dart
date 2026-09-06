@@ -23,7 +23,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:caramba_client/data/connection_profiles_store.dart';
 import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/features/home/home_screen.dart';
-import 'package:caramba_client/features/split/split_tunnel_screen.dart';
+import 'package:caramba_client/features/settings/route_picker.dart'
+    show kRouteModeSheetTitle;
 import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/theme/app_theme.dart';
@@ -92,11 +93,6 @@ Widget _guestHome() => ProviderScope(
   child: MaterialApp(theme: AppTheme.dark(), home: const HomeScreen()),
 );
 
-Widget _enhancementsScreen() => ProviderScope(
-  overrides: <Override>[vpnConnectionProvider.overrideWithValue(FakeVpnCore())],
-  child: MaterialApp(theme: AppTheme.dark(), home: const SplitTunnelScreen()),
-);
-
 void _phone(WidgetTester tester) {
   tester.view
     ..physicalSize = const Size(780, 9000)
@@ -104,15 +100,25 @@ void _phone(WidgetTester tester) {
   addTearDown(tester.view.reset);
 }
 
-/// Заголовок вкладки настроек «Улучшения» (блок рекламы + сайты + режим
-/// страны вместе). Единственное место, где записано это имя — обе проверки
-/// читают его отсюда, а не дублируют литерал.
+/// Имя РАСТВОРЁННОЙ вкладки настроек. Она держала три независимые вещи разом
+/// (блок рекламы, списки сайтов, режим), и владелец разнёс их по одному месту
+/// на каждую: реклама и списки — в Настройки, режим — на Главную. Имя
+/// осталось здесь ровно как сторож: строка на Home не имеет права назваться
+/// вкладкой, которой больше нет.
 const _kEnhancementsScreenTitle = 'Улучшения';
 
-/// Заголовок листа «Режим для страны» (showRoutePicker) — ОДНОЙ из трёх
-/// частей «Улучшения», а не вкладки целиком. Строка на Home имеет право
-/// называться только этим именем, потому что только его она и открывает.
-const _kRouteModeSheetTitle = 'Режим для страны';
+/// Заголовок и подпись листа берутся у САМОГО ЛИСТА, а не переписываются сюда
+/// литералом. Дефект, который ловит файл, — расхождение двух концов одной пары;
+/// собственная копия имени в тесте сделала бы третий конец, который расходится
+/// с обоими молча. Владелец переименовал лист («просто переименуй в Режим») —
+/// строка на Home обязана была переехать вместе с ним, и проверяется это
+/// сравнением с источником.
+const _kRouteModeSheetTitle = kRouteModeSheetTitle;
+
+/// Прежнее имя той же пары. Оно не имеет права остаться ни на Home, ни в
+/// листе: два имени одного и того же листа на одном экране — это ровно тот
+/// дефект, ради которого написан весь файл, только в третьей форме.
+const _kRouteModeSheetTitleWas = 'Режим для страны';
 
 /// Подпись листа `showRoutePicker`, которой нет больше нигде на экране —
 /// по ней тест отличает «открылся тот самый лист» от простого совпадения
@@ -143,12 +149,13 @@ void main() {
         find.text(_kEnhancementsScreenTitle),
         findsNothing,
         reason:
-            'на Home нет строки, ведущей на вкладку «Улучшения» целиком — '
-            'называть себя её именем строке нечем',
+            'вкладки «Улучшения» больше нет — назвать её именем нечего и '
+            'вести этим именем некуда',
       );
       // Старые половинчатые имена не должны были вернуться ни в каком виде.
       expect(find.text('Маршрут (правила)'), findsNothing);
       expect(find.text('Маршрут'), findsNothing);
+      expect(find.text(_kRouteModeSheetTitleWas), findsNothing);
 
       // Тап — и лист обязан назвать себя тем же именем, что строка обещала.
       await tester.tap(find.text(_kRouteModeSheetTitle));
@@ -156,8 +163,11 @@ void main() {
 
       expect(
         find.text(_kRouteModeSheetTitle),
-        findsWidgets,
-        reason: 'заголовок открывшегося листа должен повторить имя строки',
+        findsNWidgets(2),
+        reason:
+            'на экране обязаны быть ровно два этих имени — строка Home под '
+            'листом и заголовок самого листа; одно означает, что лист '
+            'назвался иначе, чем обещала строка',
       );
       expect(
         find.textContaining(_kRouteModeSheetSubtitle),
@@ -175,18 +185,11 @@ void main() {
     },
   );
 
-  testWidgets('заголовок вкладки «Улучшения» называется тем же именем, что и строка в Настройках', (
-    tester,
-  ) async {
-    _phone(tester);
-
-    // Строка в Настройках (settings_screen.dart) ведёт на этот экран через
-    // `context.go(AppRoute.splitTunnel)` и называет себя «Улучшения» — тем
-    // же именем, каким называется сам экран. В отличие от строки на Home,
-    // здесь имя и назначение — одна и та же сущность целиком, поэтому
-    // сравнение статичного текста этот путь ловит корректно.
-    await tester.pumpWidget(_enhancementsScreen());
-    await tester.pump();
-    expect(find.text(_kEnhancementsScreenTitle), findsOneWidget);
-  });
+  // Вторая проверка этого файла сравнивала строку Настроек «Улучшения» с
+  // заголовком одноимённой вкладки. Пары больше нет: вкладка растворена, а
+  // строка из Настроек убрана — сравнивать нечего, и половина, оставшаяся от
+  // такой проверки, ловила бы только сама себя. Свойство, ради которого
+  // вкладку и разобрали («реклама включается ровно в одном месте»),
+  // проверяется в ads_and_site_rules_test.dart, где есть ОБА конца: есть в
+  // Настройках и нет на «Правилах по сайтам».
 }

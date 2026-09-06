@@ -222,7 +222,7 @@ String csmHardwareTierTitle(CsmHardwareTier tier) => switch (tier) {
 /// карточка «Оставить или Вернуть» называла ту же строку, что видит человек.
 String csmSettingTitle(CsmSettingKey key) => switch (key) {
   CsmSettingKey.protocol => 'Тип подключения',
-  CsmSettingKey.preset => 'Режим для страны',
+  CsmSettingKey.preset => 'Режим',
   CsmSettingKey.relay => 'Relay (вход)',
   CsmSettingKey.stack => 'Сетевой стек (TUN)',
   CsmSettingKey.mtu => 'MTU',

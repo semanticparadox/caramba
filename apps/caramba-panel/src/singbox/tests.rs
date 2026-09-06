@@ -308,8 +308,23 @@ mod tests {
         assert_eq!(outbound["zero_rtt_handshake"], true);
     }
 
+    /// Узел с ОДНИМ только naive-инбаундом обязан не дать sing-box-тела вовсе.
+    ///
+    /// Раньше тест требовал обратного — что naive-исходящий выпущен, — и это
+    /// закрепляло дефект: стоковая сборка sing-box такого исходящего не
+    /// содержит и падает на разборе ВСЕГО конфига:
+    ///
+    /// ```text
+    /// $ sing-box check -c <тело подписки 35>   # sing-box 1.13.14, узел germany
+    /// FATAL initialize outbound[20]: naive outbound is not included in this
+    ///       build, rebuild with -tags with_naive_outbound
+    /// ```
+    ///
+    /// То есть цена была не «один мёртвый узел», а все остальные тридцать два.
+    /// Ошибка «нет ни одного исходящего» здесь — правильный ответ: узел, у
+    /// которого дозвониться не по чему, конфига не заслуживает.
     #[test]
-    fn test_naive_generation() {
+    fn naive_alone_yields_no_singbox_body_at_all() {
         let user_keys = UserKeys {
             user_uuid: "uuid".to_string(),
             hy2_password: "pass".to_string(),
@@ -323,26 +338,49 @@ mod tests {
 
         let node = create_mock_node("naive", stream_settings);
 
-        let json_config =
-            generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&json_config).unwrap();
-
-        let outbound = parsed["outbounds"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|o| o["type"] == "naive")
-            .expect("Naive outbound not found");
-
-        assert_eq!(outbound["username"], "uuid");
-        // NaiveProxy TLS only supports server_name — no alpn, utls, insecure
+        let err = generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[])
+            .expect_err("узел без единого дозвонимого входа не даёт конфига");
         assert!(
-            outbound["tls"]["utls"].is_null(),
-            "naive outbound should not have utls"
+            err.to_string().contains("No proxy outbounds generated"),
+            "неожиданная причина отказа: {err}"
+        );
+    }
+
+    /// А в смешанном узле naive обязан пропасть, не унеся с собой соседей.
+    #[test]
+    fn naive_is_dropped_but_its_neighbours_survive() {
+        let user_keys = UserKeys {
+            user_uuid: "uuid".to_string(),
+            hy2_password: "pass".to_string(),
+            _awg_private_key: None,
+        };
+
+        let mut node = create_mock_node("naive", json!({ "network": "tcp", "security": "tls" }));
+        let mut reality = node.inbounds[0].clone();
+        reality.id += 1;
+        reality.tag = "vless-reality".to_string();
+        reality.protocol = "vless".to_string();
+        reality.listen_port = 443;
+        reality.stream_settings = json!({
+            "network": "tcp",
+            "security": "reality",
+            "realitySettings": {"serverNames": ["www.dekulta.de"], "publicKey": "pk", "shortIds": ["00"]}
+        })
+        .to_string();
+        node.inbounds.push(reality);
+
+        let parsed: serde_json::Value = serde_json::from_str(
+            &generate_singbox_config(&match_any_sub(), &[node], &user_keys, &[]).unwrap(),
+        )
+        .unwrap();
+        let outbounds = parsed["outbounds"].as_array().unwrap();
+        assert!(
+            outbounds.iter().all(|o| o["type"] != "naive"),
+            "naive снова в теле: {outbounds:?}"
         );
         assert!(
-            outbound["tls"]["alpn"].is_null(),
-            "naive outbound should not have alpn"
+            outbounds.iter().any(|o| o["type"] == "vless"),
+            "сосед naive пропал вместе с ним: {outbounds:?}"
         );
     }
 

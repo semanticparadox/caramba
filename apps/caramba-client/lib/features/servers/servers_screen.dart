@@ -78,10 +78,11 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
                   onTap: () => context.go(AppRoute.home),
                 ),
               ),
-              // Смена узла выхода действует со следующего `Up` (02-SPEC.md
-              // 7.11): туннель не рвём сами, поднимаем тот же баннер, что и
-              // настройки, и ждём человека.
-              if (_exitChanged(inventory)) ...[
+              // Тот же гейт, что на Главной и в Настройках. Смена страны или
+              // узла теперь применяется сама (окно тишины в
+              // `auto_reconnect.dart`), и баннер здесь — её отчёт; он же
+              // остаётся ручным для правок, которые ждут человека.
+              if (ref.watch(reconnectRequiredProvider)) ...[
                 const ReconnectBanner(),
                 const SizedBox(height: AppSpace.s4),
               ],
@@ -290,33 +291,6 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
         reason == ExitUnavailableReason.panelRejected ||
         reason == ExitUnavailableReason.panelUnavailable;
     setState(() => _syncNote = worth ? outcome.sync : null);
-  }
-
-  /// Закреплённый узел разошёлся с тем, на котором стоит поднятый туннель.
-  bool _exitChanged(ExitInventory inventory) {
-    if (!ref.watch(vpnProvider).isConnected) return false;
-    final key = inventory.selectedNodeKey;
-    if (key == null || key.isEmpty) return false;
-
-    if (inventory.source == ExitInventorySource.panelRest) {
-      final id = int.tryParse(key);
-      final live = ref.watch(vpnProvider).server?.id;
-      return id != null && live != null && live != id;
-    }
-
-    final active = ref.watch(activeProxyProvider);
-    if (active == null || active.isEmpty) return false;
-    for (final n in inventory.nodes) {
-      if (n.key != key) continue;
-      // Сравниваем по идентификатору узла, а не по отображаемому имени.
-      // activeProxy это то, что доложило ядро про селектор CARAMBA, и оно
-      // вправе доложить метку группы или дедуплицированное имя; сравнение по
-      // имени тогда залипает баннером, который нельзя закрыть, потому что
-      // Reconnect его не снимает.
-      if (active == key) return false;
-      return n.name.isNotEmpty && n.name != active;
-    }
-    return false;
   }
 
   /// Замер идёт через ядро (`ProbeRunNotifier`): подписка при необходимости

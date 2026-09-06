@@ -86,7 +86,12 @@ class PanelInboundRow {
       );
 
   /// Превращает строку панели в предложение.
-  InboundOffer toOffer() => InboundOffer(
+  ///
+  /// [role] приходит СНАРУЖИ: сама строка инбаунда про роль узла не знает
+  /// ничего, а вывод «этот узел — вход» делается сравнением всего ответа
+  /// `/servers` целиком (см. `_panelRelayNodeIds` в offering_builder.dart).
+  InboundOffer toOffer({NodeRole role = NodeRole.unknown}) => InboundOffer(
+    role: role,
     panelInboundId: id,
     tag: tag,
     key: ProtocolKey(

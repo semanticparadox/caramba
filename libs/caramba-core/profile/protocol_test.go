@@ -173,3 +173,108 @@ func TestProtocolMappingCoversPriority(t *testing.T) {
 		t.Error("AmneziaWG должен маппиться в wireguard")
 	}
 }
+
+// Один незнакомый ядру тип в подписке отвергал ВЕСЬ конфиг mihomo — то есть
+// оставлял человека без связи. Пока импорт подменял naive на type:http, это
+// было незаметно ценой лжи про протокол; с честным типом защищать обязана
+// сборка профиля.
+func TestAssembleDropsProxiesTheCoreCannotBuild(t *testing.T) {
+	const raw = `
+proxies:
+  - {name: "DE Exit", type: vless, server: 10.0.0.1, port: 443, uuid: u, dialer-proxy: "RU Naive"}
+  - {name: "RU Naive", type: naive, server: 10.0.0.2, port: 443, username: u, password: p}
+proxy-groups:
+  - {name: CARAMBA, type: select, proxies: ["DE Exit", "RU Naive", "DIRECT"]}
+`
+	out, err := AssembleMihomoConfig([]byte(raw), DefaultPolicy())
+	if err != nil {
+		t.Fatalf("AssembleMihomoConfig: %v", err)
+	}
+	doc := map[string]any{}
+	if err := yaml.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("разбор результата: %v", err)
+	}
+	proxies, _ := doc["proxies"].([]any)
+	if len(proxies) != 1 {
+		t.Fatalf("ожидался один прокси (naive выброшен), получено %d: %v", len(proxies), proxies)
+	}
+	kept, _ := proxies[0].(map[string]any)
+	if kept["name"] != "DE Exit" {
+		t.Fatalf("выброшен не тот прокси: %v", kept)
+	}
+	// Ссылка на выброшенный узел проваливала бы каждый набор через этот выход.
+	if _, ok := kept["dialer-proxy"]; ok {
+		t.Errorf("ссылка в никуда не снята: %v", kept)
+	}
+	groups, _ := doc["proxy-groups"].([]any)
+	for _, g := range groups {
+		gm, _ := g.(map[string]any)
+		names, _ := gm["proxies"].([]any)
+		for _, n := range names {
+			if n == "RU Naive" {
+				t.Errorf("имя выброшенного узла осталось в группе %v: %v", gm["name"], names)
+			}
+		}
+	}
+}
+
+// Подписка целиком из непостроимых узлов не должна давать пустую select-группу:
+// mihomo отвергает такую группу так же решительно, как незнакомый тип.
+func TestAssembleKeepsGroupNonEmptyAfterDroppingEverything(t *testing.T) {
+	const raw = `
+proxies:
+  - {name: "RU Naive", type: naive, server: 10.0.0.2, port: 443}
+proxy-groups:
+  - {name: CARAMBA, type: select, proxies: ["RU Naive"]}
+`
+	out, err := AssembleMihomoConfig([]byte(raw), DefaultPolicy())
+	if err != nil {
+		t.Fatalf("AssembleMihomoConfig: %v", err)
+	}
+	doc := map[string]any{}
+	if err := yaml.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("разбор результата: %v", err)
+	}
+	groups, _ := doc["proxy-groups"].([]any)
+	if len(groups) == 0 {
+		t.Fatal("группы потеряны")
+	}
+	gm, _ := groups[0].(map[string]any)
+	names, _ := gm["proxies"].([]any)
+	if len(names) != 1 || names[0] != "DIRECT" {
+		t.Fatalf("опустевшая группа обязана удержать DIRECT, получено %v", names)
+	}
+}
+
+// Конфиг, который уходит В ЯДРО, обязан нести сеть под именем, которое ядро
+// знает. Панель отдаёт «httpupgrade» прямо в clash-теле, и панельная подписка
+// через импорт не проходит вовсе — значит чинить обязана сборка профиля, иначе
+// узел молча вырождается в обычный TLS-поток и отвечает отказом.
+func TestAssembleRemapsHTTPUpgradeForTheCore(t *testing.T) {
+	const raw = `
+proxies:
+  - {name: "DE HTTP", type: vless, server: 10.0.0.1, port: 13400, uuid: u, tls: true,
+     network: httpupgrade, http-upgrade-opts: {path: /hu, host: essentialhome.live}}
+proxy-groups:
+  - {name: CARAMBA, type: select, proxies: ["DE HTTP", "DIRECT"]}
+`
+	out, err := AssembleMihomoConfig([]byte(raw), DefaultPolicy())
+	if err != nil {
+		t.Fatalf("AssembleMihomoConfig: %v", err)
+	}
+	doc := map[string]any{}
+	if err := yaml.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("разбор результата: %v", err)
+	}
+	px := proxyByName(doc, "DE HTTP")
+	if px == nil {
+		t.Fatal("узел потерян сборкой профиля")
+	}
+	if px["network"] != "ws" {
+		t.Fatalf("network = %v", px["network"])
+	}
+	opts, _ := px["ws-opts"].(map[string]any)
+	if opts == nil || opts["v2ray-http-upgrade"] != true || opts["path"] != "/hu" {
+		t.Fatalf("ws-opts = %v", px["ws-opts"])
+	}
+}

@@ -78,10 +78,11 @@ class AppliedRouteCard extends ConsumerWidget {
     return <Widget>[
       CRow(
         icon: Lucide.route,
-        // То же имя, что у настройки везде: пикер режима, раздел «Улучшения»
-        // и `csmSettingTitle(CsmSettingKey.preset)` зовут её «Режим для
-        // страны», и эта строка не вправе называть ту же величину иначе.
-        label: 'Режим для страны',
+        // То же имя, что у настройки везде: лист выбора
+        // (`kRouteModeSheetTitle`), строка на Главной и
+        // `csmSettingTitle(CsmSettingKey.preset)` зовут её «Режим», и эта
+        // строка не вправе называть ту же величину иначе.
+        label: 'Режим',
         value: switch (r.source) {
           AppliedRouteSource.preset => preset == null
               ? 'пресет без имени'

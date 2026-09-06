@@ -23,16 +23,15 @@ ProtocolRow _row(
   ProtocolKey key,
   List<String> proxyNames, {
   List<String>? exitKeys,
-}) =>
-    ProtocolRow(
-      key: key,
-      label: '',
-      exitKeys: exitKeys ?? <String>['node-1'],
-      proxyNames: proxyNames,
-      availability: const Availability.available(
-        Provenance(OfferingSource.panelRest, '/app/servers[].inbounds[]'),
-      ),
-    );
+}) => ProtocolRow(
+  key: key,
+  label: '',
+  exitKeys: exitKeys ?? <String>['node-1'],
+  proxyNames: proxyNames,
+  availability: const Availability.available(
+    Provenance(OfferingSource.panelRest, '/app/servers[].inbounds[]'),
+  ),
+);
 
 const _reality = ProtocolKey(
   protocol: 'vless',
@@ -51,24 +50,22 @@ InboundLatencyLookup _lookup(
   Map<String, (int, ProbeVerdict)> results, {
   bool measuring = false,
   Map<String, int> tcp = const <String, int>{},
-}) =>
-    InboundLatencyLookup(
-      snapshot: results.isEmpty && tcp.isEmpty
-          ? null
-          : ProbeSnapshot(
-              latencyMs: <String, int>{
-                for (final e in results.entries) e.key: e.value.$1,
-              },
-              verdicts: <String, String>{
-                for (final e in results.entries)
-                  if (e.value.$2 != ProbeVerdict.unknown)
-                    e.key: e.value.$2.wire,
-              },
-              tcpMs: tcp,
-              updatedMs: DateTime(2026, 9, 5, 12).millisecondsSinceEpoch,
-            ),
-      measuring: measuring,
-    );
+}) => InboundLatencyLookup(
+  snapshot: results.isEmpty && tcp.isEmpty
+      ? null
+      : ProbeSnapshot(
+          latencyMs: <String, int>{
+            for (final e in results.entries) e.key: e.value.$1,
+          },
+          verdicts: <String, String>{
+            for (final e in results.entries)
+              if (e.value.$2 != ProbeVerdict.unknown) e.key: e.value.$2.wire,
+          },
+          tcpMs: tcp,
+          updatedMs: DateTime(2026, 9, 5, 12).millisecondsSinceEpoch,
+        ),
+  measuring: measuring,
+);
 
 void main() {
   group('задержка инбаунда', () {
@@ -106,18 +103,20 @@ void main() {
       expect(dead.verdictNote, contains('не принял ключ подписки'));
     });
 
-    test('число без подтверждения названо словами, а не выдано за задержку',
-        () {
-      // Сборка без ядра меряет только TCP и говорит об этом вердиктом
-      // `tcp_only`. Число настоящее — вопрос слабее, и строка обязана это
-      // произнести: рядом стоят числа, добытые настоящим запросом.
-      final l = _lookup(<String, (int, ProbeVerdict)>{
-        'DE Stealth': (118, ProbeVerdict.tcpOnly),
-      }).of(_row(_reality, <String>['DE Stealth']));
-      expect(l.latency.ms, 118);
-      expect(l.isUnconfirmed, isTrue);
-      expect(l.verdictNote, contains('Проверен только адрес'));
-    });
+    test(
+      'число без подтверждения названо словами, а не выдано за задержку',
+      () {
+        // Сборка без ядра меряет только TCP и говорит об этом вердиктом
+        // `tcp_only`. Число настоящее — вопрос слабее, и строка обязана это
+        // произнести: рядом стоят числа, добытые настоящим запросом.
+        final l = _lookup(<String, (int, ProbeVerdict)>{
+          'DE Stealth': (118, ProbeVerdict.tcpOnly),
+        }).of(_row(_reality, <String>['DE Stealth']));
+        expect(l.latency.ms, 118);
+        expect(l.isUnconfirmed, isTrue);
+        expect(l.verdictNote, contains('Проверен только адрес'));
+      },
+    );
 
     test('ядро вердикта не прислало — это «не знаю», а не «работает»', () {
       // Сборка старше поля `verdict`. Показать её число наравне с
@@ -134,9 +133,7 @@ void main() {
       // Самое полезное, что можно сказать про мёртвый вход: адрес отвечает, а
       // вход — нет. Это отличает «оператор сломал узел» от «сеть режет».
       final l = _lookup(
-        <String, (int, ProbeVerdict)>{
-          'DE Stealth': (-1, ProbeVerdict.timeout),
-        },
+        <String, (int, ProbeVerdict)>{'DE Stealth': (-1, ProbeVerdict.timeout)},
         tcp: const <String, int>{'DE Stealth': 118},
       ).of(_row(_reality, <String>['DE Stealth']));
       expect(l.verdictNote, contains('не уложился в срок'));
@@ -147,16 +144,17 @@ void main() {
       // «Ключ не принят» человеку говорит больше, чем «адрес молчит»: первое
       // ведёт к оплате, второе — к жалобе оператору. Порядок имён на это
       // влиять не должен.
-      final l = _lookup(<String, (int, ProbeVerdict)>{
-        'NL Stealth': (-1, ProbeVerdict.portClosed),
-        'DE Stealth': (-1, ProbeVerdict.authRejected),
-      }).of(
-        _row(
-          _reality,
-          <String>['NL Stealth', 'DE Stealth'],
-          exitKeys: <String>['nl', 'de'],
-        ),
-      );
+      final l =
+          _lookup(<String, (int, ProbeVerdict)>{
+            'NL Stealth': (-1, ProbeVerdict.portClosed),
+            'DE Stealth': (-1, ProbeVerdict.authRejected),
+          }).of(
+            _row(
+              _reality,
+              <String>['NL Stealth', 'DE Stealth'],
+              exitKeys: <String>['nl', 'de'],
+            ),
+          );
       expect(l.verdict, ProbeVerdict.authRejected);
     });
 
@@ -192,42 +190,48 @@ void main() {
       // Область «весь флот»: одна тройка на трёх машинах. Худший наказал бы
       // строку за далёкую машину, к которой пользователь не подключится, а
       // первый попавшийся зависел бы от порядка ключей.
-      final l = _lookup(<String, (int, ProbeVerdict)>{
-        'DE Stealth': (180, ProbeVerdict.ok),
-        'CA Stealth': (90, ProbeVerdict.ok),
-        'NL Stealth': (-1, ProbeVerdict.portClosed),
-      }).of(
-        _row(
-          _reality,
-          <String>['DE Stealth', 'CA Stealth', 'NL Stealth'],
-          exitKeys: <String>['de', 'ca', 'nl'],
-        ),
-      );
+      final l =
+          _lookup(<String, (int, ProbeVerdict)>{
+            'DE Stealth': (180, ProbeVerdict.ok),
+            'CA Stealth': (90, ProbeVerdict.ok),
+            'NL Stealth': (-1, ProbeVerdict.portClosed),
+          }).of(
+            _row(
+              _reality,
+              <String>['DE Stealth', 'CA Stealth', 'NL Stealth'],
+              exitKeys: <String>['de', 'ca', 'nl'],
+            ),
+          );
       expect(l.latency.ms, 90);
       expect(l.named, 3);
       expect(l.measured, 3);
       expect(l.answered, 2);
       expect(l.spreadNote, contains('лучший из 2 ответивших'));
       expect(l.spreadNote, contains('всего их 3'));
+      // Счёт в ПРОКСИ, а не в узлах: один и тот же вход панель выпускает
+      // дважды (прямо и «via 🇷🇺»), и «из 2 узлов» на одной машине было бы
+      // выдуманной второй машиной.
+      expect(l.spreadNote, isNot(contains('узл')));
       // Вердикт берётся у ТОГО прокси, чьё число показано, а не у худшего.
       expect(l.verdict, ProbeVerdict.ok);
     });
 
     test('ни один из нескольких не пропустил запрос — отказ строки', () {
-      final l = _lookup(<String, (int, ProbeVerdict)>{
-        'DE Stealth': (-1, ProbeVerdict.tlsUntrusted),
-        'CA Stealth': (-1, ProbeVerdict.tlsUntrusted),
-      }).of(
-        _row(
-          _reality,
-          <String>['DE Stealth', 'CA Stealth'],
-          exitKeys: <String>['de', 'ca'],
-        ),
-      );
+      final l =
+          _lookup(<String, (int, ProbeVerdict)>{
+            'DE Stealth': (-1, ProbeVerdict.tlsUntrusted),
+            'CA Stealth': (-1, ProbeVerdict.tlsUntrusted),
+          }).of(
+            _row(
+              _reality,
+              <String>['DE Stealth', 'CA Stealth'],
+              exitKeys: <String>['de', 'ca'],
+            ),
+          );
       expect(l.latency.isTimeout, isTrue);
       expect(
         l.spreadNote,
-        'Ни один из 2 узлов с этим входом не пропустил запрос.',
+        'Ни один из 2 прокси этого входа не пропустил запрос.',
       );
     });
 
@@ -241,15 +245,16 @@ void main() {
     });
 
     test('часть прокси ещё не отвечала — строка знает, что замер неполон', () {
-      final l = _lookup(<String, (int, ProbeVerdict)>{
-        'DE Stealth': (180, ProbeVerdict.ok),
-      }).of(
-        _row(
-          _reality,
-          <String>['DE Stealth', 'CA Stealth'],
-          exitKeys: <String>['de', 'ca'],
-        ),
-      );
+      final l =
+          _lookup(<String, (int, ProbeVerdict)>{
+            'DE Stealth': (180, ProbeVerdict.ok),
+          }).of(
+            _row(
+              _reality,
+              <String>['DE Stealth', 'CA Stealth'],
+              exitKeys: <String>['de', 'ca'],
+            ),
+          );
       expect(l.isPartial, isTrue);
       expect(l.measured, 1);
       expect(l.named, 2);
@@ -283,32 +288,32 @@ void main() {
 
   group('порядок строк', () {
     InboundLatency at(int tier) => switch (tier) {
-          0 => const InboundLatency(
-              latency: Latency.fromClient(100),
-              verdict: ProbeVerdict.ok,
-              tcpMs: -1,
-              measured: 1,
-              named: 1,
-              answered: 1,
-            ),
-          1 => const InboundLatency(
-              latency: Latency.fromClient(10),
-              verdict: ProbeVerdict.tcpOnly,
-              tcpMs: 10,
-              measured: 1,
-              named: 1,
-              answered: 1,
-            ),
-          2 => InboundLatency.nothingToMeasure,
-          _ => const InboundLatency(
-              latency: Latency.fromClient(-1),
-              verdict: ProbeVerdict.authRejected,
-              tcpMs: 20,
-              measured: 1,
-              named: 1,
-              answered: 0,
-            ),
-        };
+      0 => const InboundLatency(
+        latency: Latency.fromClient(100),
+        verdict: ProbeVerdict.ok,
+        tcpMs: -1,
+        measured: 1,
+        named: 1,
+        answered: 1,
+      ),
+      1 => const InboundLatency(
+        latency: Latency.fromClient(10),
+        verdict: ProbeVerdict.tcpOnly,
+        tcpMs: 10,
+        measured: 1,
+        named: 1,
+        answered: 1,
+      ),
+      2 => InboundLatency.nothingToMeasure,
+      _ => const InboundLatency(
+        latency: Latency.fromClient(-1),
+        verdict: ProbeVerdict.authRejected,
+        tcpMs: 20,
+        measured: 1,
+        named: 1,
+        answered: 0,
+      ),
+    };
 
     test('подтверждённое число обгоняет неподтверждённое, даже меньшее', () {
       // 10 мс TCP против 100 мс настоящего запроса. Пустить первое вперёд

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/semanticparadox/caramba/libs/caramba-core/subscription"
 	"gopkg.in/yaml.v3"
 )
 
@@ -92,13 +93,23 @@ func TestParseURIProtocols(t *testing.T) {
 			name:     "vless-httpupgrade",
 			uri:      "vless://uuid-hu@host:443?security=tls&type=httpupgrade&path=/up&host=h.example#HU",
 			wantType: "vless",
+			// mihomo не знает network: httpupgrade — у него это ws с флагом
+			// v2ray-http-upgrade. С прежним именем адаптер не строился
+			// вовсе, и целый транспорт выпадал и из замера, и из выбора.
 			wantCheck: func(t *testing.T, px map[string]any) {
-				if px["network"] != "httpupgrade" {
+				if px["network"] != "ws" {
 					t.Errorf("network = %v", px["network"])
 				}
-				hu, ok := px["http-upgrade-opts"].(map[string]any)
-				if !ok || hu["path"] != "/up" || hu["host"] != "h.example" {
-					t.Errorf("http-upgrade-opts = %v", px["http-upgrade-opts"])
+				ws, ok := px["ws-opts"].(map[string]any)
+				if !ok || ws["v2ray-http-upgrade"] != true || ws["path"] != "/up" {
+					t.Errorf("ws-opts = %v", px["ws-opts"])
+				}
+				hdrs, _ := ws["headers"].(map[string]any)
+				if hdrs == nil || hdrs["Host"] != "h.example" {
+					t.Errorf("ws-opts.headers = %v", ws["headers"])
+				}
+				if px["http-upgrade-opts"] != nil {
+					t.Errorf("остался ключ, которого ядро не читает: %v", px["http-upgrade-opts"])
 				}
 			},
 		},
@@ -204,9 +215,12 @@ func TestParseURIProtocols(t *testing.T) {
 			},
 		},
 		{
+			// Тип остаётся naive: подмена на http давала узел, который ядро
+			// набирало и получало отказ, а экран объяснял отказ чужой
+			// причиной вместо единственной настоящей — «ядро не умеет Naive».
 			name:     "naive",
 			uri:      "naive+https://user:pass@naive.example.com:443?sni=naive.example.com#Naive",
-			wantType: "http",
+			wantType: "naive",
 			wantCheck: func(t *testing.T, px map[string]any) {
 				if px["tls"] != true {
 					t.Errorf("tls = %v", px["tls"])
@@ -443,9 +457,15 @@ func TestImportSingbox(t *testing.T) {
 		t.Errorf("tuic mapping = %v", tuic)
 	}
 
-	naive := byType["http"]
+	// Naive сохраняет собственный тип. Ядро его не строит, и это ровно то,
+	// что экран обязан сказать словами; подменённый type:http говорил вместо
+	// этого про чужой протокол.
+	naive := byType["naive"]
 	if naive == nil || naive["tls"] != true || naive["username"] != "nu" {
-		t.Errorf("naive→http mapping = %v", naive)
+		t.Errorf("naive mapping = %v", naive)
+	}
+	if byType["http"] != nil {
+		t.Errorf("naive всё ещё подменяется на http: %v", byType["http"])
 	}
 
 	awg := byType["wireguard"]
@@ -562,5 +582,122 @@ func TestMetadataCountryFromName(t *testing.T) {
 	}
 	if len(meta.Servers) != 1 || meta.Servers[0].Country != "NL" {
 		t.Fatalf("ожидалась страна NL, получено %+v", meta.Servers)
+	}
+}
+
+// detour в sing-box означает «набирать этот outbound ЧЕРЕЗ тот». Пока поле
+// молча терялось, цепочка «через 🇷🇺» превращалась в прямой набор адреса выхода
+// — другой маршрут под тем же именем, — а сам промежуточный узел стоял в списке
+// выходов и выигрывал автоподбор своими 693 мс.
+func TestSingboxDetourBecomesDialerProxyAndMarksRelay(t *testing.T) {
+	doc := `{
+  "outbounds": [
+    {"type":"direct","tag":"direct"},
+    {"type":"vless","tag":"RU Relay","server":"10.1.0.1","server_port":443,"uuid":"u1",
+     "tls":{"enabled":true,"server_name":"r.example.com"}},
+    {"type":"vless","tag":"DE Exit","server":"10.2.0.1","server_port":443,"uuid":"u2","detour":"RU Relay",
+     "tls":{"enabled":true,"server_name":"d.example.com"}},
+    {"type":"hysteria2","tag":"CA Direct","server":"10.3.0.1","server_port":443,"password":"p","detour":"direct"}
+  ]
+}`
+	clashYAML, meta, err := Import([]byte(doc), FormatSingbox)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	var out struct {
+		Proxies []map[string]any `yaml:"proxies"`
+	}
+	if err := yaml.Unmarshal(clashYAML, &out); err != nil {
+		t.Fatalf("разбор результата: %v", err)
+	}
+	byName := map[string]map[string]any{}
+	for _, p := range out.Proxies {
+		byName[asString(p["name"])] = p
+	}
+
+	if got := asString(byName["DE Exit"]["dialer-proxy"]); got != "RU Relay" {
+		t.Fatalf("detour не стал dialer-proxy: %q", got)
+	}
+	// detour в служебный direct — ссылка в никуда: в clash-списке такого
+	// прокси нет, и mihomo провалил бы КАЖДЫЙ набор через этот узел.
+	if _, ok := byName["CA Direct"]["dialer-proxy"]; ok {
+		t.Fatalf("ссылка в несуществующий прокси не снята: %v", byName["CA Direct"])
+	}
+
+	roles := map[string]string{}
+	for _, s := range meta.Servers {
+		roles[s.Name] = s.Role
+	}
+	if roles["RU Relay"] != subscription.RoleRelay {
+		t.Errorf("промежуточный узел обязан быть relay, получено %q", roles["RU Relay"])
+	}
+	if roles["DE Exit"] != subscription.RoleExit || roles["CA Direct"] != subscription.RoleExit {
+		t.Errorf("выходы обязаны быть exit: %v", roles)
+	}
+}
+
+// Метаданные обязаны различать ИНБАУНДЫ, а не только протоколы: пока строка
+// собиралась по одному type, отказ httpupgrade прятался за числом соседнего
+// транспорта того же VLESS.
+func TestSingboxMetadataCarriesTransportAndSecurity(t *testing.T) {
+	doc := `{
+  "outbounds": [
+    {"type":"vless","tag":"V Reality","server":"10.1.0.1","server_port":443,"uuid":"u1",
+     "tls":{"enabled":true,"server_name":"r.example.com","reality":{"enabled":true,"public_key":"K"}}},
+    {"type":"vless","tag":"V HU","server":"10.1.0.2","server_port":443,"uuid":"u2",
+     "tls":{"enabled":true,"server_name":"h.example.com"},
+     "transport":{"type":"httpupgrade","path":"/up","host":"h.example.com"}},
+    {"type":"vless","tag":"V WS","server":"10.1.0.3","server_port":443,"uuid":"u3",
+     "tls":{"enabled":true,"server_name":"w.example.com"},
+     "transport":{"type":"ws","path":"/ws"}},
+    {"type":"hysteria2","tag":"H2","server":"10.1.0.4","server_port":443,"password":"p"},
+    {"type":"naive","tag":"NV","server":"10.1.0.5","server_port":443,"username":"u","password":"p"}
+  ]
+}`
+	_, meta, err := Import([]byte(doc), FormatSingbox)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	got := map[string][2]string{}
+	for _, s := range meta.Servers {
+		got[s.Name] = [2]string{s.Transport, s.Security}
+	}
+	want := map[string][2]string{
+		"V Reality": {"tcp", "reality"},
+		"V HU":      {"httpupgrade", "tls"},
+		"V WS":      {"ws", "tls"},
+		// У QUIC-семейства понятия «транспорт поверх TCP» нет, а TLS от
+		// протокола неотделим.
+		"H2": {"", "tls"},
+		"NV": {"tcp", "tls"},
+	}
+	for name, w := range want {
+		if got[name] != w {
+			t.Errorf("%s: транспорт/защита = %v, ожидалось %v", name, got[name], w)
+		}
+	}
+}
+
+// httpupgrade из sing-box обязан доехать до ядра под именем, которое ядро
+// знает, вместе с Host: без него апгрейд на стороне узла не совпадёт.
+func TestSingboxHTTPUpgradeMapsToWSFlag(t *testing.T) {
+	doc := `{"outbounds":[{"type":"vless","tag":"HU","server":"10.0.0.9","server_port":443,"uuid":"u",
+	 "tls":{"enabled":true,"server_name":"s.example.com"},
+	 "transport":{"type":"httpupgrade","path":"/up","host":"hu.example.com"}}]}`
+	clashYAML, _, err := Import([]byte(doc), FormatSingbox)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	px := proxyFromYAML(t, clashYAML)
+	if px["network"] != "ws" {
+		t.Fatalf("network = %v (mihomo не знает httpupgrade)", px["network"])
+	}
+	ws, ok := px["ws-opts"].(map[string]any)
+	if !ok || ws["v2ray-http-upgrade"] != true || ws["path"] != "/up" {
+		t.Fatalf("ws-opts = %v", px["ws-opts"])
+	}
+	hdrs, _ := ws["headers"].(map[string]any)
+	if hdrs == nil || hdrs["Host"] != "hu.example.com" {
+		t.Fatalf("Host потерян: %v", ws["headers"])
 	}
 }

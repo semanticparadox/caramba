@@ -12,7 +12,10 @@ import (
 	"time"
 
 	"github.com/metacubex/mihomo/component/process"
+	constant "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/hub/executor"
+	"github.com/metacubex/mihomo/listener"
+	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/tunnel"
 	"github.com/metacubex/mihomo/tunnel/statistic"
 	"github.com/semanticparadox/caramba/libs/caramba-core/profile"
@@ -124,6 +127,7 @@ func (e *mihomoEngine) Stop() error {
 	if e.state == StateConnected || e.state == StateStarting {
 		// Shutdown закрывает inbound-listeners (включая TUN) и сбрасывает провайдеры.
 		executor.Shutdown()
+		forgetTunConf()
 	}
 	e.state = StateStopped
 	e.detail = ""
@@ -202,11 +206,59 @@ func activeProxyName() string {
 	// обёртку через Adapter() (метод объявлен в самом интерфейсе C.Proxy), и
 	// только потом пробуем привести к nower.
 	type nower interface{ Now() string }
-	if n, ok := p.Adapter().(nower); ok {
-		return n.Now()
+	now := func(px any) (string, bool) {
+		if pr, ok := px.(interface{ Adapter() constant.ProxyAdapter }); ok {
+			if n, ok := pr.Adapter().(nower); ok {
+				return n.Now(), true
+			}
+		}
+		if n, ok := px.(nower); ok {
+			return n.Now(), true
+		}
+		return "", false
 	}
-	if n, ok := p.(nower); ok {
-		return n.Now()
+
+	name, ok := now(p)
+	if !ok {
+		return ""
 	}
-	return ""
+	// Спускаемся до НАСТОЯЩЕГО узла: выбор группы может указывать на другую
+	// группу, а не на прокси. Так и происходит при закреплённом типе — там
+	// первой в селекторе стоит url-test группа `Caramba-Proto`, и её имя
+	// уезжало на главный экран в строку «Сервер» вместо имени узла.
+	//
+	// Глубина ограничена: конфиг собирает панель, и цикл в группах — её ошибка,
+	// а не наш случай, но вешать на ней поток обхода нельзя.
+	for i := 0; i < 8; i++ {
+		next, exists := proxies[name]
+		if !exists || next == nil {
+			break
+		}
+		inner, ok := now(next)
+		if !ok || inner == "" || inner == name {
+			break
+		}
+		name = inner
+	}
+	return name
+}
+
+// forgetTunConf забывает конфигурацию TUN, которую mihomo запомнил при подъёме.
+//
+// listener.Cleanup() (его зовёт executor.Shutdown) закрывает слушателя и
+// обнуляет tunLister, но НЕ трогает listener.LastTunConf. А ReCreateTun при
+// следующем подъёме первым делом сравнивает новый конфиг с этим запомненным и,
+// если они равны, выходит СРАЗУ — не создавая слушателя, потому что tunLister
+// уже nil, и не печатая ни ошибки, ни строки «[TUN] Tun adapter listening».
+//
+// На горячем переподключении конфиги равны чаще, чем кажется: единственное
+// отличающееся поле это номер файлового дескриптора, а система охотно выдаёт
+// тот же номер, что только что освободился. Наружу это выглядело как
+// «Защищено» над туннелем, в который никто не читает: адаптер Android создан,
+// трафик в него идёт, а слушателя у ядра нет. На замерах — 8 подъёмов из 27.
+//
+// Обнуление здесь, а не в самом mihomo, потому что зависимость подключается
+// модулем: правка в чужом пакете потерялась бы при следующем обновлении.
+func forgetTunConf() {
+	listener.LastTunConf = LC.Tun{}
 }

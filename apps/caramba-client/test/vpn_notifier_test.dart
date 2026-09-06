@@ -4,9 +4,16 @@
 // CoreConfig до ядра не доезжал вовсе. Тест фиксирует контракт: политика и
 // режим захвата отправляются ДО connect (они действуют со следующего Up), а
 // rawSub несёт формат профиля и выбранный serverId.
+//
+// Сюда же переехали два свойства, снятые с устройства пятым за сессию случаем
+// «Защищено» над мёртвым туннелем: подъём НЕ начинается раньше подтверждённой
+// остановки ядра, и неудачное применение настроек не глушит признак
+// «настройки изменились» навсегда.
 
 import 'dart:async';
 
+import 'package:flutter/services.dart'
+    show MissingPluginException, PlatformException;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:caramba_client/data/models/connection_profile.dart';
@@ -32,8 +39,18 @@ class FakeVpnConnection with FakeCsmDevice implements VpnConnection {
   TunnelMode? lastMode;
   int? lastMixedPort;
 
-  /// Заставляет setPolicy упасть, моделируя ядро до ABI v2.
+  /// Заставляет setPolicy упасть отказом ЗДЕСЬ И СЕЙЧАС: мост есть, вызов не
+  /// прошёл (ядро в разборке, платформа ответила ошибкой).
   bool failPolicy = false;
+
+  /// Заставляет setPolicy упасть отсутствием моста — сборка без этого вызова.
+  bool policyBridgeMissing = false;
+
+  /// Отвечает ли `disconnect` кадром об остановке, как отвечает живой мост
+  /// (Android печатает `disconnected` следующей строкой после возврата из
+  /// `core.down()`). `false` — ядро «зависло в разборке»: команда ушла, кадра
+  /// нет, и это ровно тот случай, ради которого ожидание и появилось.
+  bool haltsOnDisconnect = true;
 
   @override
   VpnStatus get currentStatus => _current;
@@ -89,7 +106,8 @@ class FakeVpnConnection with FakeCsmDevice implements VpnConnection {
   @override
   Future<void> setPolicy(CorePolicy policy) async {
     calls.add('setPolicy');
-    if (failPolicy) throw StateError('no CarambaSetPolicy in this build');
+    if (policyBridgeMissing) throw MissingPluginException('setPolicy');
+    if (failPolicy) throw PlatformException(code: 'set_policy_failed');
     lastPolicy = policy;
   }
 
@@ -101,7 +119,13 @@ class FakeVpnConnection with FakeCsmDevice implements VpnConnection {
   }
 
   @override
-  Future<void> disconnect() async => calls.add('disconnect');
+  Future<void> disconnect() async {
+    calls.add('disconnect');
+    // Как живой мост: команда возвращает управление сразу, а кадр об остановке
+    // приезжает потоком статуса отдельным оборотом цикла событий. Именно этот
+    // зазор и был дырой, в которую попадал подъём.
+    if (haltsOnDisconnect) emit(const VpnStatus.disconnected());
+  }
 
   /// Как нативная сторона: ответ уходит в общий поток статуса, отдельного
   /// канала для него нет.
@@ -146,6 +170,7 @@ VpnNotifier build(
   Server? recommended,
   TunnelMode mode = TunnelMode.proxy,
   AccessGuard? guard,
+  Duration stopLimit = kStopConfirmationLimit,
 }) => VpnNotifier(
   conn,
   () => recommended,
@@ -153,7 +178,11 @@ VpnNotifier build(
   () => _policy,
   () => mode,
   guard: guard == null ? null : () => guard,
+  stopLimit: stopLimit,
 );
+
+/// Прокрутить очередь микрозадач, чтобы кадры статуса дошли до нотифаера.
+Future<void> pump() => Future<void>.delayed(Duration.zero);
 
 /// Сторож с заранее известным ответом.
 AccessGuard guardAnswering(
@@ -237,8 +266,8 @@ void main() {
     },
   );
 
-  test('ядро без setPolicy не мешает подключиться', () async {
-    final conn = FakeVpnConnection()..failPolicy = true;
+  test('сборка без setPolicy не мешает подключиться', () async {
+    final conn = FakeVpnConnection()..policyBridgeMissing = true;
     final notifier = build(conn, profile: rawProfile());
 
     expect(await notifier.connect(), isTrue);
@@ -246,6 +275,8 @@ void main() {
     expect(conn.calls, contains('connectRaw'));
     // Не знаем, что применилось, значит и про реконнект не врём.
     expect(notifier.appliedPolicyJson, isNull);
+    // И не зовём переподключаться: моста нет, переподключение ничего не даст.
+    expect(notifier.corePreferencesStale, isFalse);
   });
 
   test('пустой rawSub-профиль даёт ошибку, а не молчаливый connect', () async {
@@ -279,30 +310,33 @@ void main() {
     // здорова; трафик кончился; ядро в raw-режиме не спрашивает никого и
     // поднимает туннель из кэша. Туннель при этом исправен — а через него не
     // проходит ничего, и экран говорит «Защищено» с идущим таймером.
-    test('закрытая подписка не поднимает туннель на кэше конфигурации', () async {
-      final conn = FakeVpnConnection();
-      final guard = guardAnswering(_quotaRefusal);
-      final notifier = build(
-        conn,
-        profile: rawProfile(rawConfig: 'proxies: [{name: DE-01}]'),
-        guard: guard,
-      );
+    test(
+      'закрытая подписка не поднимает туннель на кэше конфигурации',
+      () async {
+        final conn = FakeVpnConnection();
+        final guard = guardAnswering(_quotaRefusal);
+        final notifier = build(
+          conn,
+          profile: rawProfile(rawConfig: 'proxies: [{name: DE-01}]'),
+          guard: guard,
+        );
 
-      expect(await notifier.connect(), isFalse);
+        expect(await notifier.connect(), isFalse);
 
-      // Ядра не касались вовсе: ни политики, ни режима, ни connectRaw.
-      expect(conn.calls, isEmpty);
-      expect(conn.lastRawArgs, isNull);
-      // И это не зелёный щит.
-      expect(notifier.state.stage, VpnStage.error);
-      expect(notifier.state.isConnected, isFalse);
-      // Причина названа, и код, по которому её узнали, остался уликой.
-      expect(notifier.state.detail, contains('403'));
-      expect(notifier.state.detail, contains('Дневной лимит израсходован'));
-      // Экран берёт человеческий текст из состояния, которое записал сторож.
-      expect(guard.state.refusal!.kind, AccessKind.dailyQuota);
-      guard.dispose();
-    });
+        // Ядра не касались вовсе: ни политики, ни режима, ни connectRaw.
+        expect(conn.calls, isEmpty);
+        expect(conn.lastRawArgs, isNull);
+        // И это не зелёный щит.
+        expect(notifier.state.stage, VpnStage.error);
+        expect(notifier.state.isConnected, isFalse);
+        // Причина названа, и код, по которому её узнали, остался уликой.
+        expect(notifier.state.detail, contains('403'));
+        expect(notifier.state.detail, contains('Дневной лимит израсходован'));
+        // Экран берёт человеческий текст из состояния, которое записал сторож.
+        expect(guard.state.refusal!.kind, AccessKind.dailyQuota);
+        guard.dispose();
+      },
+    );
 
     test('панельный путь закрытая подписка тоже не поднимает', () async {
       final conn = FakeVpnConnection();
@@ -365,41 +399,48 @@ void main() {
       final afterStop = asked;
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      expect(asked, afterStop, reason: 'вне сессии спрашивать некого и незачем');
+      expect(
+        asked,
+        afterStop,
+        reason: 'вне сессии спрашивать некого и незачем',
+      );
       guard.dispose();
     });
   });
 
   group('правда о стадии', () {
-    test('переспрос платформы снимает пережившее туннель «подключено»', () async {
-      // Кадр из нативного кэша: он пережил и туннель, и прошлый запуск
-      // приложения. Пока его не переспросили, приложение утверждает защиту.
-      final conn = FakeVpnConnection();
-      final notifier = build(conn, profile: rawProfile());
-      conn.emit(
-        VpnStatus(
-          stage: VpnStage.connected,
-          connectedSince: DateTime.now().subtract(
-            const Duration(minutes: 3, seconds: 35),
+    test(
+      'переспрос платформы снимает пережившее туннель «подключено»',
+      () async {
+        // Кадр из нативного кэша: он пережил и туннель, и прошлый запуск
+        // приложения. Пока его не переспросили, приложение утверждает защиту.
+        final conn = FakeVpnConnection();
+        final notifier = build(conn, profile: rawProfile());
+        conn.emit(
+          VpnStatus(
+            stage: VpnStage.connected,
+            connectedSince: DateTime.now().subtract(
+              const Duration(minutes: 3, seconds: 35),
+            ),
           ),
-        ),
-      );
-      await Future<void>.delayed(Duration.zero);
-      expect(notifier.state.stage, VpnStage.connected);
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(notifier.state.stage, VpnStage.connected);
 
-      // Платформа знает правду: сеанса нет.
-      conn.platformTruth = const VpnStatus.disconnected();
-      await notifier.refreshStage();
-      await Future<void>.delayed(Duration.zero);
+        // Платформа знает правду: сеанса нет.
+        conn.platformTruth = const VpnStatus.disconnected();
+        await notifier.refreshStage();
+        await Future<void>.delayed(Duration.zero);
 
-      expect(conn.platformAsks, 1);
-      expect(notifier.state.stage, VpnStage.disconnected);
-      expect(
-        notifier.state.connectedSince,
-        isNull,
-        reason: 'таймер не имеет права идти от подъёма, которого больше нет',
-      );
-    });
+        expect(conn.platformAsks, 1);
+        expect(notifier.state.stage, VpnStage.disconnected);
+        expect(
+          notifier.state.connectedSince,
+          isNull,
+          reason: 'таймер не имеет права идти от подъёма, которого больше нет',
+        );
+      },
+    );
 
     test('подтверждённый туннель переспросом не рвётся', () async {
       final conn = FakeVpnConnection();
@@ -414,4 +455,251 @@ void main() {
       expect(notifier.state.stage, VpnStage.connected);
     });
   });
+
+  group('подъём ждёт ПОДТВЕРЖДЁННОЙ остановки', () {
+    // ВОСПРОИЗВЕДЁННАЯ ПОЛОМКА. Смена типа подключения завела
+    // автопереподключение, `reconnect()` делал disconnect+connect встык, и
+    // подъём приходил в ещё не закончившуюся разборку mihomo: «Initial
+    // configuration complete, total time: 1ms», ни одной строки «[TUN] Tun
+    // adapter listening», netd — «interface tun6 not assigned to any netId».
+    // Экран при этом говорил «Защищено 01:31», трафика не было вовсе.
+    test('пока кадра об остановке нет, ядра подъёмом не касаются', () async {
+      final conn = FakeVpnConnection()..haltsOnDisconnect = false;
+      final notifier = build(conn, profile: rawProfile());
+      conn.emit(const VpnStatus(stage: VpnStage.connected));
+      await pump();
+
+      final pending = notifier.reconnect();
+      await pump();
+      await pump();
+
+      // Команда «опустить» ушла — и на этом всё.
+      expect(conn.calls, <String>['disconnect']);
+
+      // Ядро доложило, что оно остановлено.
+      conn.emit(const VpnStatus.disconnected());
+
+      expect(await pending, isTrue);
+      expect(conn.calls, <String>[
+        'disconnect',
+        'setTunnelMode',
+        'setPolicy',
+        'connectRaw',
+      ]);
+    });
+
+    test('остановка не подтвердилась — остаёмся в названном отказе', () async {
+      final conn = FakeVpnConnection()..haltsOnDisconnect = false;
+      final notifier = build(
+        conn,
+        profile: rawProfile(),
+        stopLimit: const Duration(milliseconds: 30),
+      );
+      conn.emit(const VpnStatus(stage: VpnStage.connected));
+      await pump();
+
+      expect(await notifier.reconnect(), isFalse);
+
+      // Ни политики, ни режима, ни подъёма: поднимать в незнание — это и есть
+      // зелёный щит над мёртвым туннелем.
+      expect(conn.calls, <String>['disconnect']);
+      expect(notifier.state.stage, VpnStage.error);
+      expect(notifier.state.detail, VpnFailureReason.stopNotConfirmed);
+      expect(notifier.state.isConnected, isFalse);
+    });
+
+    test('откат на прежнюю комбинацию ждёт остановки так же', () async {
+      final conn = FakeVpnConnection();
+      const server = Server(id: 7, name: 'Node #7', countryCode: 'NL');
+      final notifier = build(conn, recommended: server);
+
+      await notifier.connect();
+      conn.emit(const VpnStatus(stage: VpnStage.connected));
+      await pump();
+      expect(notifier.lastGood, isNotNull);
+
+      conn.calls.clear();
+      conn.haltsOnDisconnect = false;
+      final pending = notifier.restoreLastGood();
+      await pump();
+      await pump();
+      expect(conn.calls, <String>['disconnect']);
+
+      conn.emit(const VpnStatus.disconnected());
+      expect(await pending, isTrue);
+      expect(conn.calls.last, 'connect');
+    });
+
+    test('остановленное ядро не опускают повторно и не ждут', () async {
+      // Обычное подключение с холодного старта: подтверждать нечего, и цена
+      // ожидания обязана остаться нулевой.
+      final conn = FakeVpnConnection();
+      final notifier = build(
+        conn,
+        profile: rawProfile(),
+        // Сорвался бы порядок — тест не «упал бы», а завис бы на десять секунд.
+        stopLimit: const Duration(seconds: 10),
+      );
+
+      final watch = Stopwatch()..start();
+      expect(await notifier.connect(), isTrue);
+      watch.stop();
+
+      expect(conn.calls, <String>['setTunnelMode', 'setPolicy', 'connectRaw']);
+      expect(
+        watch.elapsed,
+        lessThan(const Duration(milliseconds: 200)),
+        reason: 'успешный путь не имеет права ждать того, чего не ждёт',
+      );
+    });
+
+    test('ошибка ядра — тоже конец сеанса и тоже подтверждение', () async {
+      final conn = FakeVpnConnection()..haltsOnDisconnect = false;
+      final notifier = build(conn, profile: rawProfile());
+      conn.emit(const VpnStatus(stage: VpnStage.connected));
+      await pump();
+
+      final pending = notifier.reconnect();
+      await pump();
+      conn.emit(const VpnStatus(stage: VpnStage.error, detail: 'core down'));
+
+      expect(await pending, isTrue);
+      expect(conn.calls, contains('connectRaw'));
+    });
+  });
+
+  group('провал применения настроек виден и не теряет состояние', () {
+    // ВОСПРОИЗВЕДЁННАЯ ПОЛОМКА. После автопереподключения тумблер рекламы
+    // перестал поднимать баннер «Переподключить» — ни в настройках, ни на
+    // Главной; реклама не резалась, пока человек не сделал disconnect/connect
+    // руками. setPolicy на останавливающемся ядре падал, applied обнулялось, и
+    // признак расхождения молчал НАВСЕГДА.
+    test('отказ моста не обнуляет применённое и поднимает признак', () async {
+      final conn = FakeVpnConnection();
+      final notifier = build(conn, profile: rawProfile());
+
+      // Первый подъём удался: применённое известно.
+      await notifier.connect();
+      expect(notifier.appliedPolicy, isNotNull);
+      final applied = notifier.appliedPolicyJson;
+      conn.emit(const VpnStatus(stage: VpnStage.connected));
+      await pump();
+
+      // Второй — с отказом setPolicy.
+      conn.failPolicy = true;
+      await notifier.reconnect();
+
+      expect(notifier.corePreferencesStale, isTrue);
+      expect(
+        notifier.appliedPolicyJson,
+        applied,
+        reason:
+            'ядро осталось на том, что в нём было; забыть это — потерять '
+            'состояние',
+      );
+    });
+
+    test('удачное применение снимает признак', () async {
+      final conn = FakeVpnConnection()..failPolicy = true;
+      final notifier = build(conn, profile: rawProfile());
+
+      await notifier.connect();
+      expect(notifier.corePreferencesStale, isTrue);
+
+      conn.failPolicy = false;
+      conn.emit(const VpnStatus(stage: VpnStage.connected));
+      await pump();
+      await notifier.reconnect();
+
+      expect(notifier.corePreferencesStale, isFalse);
+      expect(notifier.appliedPolicy, isNotNull);
+    });
+
+    test('отказ setTunnelMode не роняет подключение исключением', () async {
+      // Раньше здесь не было ловли вовсе: отказ улетал наружу из connect, и
+      // баннер автоматики оставался со словом «Переподключаюсь» навсегда.
+      final conn = _ModeRefusingConnection();
+      final notifier = build(conn, profile: rawProfile());
+
+      expect(await notifier.connect(), isTrue);
+      expect(conn.calls, contains('connectRaw'));
+      expect(notifier.corePreferencesStale, isTrue);
+    });
+
+    group('решение о баннере', () {
+      const applied = CorePolicy(protocol: 'Hysteria2', preset: 'ru-smart');
+      // Различие ИМЕННО в настроечной половине: `preset` и `protocol`
+      // относятся к пути и применяются сами, поэтому отпечаток их не видит.
+      const changed = CorePolicy(
+        protocol: 'Hysteria2',
+        preset: 'ru-smart',
+        adblock: true,
+      );
+
+      test('провал говорит «переподключитесь» даже без применённого', () {
+        expect(
+          settingsAwaitReconnect(
+            connected: true,
+            preferencesStale: true,
+            applied: null,
+            appliedMode: null,
+            current: () => applied,
+            currentMode: () => TunnelMode.tun,
+          ),
+          isTrue,
+        );
+      });
+
+      test('сборка без моста настроек молчит и не зовёт по кругу', () {
+        expect(
+          settingsAwaitReconnect(
+            connected: true,
+            preferencesStale: false,
+            applied: null,
+            appliedMode: null,
+            current: () => applied,
+            currentMode: () => TunnelMode.tun,
+          ),
+          isFalse,
+        );
+      });
+
+      test('расхождение настроечной половины по-прежнему видно', () {
+        expect(
+          settingsAwaitReconnect(
+            connected: true,
+            preferencesStale: false,
+            applied: applied,
+            appliedMode: TunnelMode.tun,
+            current: () => changed,
+            currentMode: () => TunnelMode.tun,
+          ),
+          isTrue,
+        );
+      });
+
+      test('вне сессии применять нечего', () {
+        expect(
+          settingsAwaitReconnect(
+            connected: false,
+            preferencesStale: true,
+            applied: applied,
+            appliedMode: TunnelMode.tun,
+            current: () => changed,
+            currentMode: () => TunnelMode.proxy,
+          ),
+          isFalse,
+        );
+      });
+    });
+  });
+}
+
+/// Мост, у которого отказывает именно `setTunnelMode`.
+class _ModeRefusingConnection extends FakeVpnConnection {
+  @override
+  Future<void> setTunnelMode(TunnelMode mode, {int mixedPort = 7890}) async {
+    calls.add('setTunnelMode');
+    throw PlatformException(code: 'set_tunnel_mode_failed');
+  }
 }

@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/semanticparadox/caramba/libs/caramba-core/routing"
+	"github.com/semanticparadox/caramba/libs/caramba-core/subscription"
 	"gopkg.in/yaml.v3"
 )
 
@@ -636,6 +637,7 @@ func AssembleMihomoConfigPinned(rawYAML []byte, policy Policy, pinProxy string) 
 		return nil, fmt.Errorf("profile: разбор конфигурации подписки: %w", err)
 	}
 
+	prepareProxiesForCore(doc)
 	applyGeneral(doc, policy)
 	if policy.EffectiveMode() == ModeProxy {
 		applyProxyInbound(doc, policy)
@@ -657,6 +659,102 @@ func AssembleMihomoConfigPinned(rawYAML []byte, policy Policy, pinProxy string) 
 		return nil, fmt.Errorf("profile: сериализация конфигурации: %w", err)
 	}
 	return out, nil
+}
+
+// prepareProxiesForCore приводит секцию proxies к тому, что ядро действительно
+// умеет: переводит формы, названные источником иначе (см.
+// subscription.NormalizeProxyForCore), и убирает прокси, для которых ядро не
+// строит outbound вовсе (см. subscription.CoreCanBuildProxyType), вместе со
+// ссылками на них.
+//
+// Это не косметика, а условие того, чтобы туннель вообще поднимался. mihomo
+// разбирает секцию proxies целиком и на первом незнакомом типе отвергает ВЕСЬ
+// конфиг («proxy N: unsupport proxy type»). Одного naive-узла в подписке хватило
+// бы, чтобы человек остался без связи, — и раньше этого не случалось лишь
+// потому, что импорт подменял naive на type:http, то есть лгал про протокол.
+// Теперь тип честный, а конфиг для ядра чистый.
+//
+// Заодно снимается dialer-proxy, указывающий на ВЫБРОШЕННЫЙ НАМИ узел: ссылка в
+// никуда молча проваливает КАЖДЫЙ набор через этот выход уже в бою. Ссылки на
+// прочие имена не трогаются: mihomo разрешает указать в dialer-proxy имя
+// группы, и «не нашли среди прокси» там не означает «ошибка».
+func prepareProxiesForCore(doc map[string]any) {
+	list, ok := doc["proxies"].([]any)
+	if !ok {
+		return
+	}
+	dropped := make(map[string]struct{})
+	kept := make([]any, 0, len(list))
+	for _, item := range list {
+		pm, ok := item.(map[string]any)
+		if !ok {
+			kept = append(kept, item)
+			continue
+		}
+		typ, _ := pm["type"].(string)
+		if subscription.CoreCanBuildProxyType(typ) {
+			subscription.NormalizeProxyForCore(pm)
+			kept = append(kept, item)
+			continue
+		}
+		if name, _ := pm["name"].(string); name != "" {
+			dropped[name] = struct{}{}
+		}
+	}
+	if len(dropped) == 0 {
+		// Нормализация уже применена по месту; переставлять список незачем.
+		return
+	}
+	doc["proxies"] = kept
+
+	for _, item := range kept {
+		pm, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if target, _ := pm["dialer-proxy"].(string); target != "" {
+			if _, gone := dropped[target]; gone {
+				delete(pm, "dialer-proxy")
+			}
+		}
+	}
+	dropProxyNamesFromGroups(doc, dropped)
+}
+
+// dropProxyNamesFromGroups вычёркивает имена из списков участников групп.
+//
+// Группа, ссылающаяся на несуществующего участника, — тоже отказ загрузки
+// целиком. Опустевшая группа отказ тоже: mihomo не принимает select без
+// участников, поэтому в неё возвращается DIRECT — та же мягкая деградация, что
+// и в applyKillSwitch.
+func dropProxyNamesFromGroups(doc map[string]any, dropped map[string]struct{}) {
+	groups, ok := doc["proxy-groups"].([]any)
+	if !ok {
+		return
+	}
+	for _, g := range groups {
+		gm, ok := g.(map[string]any)
+		if !ok {
+			continue
+		}
+		list, ok := gm["proxies"].([]any)
+		if !ok {
+			continue
+		}
+		filtered := make([]any, 0, len(list))
+		for _, item := range list {
+			if s, ok := item.(string); ok {
+				if _, gone := dropped[s]; gone {
+					continue
+				}
+			}
+			filtered = append(filtered, item)
+		}
+		if len(filtered) == 0 {
+			filtered = append(filtered, "DIRECT")
+		}
+		gm["proxies"] = filtered
+	}
 }
 
 // applyGeneral переопределяет верхнеуровневые флаги.

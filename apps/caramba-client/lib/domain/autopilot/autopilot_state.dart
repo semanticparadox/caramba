@@ -100,6 +100,25 @@ class AutoLabel {
     return claimNote.isEmpty ? head : '$head · $claimNote';
   }
 
+  /// Слово для бейджа рядом с заголовком; пусто — бейджа нет.
+  ///
+  /// Слов ровно два, и они про РАЗНОЕ. «Устарело» отправляет перезамерять, и
+  /// это правда только когда состарился сам замер. При расхождении с
+  /// держателем замер как раз свежий — перезамер не изменит ничего: не в силе
+  /// сам ВЫБОР, потому что трафик идёт (или пойдёт) мимо него. Одно слово на
+  /// оба состояния и было той неточностью, из-за которой строка «Авто»
+  /// отправляла человека перезамерять там, где надо снять пин.
+  ///
+  /// Словарь общий с Главной (home_screen.dart, `_autopilotRow`): два экрана,
+  /// называющие одно состояние разными словами, — это два разных состояния для
+  /// того, кто на них смотрит.
+  String get badge => switch (stale) {
+    AutoStaleReason.tunnelDisagrees ||
+    AutoStaleReason.pinDisagrees => 'не в силе',
+    AutoStaleReason.age || AutoStaleReason.fleetChanged => 'устарело',
+    AutoStaleReason.none => '',
+  };
+
   /// Причина устаревания одной строкой — столько, сколько влезает под контрол.
   ///
   /// Имени узла-соперника здесь нет намеренно: подпись контрола отвечает за
@@ -170,6 +189,11 @@ Map<String, FleetFact> fleetFactsOf(Offering offering) {
         // несёт вовсе — там останется false, и суффикс в имени будет назван
         // ярлыком, каким он и является.
         wireChained: exit.viaRelay?.chainedInConfig ?? false,
+        // Роль берётся у ПРОКСИ, а не у машины: ядро меряет и закрепляет
+        // именно прокси, и на машине со смешанным набором запрет обязан быть
+        // точечным. Роль машины остаётся на [ExitOffer.role] — её читает
+        // список серверов, где строка это машина.
+        isRelay: inbound.role.isRelay || exit.role.isRelay,
       );
     }
   }
@@ -478,68 +502,81 @@ String _countryClause(AutoPickRecord pick, AutoHolder holder) {
 
 /// Подпись «Авто» для строки СЕРВЕРА.
 ///
-/// Источников ровно два, и оба живые: узел, на котором стоит ядро прямо сейчас,
-/// и прошлый замер. Третьего («наверное подключимся туда») нет намеренно — это
-/// и была бы та самая выдумка, из-за которой «Германия» стояла над канадским
-/// выходом.
-/// Обещание входа тянется за УЗЛОМ, а не за заголовком строки.
+/// ЗАГОЛОВОК ЭТОЙ СТРОКИ — ВСЕГДА ВЫБОР АВТОПОДБОРА, и другого источника у него
+/// нет. Раньше при живом туннеле сюда подставлялся ДЕРЖАТЕЛЬ — узел, на котором
+/// ядро стоит прямо сейчас, — и получалось, что контрол автоподбора назван
+/// чужим именем: с пином 🇩🇪 Stream и выбором Канады «Серверы» говорили
+/// «Авто · DE · Германия — Сейчас в туннеле», а Главная в ту же секунду —
+/// «Автоподбор выбрал Канада… не в силе». Два экрана называли один выбор
+/// по-разному, потому что смотрели в разные источники.
 ///
-/// Заголовок на панельном пути — имя машины («Germany»), и обещания в нём нет,
-/// а врёт при этом имя прокси, на котором ядро стоит («🇩🇪 Secure via 🇷🇺»).
-/// Поэтому расхождение ищется по имени прокси всегда, независимо от того, чем
-/// подписана строка.
+/// Держатель с этого экрана и так виден: галочка стоит на строке своего узла, а
+/// страну называет заголовок. Дублировать его в подписи контрола, который за
+/// него не отвечает, незачем — расхождение выражается словом «не в силе»
+/// ([AutoLabel.badge]) и подписью из [AutoLabel._staleText].
+///
+/// Обещание входа тянется за УЗЛОМ, а не за заголовком строки: заголовок на
+/// панельном пути — имя машины («Germany»), и обещания в нём нет, а врёт при
+/// этом имя прокси («🇩🇪 Secure via 🇷🇺»). Поэтому [claimNote] ищется по имени
+/// прокси из записи выбора.
 final autoServerLabelProvider = Provider<AutoLabel>((ref) {
-  final activeProxy = ref.watch(activeProxyProvider);
-  final facts = ref.watch(fleetFactsProvider);
-  if (activeProxy != null && activeProxy.isNotEmpty) {
-    final fact = facts[activeProxy];
-    final naming = namingOfProxy(activeProxy, facts);
-    final title = fact?.machineTitle.isNotEmpty == true
-        ? fact!.machineTitle
-        // Имени машины нет — строку подписывает сам узел, и подписывает её тем,
-        // что на проводе: `🇨🇦 Secure`, а не `🇨🇦 Secure via 🇷🇺`.
-        : naming.title;
-    final cc = fact?.countryCode ?? '';
-    return AutoLabel(
-      choice: cc.isEmpty ? title : '$cc · $title',
-      source: 'Сейчас в туннеле',
-      claimNote: naming.shortNote,
-    );
-  }
   final pick = ref.watch(autoPickRecordProvider);
   if (pick == null) return AutoLabel.unknown;
+  final facts = ref.watch(fleetFactsProvider);
   final naming = namingOfProxy(pick.proxyName, facts);
   final cc = pick.countryCode;
   final title = pick.machineTitle.isNotEmpty ? pick.machineTitle : naming.title;
   return AutoLabel(
     choice: cc.isEmpty || cc == title ? title : '$cc · $title',
-    source: _pickSource(pick),
+    source: _sourceOf(
+      pick,
+      ref.watch(autoStaleProvider),
+      ref.watch(autoHolderProvider),
+    ),
     stale: ref.watch(autoStaleProvider),
     claimNote: naming.shortNote,
   );
 });
 
 /// Подпись «Авто» для строки ТИПА ПОДКЛЮЧЕНИЯ (бывший «Протокол»).
+///
+/// Правило то же, что у строки сервера, и по той же причине: «Авто» — контрол
+/// автоподбора, и называть он обязан СВОЙ выбор. Форму инбаунда, поднятого
+/// ядром, показывает не он: расхождение закреплённого типа с проводом разбирает
+/// `protocolTruthOf` (protocol_truth.dart), у которого для этого есть и место,
+/// и обе половины факта.
 final autoProtocolLabelProvider = Provider<AutoLabel>((ref) {
-  final activeProxy = ref.watch(activeProxyProvider);
-  final facts = ref.watch(fleetFactsProvider);
-  if (activeProxy != null && activeProxy.isNotEmpty) {
-    final label = facts[activeProxy]?.protocolLabel ?? '';
-    if (label.isNotEmpty) {
-      return AutoLabel(choice: label, source: 'Сейчас в туннеле');
-    }
-    // Ядро назвало узел, а форму его инбаунда предложение не знает. Молчать
-    // честнее, чем назвать форму соседнего инбаунда той же машины.
-    return AutoLabel.unknown;
-  }
   final pick = ref.watch(autoPickRecordProvider);
   if (pick == null || pick.protocolLabel.isEmpty) return AutoLabel.unknown;
   return AutoLabel(
     choice: pick.protocolLabel,
-    source: _pickSource(pick),
+    source: _sourceOf(
+      pick,
+      ref.watch(autoStaleProvider),
+      ref.watch(autoHolderProvider),
+    ),
     stale: ref.watch(autoStaleProvider),
   );
 });
+
+/// Откуда известно, что выбор — не только запись в хранилище.
+///
+/// Держатель здесь отвечает ровно на «откуда мы это знаем», а не «кто в силе»:
+/// когда ядро стоит НА ВЫБРАННОМ узле, самое сильное свидетельство — туннель, а
+/// не возраст замера. Разошлись — свидетельства нет вовсе, и подпись уступает
+/// место причине расхождения ([AutoLabel._staleText]); [_pickSource] здесь
+/// остаётся запасным ответом, который эту причину не перекрывает.
+String _sourceOf(
+  AutoPickRecord pick,
+  AutoStaleReason stale,
+  AutoHolder holder,
+) {
+  if (stale == AutoStaleReason.none &&
+      holder.source == AutoHolderSource.tunnel) {
+    return 'Сейчас в туннеле';
+  }
+  return _pickSource(pick);
+}
 
 String _pickSource(AutoPickRecord pick) {
   final age = autoAgeText(pick.updatedAt);

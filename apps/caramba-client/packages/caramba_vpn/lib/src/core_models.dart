@@ -24,6 +24,27 @@ class ImportedServer {
   /// ISO-2 код страны, если ядро смогло его вывести из имени/эмодзи; иначе ''.
   final String country;
 
+  /// Способ укладки протокола в провод: `tcp`, `ws`, `grpc`, `httpupgrade`,
+  /// `h2`. Пусто означает «источник не назвал» — например, у QUIC-семейств,
+  /// где понятия транспорта поверх TCP нет вовсе.
+  ///
+  /// Поле нужно, чтобы экран показывал ИНБАУНДЫ, а не семейства: пока строка
+  /// собиралась по одному [type], отказ целого транспорта прятался за числом
+  /// соседнего транспорта того же протокола.
+  final String transport;
+
+  /// Чем закрыт провод: `reality`, `tls`, `none`. Пусто — источник не назвал
+  /// (или у семейства нет понятия TLS, как у wireguard).
+  final String security;
+
+  /// `exit` или `relay`. Relay — промежуточный узел, через который НАБИРАЮТ
+  /// другой узел; выходом он не является, и предлагать его в списке выходов
+  /// значит уводить трафик на промежуточную машину.
+  ///
+  /// Пусто у ядра старше этого поля: «не знаю» honest-ответ, и считать такой
+  /// узел релеем нельзя — он молча исчез бы из списка.
+  final String role;
+
   const ImportedServer({
     required this.id,
     required this.name,
@@ -31,7 +52,14 @@ class ImportedServer {
     required this.server,
     required this.port,
     required this.country,
+    this.transport = '',
+    this.security = '',
+    this.role = '',
   });
+
+  /// true, если узел заведомо промежуточный. Отсутствие поля НЕ делает узел
+  /// релеем: старое ядро не сообщает роль вовсе.
+  bool get isRelay => role == 'relay';
 
   factory ImportedServer.fromMap(Map<Object?, Object?> map) => ImportedServer(
     id: _str(map['id']),
@@ -40,6 +68,9 @@ class ImportedServer {
     server: _str(map['server']),
     port: (map['port'] as num?)?.toInt() ?? 0,
     country: _str(map['country']),
+    transport: _str(map['transport']),
+    security: _str(map['security']),
+    role: _str(map['role']),
   );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -49,6 +80,9 @@ class ImportedServer {
     'server': server,
     'port': port,
     'country': country,
+    'transport': transport,
+    'security': security,
+    'role': role,
   };
 }
 

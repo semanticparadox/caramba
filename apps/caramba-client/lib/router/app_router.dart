@@ -24,8 +24,8 @@ import 'package:caramba_client/features/referrals/referrals_screen.dart';
 import 'package:caramba_client/features/servers/relay_screen.dart';
 import 'package:caramba_client/features/servers/servers_screen.dart';
 import 'package:caramba_client/features/settings/settings_screen.dart';
+import 'package:caramba_client/features/settings/site_rules_screen.dart';
 import 'package:caramba_client/features/splash/splash_screen.dart';
-import 'package:caramba_client/features/split/split_tunnel_screen.dart';
 import 'package:caramba_client/features/support/new_ticket_screen.dart';
 import 'package:caramba_client/features/support/ticket_detail_screen.dart';
 import 'package:caramba_client/features/support/tickets_screen.dart';
@@ -78,9 +78,7 @@ String? resolveRedirect({
   // Подключение по ссылке (`caramba://connect`) — третий: аккаунт на панели у
   // человека уже есть, и весь смысл ссылки в том, что вводить ничего не надо.
   final preAuth =
-      onEnroll ||
-      path == AppRoute.connectionImport ||
-      path == AppRoute.connect;
+      onEnroll || path == AppRoute.connectionImport || path == AppRoute.connect;
 
   switch (stage) {
     case AuthStage.authenticated:
@@ -258,9 +256,9 @@ final _routerGateReadyProvider = Provider<bool>(
 /// `authenticating` -> `/login`; `authenticated` + первый вход -> `/autotune`;
 /// `authenticated` -> `/home`. Решение про онбординг ждёт [appBootProvider]:
 /// до чтения prefs `firstRunProvider` держит дефолтное `true`, и autotune
-/// всплывал бы при каждом запуске. «Тип подключения» (`/protocol`) и
-/// «Улучшения» (`/split-tunnel`) живут вне табов поверх шелла (полноэкранные
-/// пикеры с крестиком).
+/// всплывал бы при каждом запуске. «Тип подключения» (`/protocol`) и «Правила
+/// по сайтам» (`/settings/site-rules`) живут вне табов поверх шелла
+/// (полноэкранные пикеры с крестиком).
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = _AuthRefresh(ref);
   ref.onDispose(refresh.dispose);
@@ -332,190 +330,194 @@ final routerProvider = Provider<GoRouter>((ref) {
 /// маршрут объявлен как накладной» проверяется по самой таблице, а не по
 /// памяти автора.
 List<RouteBase> appRoutes() => <RouteBase>[
+  GoRoute(
+    path: AppRoute.splash,
+    builder: (context, state) => const SplashScreen(),
+  ),
+  GoRoute(
+    path: AppRoute.login,
+    builder: (context, state) => const LoginScreen(),
+  ),
+  // Энроллмент: открывается deeplink-хендлером (carambaconnect://enroll),
+  // переходом из логина или вручную. `panel`/`code` приходят query-строкой.
+  GoRoute(
+    path: AppRoute.enroll,
+    builder: (context, state) => EnrollScreen(
+      initialPanel: state.uri.queryParameters['panel'],
+      initialCode: state.uri.queryParameters['code'],
+      // k это link_pin ссылки энроллмента. Он доезжает до контроллера, а не
+      // теряется по дороге: без него закреплённый энроллмент молча стал бы
+      // незакреплённым.
+      initialLinkPin: state.uri.queryParameters['k'],
+    ),
+  ),
+  // Подключение панели по ссылке: `link` приходит целиком, разбор живёт в
+  // экране, а не здесь, потому что причина отказа это часть UI.
+  GoRoute(
+    path: AppRoute.connect,
+    builder: (context, state) =>
+        ConnectScreen(initialLink: state.uri.queryParameters['link']),
+  ),
+  GoRoute(
+    path: AppRoute.autotune,
+    builder: (context, state) => const AutotuneScreen(),
+  ),
+  // Повторный автоподбор. РАНЬШЕ ЭТОТ МАРШРУТ БЫЛ ВЛОЖЕН В ВЕТКУ НАСТРОЕК,
+  // и это ломало возврат: открывают его с трёх мест (Главная, Настройки,
+  // Серверы), а «Назад» из ветки всегда приводило в Настройки — то есть
+  // туда, откуда человек, как правило, и не приходил. Следующее «Назад» в
+  // корне навигатора снимать было уже нечего, и приложение закрывалось.
+  // Здесь он такой же полноэкранный пикер, как остальные, и ложится поверх
+  // того, откуда его позвали. Путь не изменился.
+  GoRoute(
+    path: AppRoute.settingsAutotune,
+    parentNavigatorKey: _rootKey,
+    builder: (context, state) => const AutotuneScreen(fromSettings: true),
+  ),
+  // Полноэкранные пикеры поверх шелла.
+  GoRoute(
+    path: AppRoute.protocol,
+    parentNavigatorKey: _rootKey,
+    builder: (context, state) => const ProtocolScreen(),
+  ),
+  // Списки сайтов. Путь лежит ПОД настройками (`/settings/site-rules`),
+  // но маршрут объявлен здесь, а не веткой таба, — по той же причине, что
+  // и `/settings/autotune` выше: экран накладной, и «Назад» с него обязано
+  // возвращать туда, откуда пришли.
+  GoRoute(
+    path: AppRoute.siteRules,
+    parentNavigatorKey: _rootKey,
+    builder: (context, state) => const SiteRulesScreen(),
+  ),
+  GoRoute(
+    path: AppRoute.relay,
+    parentNavigatorKey: _rootKey,
+    builder: (context, state) => const RelayScreen(),
+  ),
+  // Профили подключения (мульти-профиль) + импорт, поверх шелла.
+  GoRoute(
+    path: AppRoute.connections,
+    parentNavigatorKey: _rootKey,
+    builder: (context, state) => const ConnectionsScreen(),
+    routes: [
       GoRoute(
-        path: AppRoute.splash,
-        builder: (context, state) => const SplashScreen(),
-      ),
-      GoRoute(
-        path: AppRoute.login,
-        builder: (context, state) => const LoginScreen(),
-      ),
-      // Энроллмент: открывается deeplink-хендлером (carambaconnect://enroll),
-      // переходом из логина или вручную. `panel`/`code` приходят query-строкой.
-      GoRoute(
-        path: AppRoute.enroll,
-        builder: (context, state) => EnrollScreen(
-          initialPanel: state.uri.queryParameters['panel'],
-          initialCode: state.uri.queryParameters['code'],
-          // k это link_pin ссылки энроллмента. Он доезжает до контроллера, а не
-          // теряется по дороге: без него закреплённый энроллмент молча стал бы
-          // незакреплённым.
-          initialLinkPin: state.uri.queryParameters['k'],
+        path: 'import',
+        parentNavigatorKey: _rootKey,
+        // `url` приходит из deeplink `carambaconnect://import?url=...`
+        // и подставляется в поле ссылки.
+        builder: (context, state) => ConnectionImportScreen(
+          initialUrl: state.uri.queryParameters['url'],
         ),
       ),
-      // Подключение панели по ссылке: `link` приходит целиком, разбор живёт в
-      // экране, а не здесь, потому что причина отказа это часть UI.
+    ],
+  ),
+  // Экраны проверки CSM/1: личность оператора, состояние документов,
+  // лестница транспортов и раскрытие отправляемых полей. Полноэкранные
+  // поверх шелла, как остальные пикеры.
+  GoRoute(
+    path: AppRoute.csmOperator,
+    parentNavigatorKey: _rootKey,
+    builder: (context, state) => const OperatorIdentityScreen(),
+  ),
+  GoRoute(
+    path: AppRoute.csmDocuments,
+    parentNavigatorKey: _rootKey,
+    builder: (context, state) => const CsmDocumentsScreen(),
+  ),
+  GoRoute(
+    path: AppRoute.csmTransport,
+    parentNavigatorKey: _rootKey,
+    builder: (context, state) => const TransportLadderScreen(),
+  ),
+  GoRoute(
+    path: AppRoute.csmDisclosure,
+    parentNavigatorKey: _rootKey,
+    builder: (context, state) => const WhatWeSendScreen(),
+  ),
+  // Тарифы: поверх шелла, как остальные полноэкранные пикеры. Гейта на
+  // авторизацию у маршрута нет намеренно — витрину запрашивает экран, и
+  // отказ панели («панель не подключена», 404 старой панели) он объясняет
+  // словами; редирект на /login вместо объяснения показал бы человеку,
+  // нажавшему «Купить», форму входа без единой причины.
+  GoRoute(
+    path: AppRoute.plans,
+    parentNavigatorKey: _rootKey,
+    builder: (context, state) => const PlansScreen(),
+  ),
+  GoRoute(
+    path: AppRoute.referrals,
+    parentNavigatorKey: _rootKey,
+    builder: (context, state) => const ReferralsScreen(),
+  ),
+  GoRoute(
+    path: AppRoute.partner,
+    parentNavigatorKey: _rootKey,
+    builder: (context, state) => const PartnerScreen(),
+  ),
+  GoRoute(
+    path: AppRoute.notifications,
+    parentNavigatorKey: _rootKey,
+    builder: (context, state) => const NotificationsScreen(),
+  ),
+  GoRoute(
+    path: AppRoute.tickets,
+    parentNavigatorKey: _rootKey,
+    builder: (context, state) => const TicketsScreen(),
+    routes: [
+      // Статический сегмент идёт раньше параметра: /tickets/new.
       GoRoute(
-        path: AppRoute.connect,
-        builder: (context, state) =>
-            ConnectScreen(initialLink: state.uri.queryParameters['link']),
-      ),
-      GoRoute(
-        path: AppRoute.autotune,
-        builder: (context, state) => const AutotuneScreen(),
-      ),
-      // Повторный автоподбор. РАНЬШЕ ЭТОТ МАРШРУТ БЫЛ ВЛОЖЕН В ВЕТКУ НАСТРОЕК,
-      // и это ломало возврат: открывают его с трёх мест (Главная, Настройки,
-      // Серверы), а «Назад» из ветки всегда приводило в Настройки — то есть
-      // туда, откуда человек, как правило, и не приходил. Следующее «Назад» в
-      // корне навигатора снимать было уже нечего, и приложение закрывалось.
-      // Здесь он такой же полноэкранный пикер, как остальные, и ложится поверх
-      // того, откуда его позвали. Путь не изменился.
-      GoRoute(
-        path: AppRoute.settingsAutotune,
+        path: 'new',
         parentNavigatorKey: _rootKey,
-        builder: (context, state) => const AutotuneScreen(fromSettings: true),
-      ),
-      // Полноэкранные пикеры поверх шелла.
-      GoRoute(
-        path: AppRoute.protocol,
-        parentNavigatorKey: _rootKey,
-        builder: (context, state) => const ProtocolScreen(),
+        builder: (context, state) => const NewTicketScreen(),
       ),
       GoRoute(
-        path: AppRoute.splitTunnel,
+        path: ':id',
         parentNavigatorKey: _rootKey,
-        builder: (context, state) => const SplitTunnelScreen(),
+        builder: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+          return TicketDetailScreen(ticketId: id);
+        },
       ),
-      GoRoute(
-        path: AppRoute.relay,
-        parentNavigatorKey: _rootKey,
-        builder: (context, state) => const RelayScreen(),
-      ),
-      // Профили подключения (мульти-профиль) + импорт, поверх шелла.
-      GoRoute(
-        path: AppRoute.connections,
-        parentNavigatorKey: _rootKey,
-        builder: (context, state) => const ConnectionsScreen(),
+    ],
+  ),
+  StatefulShellRoute.indexedStack(
+    builder: (context, state, shell) => AppShell(navigationShell: shell),
+    branches: [
+      StatefulShellBranch(
         routes: [
           GoRoute(
-            path: 'import',
-            parentNavigatorKey: _rootKey,
-            // `url` приходит из deeplink `carambaconnect://import?url=...`
-            // и подставляется в поле ссылки.
-            builder: (context, state) => ConnectionImportScreen(
-              initialUrl: state.uri.queryParameters['url'],
-            ),
+            path: AppRoute.home,
+            builder: (context, state) => const HomeScreen(),
           ),
         ],
       ),
-      // Экраны проверки CSM/1: личность оператора, состояние документов,
-      // лестница транспортов и раскрытие отправляемых полей. Полноэкранные
-      // поверх шелла, как остальные пикеры.
-      GoRoute(
-        path: AppRoute.csmOperator,
-        parentNavigatorKey: _rootKey,
-        builder: (context, state) => const OperatorIdentityScreen(),
-      ),
-      GoRoute(
-        path: AppRoute.csmDocuments,
-        parentNavigatorKey: _rootKey,
-        builder: (context, state) => const CsmDocumentsScreen(),
-      ),
-      GoRoute(
-        path: AppRoute.csmTransport,
-        parentNavigatorKey: _rootKey,
-        builder: (context, state) => const TransportLadderScreen(),
-      ),
-      GoRoute(
-        path: AppRoute.csmDisclosure,
-        parentNavigatorKey: _rootKey,
-        builder: (context, state) => const WhatWeSendScreen(),
-      ),
-      // Тарифы: поверх шелла, как остальные полноэкранные пикеры. Гейта на
-      // авторизацию у маршрута нет намеренно — витрину запрашивает экран, и
-      // отказ панели («панель не подключена», 404 старой панели) он объясняет
-      // словами; редирект на /login вместо объяснения показал бы человеку,
-      // нажавшему «Купить», форму входа без единой причины.
-      GoRoute(
-        path: AppRoute.plans,
-        parentNavigatorKey: _rootKey,
-        builder: (context, state) => const PlansScreen(),
-      ),
-      GoRoute(
-        path: AppRoute.referrals,
-        parentNavigatorKey: _rootKey,
-        builder: (context, state) => const ReferralsScreen(),
-      ),
-      GoRoute(
-        path: AppRoute.partner,
-        parentNavigatorKey: _rootKey,
-        builder: (context, state) => const PartnerScreen(),
-      ),
-      GoRoute(
-        path: AppRoute.notifications,
-        parentNavigatorKey: _rootKey,
-        builder: (context, state) => const NotificationsScreen(),
-      ),
-      GoRoute(
-        path: AppRoute.tickets,
-        parentNavigatorKey: _rootKey,
-        builder: (context, state) => const TicketsScreen(),
+      StatefulShellBranch(
         routes: [
-          // Статический сегмент идёт раньше параметра: /tickets/new.
           GoRoute(
-            path: 'new',
-            parentNavigatorKey: _rootKey,
-            builder: (context, state) => const NewTicketScreen(),
-          ),
-          GoRoute(
-            path: ':id',
-            parentNavigatorKey: _rootKey,
-            builder: (context, state) {
-              final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
-              return TicketDetailScreen(ticketId: id);
-            },
+            path: AppRoute.servers,
+            builder: (context, state) => const ServersScreen(),
           ),
         ],
       ),
-      StatefulShellRoute.indexedStack(
-        builder: (context, state, shell) => AppShell(navigationShell: shell),
-        branches: [
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: AppRoute.home,
-                builder: (context, state) => const HomeScreen(),
-              ),
-            ],
-          ),
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: AppRoute.servers,
-                builder: (context, state) => const ServersScreen(),
-              ),
-            ],
-          ),
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: AppRoute.profile,
-                builder: (context, state) => const ProfileScreen(),
-              ),
-            ],
-          ),
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: AppRoute.settings,
-                builder: (context, state) => const SettingsScreen(),
-              ),
-            ],
+      StatefulShellBranch(
+        routes: [
+          GoRoute(
+            path: AppRoute.profile,
+            builder: (context, state) => const ProfileScreen(),
           ),
         ],
       ),
-    ];
+      StatefulShellBranch(
+        routes: [
+          GoRoute(
+            path: AppRoute.settings,
+            builder: (context, state) => const SettingsScreen(),
+          ),
+        ],
+      ),
+    ],
+  ),
+];
 
 /// Bridges [authProvider] + first-run changes into a [Listenable] go_router
 /// can refresh on.

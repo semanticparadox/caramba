@@ -1,10 +1,17 @@
-// Вкладка «Улучшения»: блок рекламы, список сайтов, режим для страны.
+// Реклама и блокировки: где они включаются и что при этом обещано человеку.
+//
+// Владелец: «настройки рекламы и блокировки вынеси только в настройки
+// приложения а отсюда убери». Раньше блок рекламы и списки сайтов жили на
+// вкладке «Улучшения», а из Настроек туда вела строка — то есть на вопрос
+// «где это включается» приложение отвечало двумя адресами. Вкладка
+// растворена: реклама включается в Настройках, списки сайтов — на своём
+// экране «Правила по сайтам», режим — на Главной.
 //
 // Проверяется ровно то, что легко сломать молча: подпись, которая говорит
-// «работает» без подтверждения ядра, галочка, за которой нет правила, и
-// переживание настроек между запусками. Ни один тест здесь не смотрит на
-// картинку ради картинки — каждый закрывает случай, в котором пользователь
-// увидел бы включённым то, чего нет.
+// «работает» без подтверждения ядра; галочка, за которой нет правила;
+// переживание настроек между запусками; и — главное для этой правки — что
+// переключатель рекламы существует РОВНО В ОДНОМ месте, а «Улучшения» не
+// воскресли ни строкой, ни заголовком.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -18,7 +25,7 @@ import 'package:caramba_client/features/settings/applied_route_card.dart';
 import 'package:caramba_client/features/settings/enhancements_summary.dart';
 import 'package:caramba_client/features/settings/route_report.dart';
 import 'package:caramba_client/features/settings/settings_screen.dart';
-import 'package:caramba_client/features/split/split_tunnel_screen.dart';
+import 'package:caramba_client/features/settings/site_rules_screen.dart';
 import 'package:caramba_client/state/core_config_state.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/theme/app_theme.dart';
@@ -61,6 +68,11 @@ const _reportNeitherCapability = '''
  "geosite":{"required":false,"state":"not_required"},
  "relay":{"state":"not_requested","dialer_proxy_seen":false}}
 ''';
+
+/// Подпись переключателя рекламы. Записана в тесте один раз: обе половины
+/// свойства «ровно одно место» обязаны искать ОДНУ И ТУ ЖЕ строку, иначе
+/// «нет здесь» и «есть там» перестают складываться в утверждение.
+const _kAdBlockLabel = 'Блокировать рекламу и трекеры';
 
 AppliedRoute _route(String raw) => AppliedRoute.parse(raw);
 
@@ -149,54 +161,49 @@ void main() {
     });
   });
 
-  // ------------------------------------------------- строка «Улучшения»
+  // ------------------------------------------- сводка строки «Правила по сайтам»
 
-  group('enhancementsSummary', () {
-    test('без списков это просто режим страны', () {
-      const cfg = CoreConfig(route: 0);
-      expect(enhancementsSummary(cfg), RoutingMode.defaults[0].name);
+  group('siteRulesSummary', () {
+    test('режим выключен — так и сказано, без выдуманных счётчиков', () {
+      expect(siteRulesSummary(const CoreConfig()), 'Выключено — списков нет');
     });
 
-    test('блок рекламы добавляет свою часть', () {
-      const cfg = CoreConfig(route: 0, blockAds: true);
-      expect(enhancementsSummary(cfg), contains('без рекламы'));
-    });
-
-    // Сломанный блок рекламы не имеет права выглядеть работающим и в строке.
-    test('сломанный блок рекламы назван сломанным', () {
-      const cfg = CoreConfig(route: 0, blockAds: true);
-      expect(
-        enhancementsSummary(cfg, applied: _route(_reportAdsDeadEverywhere)),
-        contains('не работает'),
-      );
-    });
-
-    // Когда режим страны отменён списком сайтов, называть его в строке нельзя:
-    // это приписало бы трафику правила, которых в туннеле нет.
-    test('активный список сайтов вытесняет имя режима', () {
+    test('«только выбранные» считает домены и наборы вместе', () {
       const cfg = CoreConfig(
-        route: 0,
         splitMode: SplitMode.onlySelected,
         allowDomains: 'youtube.com',
         allowSites: {'telegram'},
       );
-      final line = enhancementsSummary(cfg);
-      expect(line, contains('только 2 сайта'));
-      expect(line, isNot(contains(RoutingMode.defaults[0].name)));
+      expect(siteRulesSummary(cfg), 'Только выбранные · 2 сайта');
     });
 
-    test('пустой список сайтов режим не отменяет', () {
-      const cfg = CoreConfig(route: 0, splitMode: SplitMode.onlySelected);
-      expect(enhancementsSummary(cfg), RoutingMode.defaults[0].name);
+    test('пустой список «только выбранные» не притворяется полным', () {
+      const cfg = CoreConfig(splitMode: SplitMode.onlySelected);
+      expect(siteRulesSummary(cfg), 'Только выбранные · 0 сайтов');
     });
 
-    test('режим «кроме выбранных» считает свои домены', () {
+    test('«кроме выбранных» говорит «напрямую»', () {
       const cfg = CoreConfig(
-        route: 0,
         splitMode: SplitMode.bypassSelected,
         bypassDomains: 'bank.ru, gosuslugi.ru',
       );
-      expect(enhancementsSummary(cfg), contains('2 сайта напрямую'));
+      expect(siteRulesSummary(cfg), 'Кроме выбранных · 2 сайта напрямую');
+    });
+
+    // Режим (страна) живёт на Главной и подписан там своим именем. Повторить
+    // его здесь значило бы снова завести два места для одной величины — ровно
+    // то, что владелец и просил убрать.
+    test('имя режима в сводку не попадает ни при каком выборе', () {
+      for (final mode in SplitMode.values) {
+        final line = siteRulesSummary(CoreConfig(splitMode: mode, route: 0));
+        for (final m in RoutingMode.defaults) {
+          expect(
+            line,
+            isNot(contains(m.name)),
+            reason: 'сводка списков назвала режим «${m.name}»',
+          );
+        }
+      }
     });
   });
 
@@ -284,62 +291,55 @@ void main() {
       );
       // Выключенный режим — ноль: список, который никуда не уходит, ничего
       // не значит.
-      expect(
-        const CoreConfig(allowDomains: 'a.example').siteRuleCount,
-        0,
-      );
+      expect(const CoreConfig(allowDomains: 'a.example').siteRuleCount, 0);
     });
   });
 
-  // ------------------------------------------------- сам экран
+  // ------------------------------------- одно место для одной настройки
 
-  group('экран «Улучшения»', () {
-    testWidgets('называется по-новому и несёт три блока', (tester) async {
+  group('реклама включается ровно в одном месте', () {
+    // Суть правки владельца. Пока «Улучшения» существовали, переключатель
+    // рекламы стоял и там, и строка Настроек вела туда же — два адреса на
+    // один вопрос. Обе половины проверяются вместе, потому что поодиночке
+    // каждая проходит и после регресса.
+    testWidgets('в Настройках — есть', (tester) async {
       _phone(tester);
-      await tester.pumpWidget(_wrap(const SplitTunnelScreen()));
+      await tester.pumpWidget(_wrap(const Scaffold(body: SettingsScreen())));
+      await tester.pump();
       await tester.pump();
 
-      expect(find.text('Улучшения'), findsOneWidget);
-      expect(find.text('РЕКЛАМА И ТРЕКЕРЫ'), findsOneWidget);
-      expect(find.text('ПРАВИЛА ПО САЙТАМ'), findsOneWidget);
-      expect(find.text('РЕЖИМ ДЛЯ СТРАНЫ'), findsOneWidget);
-      // Прежнее имя не должно остаться нигде: владелец его и не понял.
-      expect(find.text('Раздельное туннелирование'), findsNothing);
+      expect(find.text('РЕКЛАМА И БЛОКИРОВКИ'), findsOneWidget);
+      expect(find.text(_kAdBlockLabel), findsOneWidget);
+      expect(find.text('Правила по сайтам'), findsOneWidget);
     });
 
-    // Ровно то, что просил владелец: галочка, которая ничего не включает, не
-    // показывается вовсе — она показана выключенной с причиной.
-    testWidgets('список приложений заменён выключенной строкой с причиной', (
-      tester,
-    ) async {
+    testWidgets('на «Правилах по сайтам» — нет', (tester) async {
       _phone(tester);
-      await tester.pumpWidget(_wrap(const SplitTunnelScreen()));
+      await tester.pumpWidget(_wrap(const SiteRulesScreen()));
       await tester.pump();
 
-      for (final demo in <String>['Telegram', 'Chrome', 'СберБанк']) {
-        expect(
-          find.text(demo),
-          findsNothing,
-          reason: 'демонстрационное приложение $demo снова показано тумблером',
-        );
-      }
-      expect(find.text('Выбирать приложения'), findsOneWidget);
-      final sw = tester.widget<Switch>(
-        find.descendant(
-          of: find
-              .ancestor(
-                of: find.text('Выбирать приложения'),
-                matching: find.byType(Row),
-              )
-              .first,
-          matching: find.byType(Switch),
-        ),
+      expect(
+        find.text(_kAdBlockLabel),
+        findsNothing,
+        reason: 'переключатель рекламы вернулся на второй экран',
       );
-      expect(sw.onChanged, isNull, reason: 'строка обязана быть выключенной');
-      expect(find.textContaining('демонстрационным'), findsOneWidget);
     });
 
-    testWidgets('переключатель блока рекламы правит состояние ядра', (
+    // Вкладка растворена целиком, а не спрятана: имя не должно всплыть ни
+    // заголовком, ни строкой ни на одном из двух экранов.
+    testWidgets('слово «Улучшения» не осталось ни там, ни там', (tester) async {
+      _phone(tester);
+      await tester.pumpWidget(_wrap(const Scaffold(body: SettingsScreen())));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Улучшения'), findsNothing);
+
+      await tester.pumpWidget(_wrap(const SiteRulesScreen()));
+      await tester.pump();
+      expect(find.text('Улучшения'), findsNothing);
+    });
+
+    testWidgets('переключатель в Настройках правит состояние ядра', (
       tester,
     ) async {
       _phone(tester);
@@ -349,36 +349,76 @@ void main() {
           Consumer(
             builder: (_, ref, __) {
               captured = ref;
-              return const SplitTunnelScreen();
+              return const Scaffold(body: SettingsScreen());
             },
           ),
         ),
       );
       await tester.pump();
+      await tester.pump();
 
       expect(captured.read(coreConfigProvider).blockAds, isFalse);
-      await tester.tap(find.text('Блокировать рекламу и трекеры'));
-      await tester.pump();
-      // Тап по подписи ничего не меняет — переключаем сам тумблер.
       final sw = find.descendant(
         of: find
-            .ancestor(
-              of: find.text('Блокировать рекламу и трекеры'),
-              matching: find.byType(Row),
-            )
+            .ancestor(of: find.text(_kAdBlockLabel), matching: find.byType(Row))
             .first,
         matching: find.byType(Switch),
       );
       await tester.tap(sw);
       await tester.pump();
       expect(captured.read(coreConfigProvider).blockAds, isTrue);
+
+      // Граница метода показывается ровно тогда, когда блок включён: она
+      // объясняет, чего блок не умеет в принципе, и на выключенном
+      // переключателе была бы предупреждением ни о чём.
+      expect(find.textContaining('ECH'), findsOneWidget);
+    });
+  });
+
+  // ------------------------------------------------- экран «Правила по сайтам»
+
+  group('экран «Правила по сайтам»', () {
+    testWidgets('называется по назначению и несёт только списки', (
+      tester,
+    ) async {
+      _phone(tester);
+      await tester.pumpWidget(_wrap(const SiteRulesScreen()));
+      await tester.pump();
+
+      expect(find.text('Правила по сайтам'), findsOneWidget);
+      expect(find.text('КАК ПРИМЕНЯТЬ СПИСКИ'), findsOneWidget);
+      // Режим забрала Главная, реклама — Настройки: ни того, ни другого
+      // раздела здесь быть не должно.
+      expect(find.text('РЕЖИМ ДЛЯ СТРАНЫ'), findsNothing);
+      expect(find.text('РЕКЛАМА И ТРЕКЕРЫ'), findsNothing);
+      // Прежние имена не должны остаться нигде: владелец их и не понял.
+      expect(find.text('Раздельное туннелирование'), findsNothing);
+    });
+
+    // Заглушка «Правила по приложениям» удалена вместе с «Улучшениями», а не
+    // перевезена: тумблер, который не менял ни одного байта на проводе, — это
+    // ложь на экране, а не обещание.
+    testWidgets('заглушки «правила по приложениям» здесь нет', (tester) async {
+      _phone(tester);
+      await tester.pumpWidget(_wrap(const SiteRulesScreen()));
+      await tester.pump();
+
+      expect(find.text('Выбирать приложения'), findsNothing);
+      expect(find.text('ПРАВИЛА ПО ПРИЛОЖЕНИЯМ'), findsNothing);
+      for (final demo in <String>['Telegram', 'Chrome', 'СберБанк']) {
+        expect(
+          find.text(demo),
+          findsNothing,
+          reason: 'демонстрационное приложение $demo снова показано тумблером',
+        );
+      }
     });
 
     testWidgets('режим «только выбранные» предупреждает о пустом списке', (
       tester,
     ) async {
       _phone(tester);
-      await tester.pumpWidget(_wrap(const SplitTunnelScreen()));
+      await tester.pumpWidget(_wrap(const SiteRulesScreen()));
       await tester.pump();
 
       await tester.tap(find.text('Только выбранные сайты'));
@@ -394,10 +434,7 @@ void main() {
     testWidgets('мёртвая база GEOSITE гасит готовые наборы', (tester) async {
       _phone(tester);
       await tester.pumpWidget(
-        _wrap(
-          const SplitTunnelScreen(),
-          report: _reportAdsDeadEverywhere,
-        ),
+        _wrap(const SiteRulesScreen(), report: _reportAdsDeadEverywhere),
       );
       await tester.pump();
       await tester.pump();
@@ -409,15 +446,27 @@ void main() {
       final sw = tester.widget<Switch>(
         find.descendant(
           of: find
-              .ancestor(
-                of: find.text('Telegram'),
-                matching: find.byType(Row),
-              )
+              .ancestor(of: find.text('Telegram'), matching: find.byType(Row))
               .first,
           matching: find.byType(Switch),
         ),
       );
       expect(sw.onChanged, isNull);
+    });
+
+    // Карточка отчёта ядра переехала сюда вместе со списками: она отвечает
+    // ровно про пресет, split и рекламу, и человеку, который правит списки,
+    // нужна здесь же.
+    testWidgets('внизу стоит отчёт ядра о поднятом туннеле', (tester) async {
+      _phone(tester);
+      await tester.pumpWidget(
+        _wrap(const SiteRulesScreen(), report: _reportAdsFromFile),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(AppliedRouteCard), findsOneWidget);
+      expect(find.text('ЧТО ПРИМЕНИЛОСЬ'), findsOneWidget);
     });
   });
 
@@ -433,14 +482,14 @@ void main() {
       tester,
     ) async {
       _phone(tester);
-      await tester.pumpWidget(_wrap(const SplitTunnelScreen()));
+      await tester.pumpWidget(_wrap(const SiteRulesScreen()));
       await tester.pump();
 
       await tester.tap(find.text('Только выбранные сайты'));
       await tester.pump();
 
       final field = find.byKey(
-        const ValueKey('split-tunnel-allow-domains-field'),
+        const ValueKey('site-rules-allow-domains-field'),
       );
       expect(field, findsOneWidget);
       // Баннер обязан стоять ДО первого символа — иначе тест не проверяет то,
@@ -531,29 +580,25 @@ void main() {
     });
   });
 
-  group('строка «Улучшения» в Настройках не обрезает длинную сводку', () {
-    // Настройки → «Улучшения» показывали значение строкой CRow с
-    // TextOverflow.ellipsis — тот же дефект, что уже чинили в
-    // AppliedRouteCard: обрезка у dart:ui включается самим фактом
-    // `overflow`, ДАЖЕ без явного `maxLines`. Сводка «режим · N сайтов ·
-    // блок рекламы» на узком экране резалась до «...· бе…» ровно на границе
-    // слова «без рекламы».
-    testWidgets('длинная сводка переносится на 1080, а не обрывается', (
+  group('раздел «Реклама и блокировки» не обрезает подписи', () {
+    // Тот же дефект, что уже чинили в AppliedRouteCard: обрезка у dart:ui
+    // включается самим фактом `overflow`, ДАЖЕ без явного `maxLines`. Здесь
+    // цена выше, чем косметика: подпись рекламы — это ПРИЧИНА отказа ядра, и
+    // обрезанная причина хуже отсутствующей.
+    testWidgets('причина от ядра и сводка списков переносятся на 1080', (
       tester,
     ) async {
       _narrowPhone(tester);
 
-      // Длинная сводка на всех трёх фронтах разом: полное имя режима,
-      // список сайтов режима «кроме выбранных» и включённый блок рекламы.
       const cfg = CoreConfig(
-        route: 2, // 'Россия (полный обход)' — одно из самых длинных имён реестра.
+        blockAds: true,
         splitMode: SplitMode.bypassSelected,
         bypassDomains: 'a.example, b.example, c.example, d.example, e.example',
-        blockAds: true,
       );
-      final expectedSummary = enhancementsSummary(cfg);
-      // Сама сводка обязана быть длинной — иначе тест ничего не проверяет.
-      expect(expectedSummary.length, greaterThan(40));
+      final adsMessage = adBlockStatus(cfg, _route(_reportNotRaised)).message;
+      final rules = siteRulesSummary(cfg);
+      // Обе подписи обязаны быть длинными — иначе тест ничего не проверяет.
+      expect(adsMessage.length, greaterThan(40));
 
       await tester.pumpWidget(
         _wrap(
@@ -568,20 +613,22 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      final value = find.text(expectedSummary);
-      expect(
-        value,
-        findsOneWidget,
-        reason: 'сводка не найдена целиком — где-то обрезана или собрана иначе',
-      );
-      final rp = tester.renderObject<RenderParagraph>(
-        find.descendant(of: value, matching: find.byType(RichText)),
-      );
-      expect(
-        rp.didExceedMaxLines,
-        isFalse,
-        reason: 'сводка обрезана многоточием посреди слова',
-      );
+      for (final text in <String>[adsMessage, rules]) {
+        final value = find.text(text);
+        expect(
+          value,
+          findsOneWidget,
+          reason: 'подписи «$text» нет целиком — обрезана или собрана иначе',
+        );
+        final rp = tester.renderObject<RenderParagraph>(
+          find.descendant(of: value, matching: find.byType(RichText)),
+        );
+        expect(
+          rp.didExceedMaxLines,
+          isFalse,
+          reason: 'подпись «$text» обрезана многоточием посреди слова',
+        );
+      }
     });
   });
 }

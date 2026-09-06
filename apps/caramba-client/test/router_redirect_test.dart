@@ -77,7 +77,7 @@ void main() {
         AppRoute.settings,
         AppRoute.connections,
         AppRoute.connectionImport,
-        AppRoute.splitTunnel,
+        AppRoute.siteRules,
         AppRoute.protocol,
         AppRoute.profile,
       ]) {

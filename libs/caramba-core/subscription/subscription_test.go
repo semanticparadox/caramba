@@ -180,3 +180,89 @@ func TestParseMetadataHeaders(t *testing.T) {
 		t.Fatalf("total = %d", meta.Traffic.Total)
 	}
 }
+
+// «network: httpupgrade» приходит прямо из clash-тела панели, а mihomo такой
+// сети не знает. У vless нераспознанная сеть не даёт ошибки — она МОЛЧА
+// вырождается в обычный TLS-поток, и узел, ждущий апгрейда, отвечает отказом,
+// неотличимым от отвергнутого ключа. Снято на живом флоте: с прежним именем
+// «unexpected response version», после перекладки 569 мс DE / 157 мс CA.
+func TestNormalizeProxyForCoreRemapsHTTPUpgrade(t *testing.T) {
+	px := map[string]any{
+		"name":    "DE HTTP",
+		"type":    "vless",
+		"network": "httpupgrade",
+		"http-upgrade-opts": map[string]any{
+			"path": "/hu",
+			"host": "essentialhome.live",
+		},
+	}
+	NormalizeProxyForCore(px)
+
+	if px["network"] != "ws" {
+		t.Fatalf("network = %v, ядро знает только ws", px["network"])
+	}
+	opts, ok := px["ws-opts"].(map[string]any)
+	if !ok || opts["v2ray-http-upgrade"] != true || opts["path"] != "/hu" {
+		t.Fatalf("ws-opts = %v", px["ws-opts"])
+	}
+	hdrs, _ := opts["headers"].(map[string]any)
+	if hdrs == nil || hdrs["Host"] != "essentialhome.live" {
+		t.Fatalf("Host потерян: %v", opts["headers"])
+	}
+	if _, ok := px["http-upgrade-opts"]; ok {
+		t.Errorf("остался ключ, которого ядро не читает: %v", px["http-upgrade-opts"])
+	}
+	// Транспорт обязан ОСТАТЬСЯ узнаваемым: иначе httpupgrade слился бы с ws
+	// в одну строку экрана — то есть спрятался бы ровно так же, как раньше.
+	if got := ProxyTransport(px); got != "httpupgrade" {
+		t.Fatalf("после перекладки транспорт = %q, ожидался httpupgrade", got)
+	}
+}
+
+// Функция вызывается на двух путях и не должна ничего значить при повторе.
+func TestNormalizeProxyForCoreIsIdempotentAndNarrow(t *testing.T) {
+	px := map[string]any{"type": "vless", "network": "httpupgrade"}
+	NormalizeProxyForCore(px)
+	first := px["ws-opts"]
+	NormalizeProxyForCore(px)
+	if px["network"] != "ws" || px["ws-opts"] == nil {
+		t.Fatalf("повторный вызов испортил карту: %v", px)
+	}
+	_ = first
+
+	// Обычный ws трогать нечего: подмена его опций стёрла бы путь и Host.
+	ws := map[string]any{
+		"type":    "vless",
+		"network": "ws",
+		"ws-opts": map[string]any{"path": "/keep"},
+	}
+	NormalizeProxyForCore(ws)
+	opts, _ := ws["ws-opts"].(map[string]any)
+	if opts["path"] != "/keep" || opts["v2ray-http-upgrade"] != nil {
+		t.Fatalf("обычный ws изменён: %v", ws["ws-opts"])
+	}
+	if ProxyTransport(ws) != "ws" {
+		t.Fatalf("обычный ws перестал быть ws: %q", ProxyTransport(ws))
+	}
+}
+
+// Роль выводится из ссылок, а не из имени: relay это тот, через кого набирают.
+func TestServersFromProxiesMarksRelayByReference(t *testing.T) {
+	servers := ServersFromProxies([]map[string]any{
+		{"name": "RU", "type": "vless", "server": "10.0.0.1", "port": 443},
+		{"name": "DE", "type": "vless", "server": "10.0.0.2", "port": 443, "dialer-proxy": "RU"},
+	})
+	if len(servers) != 2 {
+		t.Fatalf("узлов %d", len(servers))
+	}
+	if servers[0].Role != RoleRelay {
+		t.Errorf("узел, через который набирают, обязан быть relay: %q", servers[0].Role)
+	}
+	if servers[1].Role != RoleExit {
+		t.Errorf("выход обязан быть exit: %q", servers[1].Role)
+	}
+	// Порядок источника — единственный, который у подписки вообще есть.
+	if servers[0].ID != "RU" || servers[1].ID != "DE" {
+		t.Errorf("порядок источника потерян: %v", servers)
+	}
+}

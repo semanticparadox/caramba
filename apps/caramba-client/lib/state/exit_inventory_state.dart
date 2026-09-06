@@ -7,6 +7,7 @@ import 'package:caramba_client/data/models/server.dart';
 import 'package:caramba_client/data/models/subscription.dart' show AccessState;
 import 'package:caramba_client/domain/offering/panel_fleet.dart'
     show panelRelayHopOf;
+import 'package:caramba_client/vpn/vpn_models.dart' show ImportedServer;
 import 'package:caramba_client/state/access_guard.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/probe_state.dart';
@@ -228,7 +229,7 @@ ExitInventory _panelInventory(
   // вытесняет его, как только придёт. Список при этом не ждёт замера — он
   // строится из ответа `/servers` и рисуется сразу.
   var nodes = _withMeasurements(
-    servers.map(ExitNode.fromServer).toList(growable: false),
+    _withoutRelays(servers).map(ExitNode.fromServer).toList(growable: false),
     ref.watch(clientLatencyProvider),
     ref.watch(probeRunProvider).measuring,
   );
@@ -359,6 +360,26 @@ ExitAvailability _panelRelayAvailability(List<Server> servers) {
   );
 }
 
+/// Строки `/servers` без тех, которые сама панель называет входом соседа.
+///
+/// Панель релэи из этого ответа вырезает (`app.rs`: `filter(!n.is_relay)`), и в
+/// норме здесь не отсеивается ничего. Фильтр стоит потому, что вырезает она по
+/// одной колонке `is_relay`, а роль в её же модели шире — узел с
+/// `node_type = 'relay'` и снятым `is_relay` фильтр проходит. Свидетельство
+/// берётся из того же ответа: `via_relay.node_id` соседней строки. Ссылка на
+/// себя не считается — это испорченная строка, а не цепочка, и выключать по
+/// ней рабочий узел нельзя.
+List<Server> _withoutRelays(List<Server> servers) {
+  final relayIds = <int>{};
+  for (final s in servers) {
+    final hop = panelRelayHopOf(s.rawJson);
+    if (hop == null || hop.nodeId == 0 || hop.nodeId == s.id) continue;
+    relayIds.add(hop.nodeId);
+  }
+  if (relayIds.isEmpty) return servers;
+  return servers.where((s) => !relayIds.contains(s.id)).toList(growable: false);
+}
+
 /// Импортированная подписка: узлы уже разобраны ядром и лежат на профиле.
 ExitInventory _importedInventory(
   Ref ref,
@@ -368,7 +389,7 @@ ExitInventory _importedInventory(
   final measured = ref.watch(clientLatencyProvider);
   final measuring = ref.watch(probeRunProvider).measuring;
   // Оператора на этом пути нет вовсе: всякое число здесь — собственный замер.
-  final nodes = profile.servers
+  final nodes = _exitsOnly(profile.servers)
       .map(
         (s) => ExitNode.fromImported(
           s,
@@ -390,6 +411,27 @@ ExitInventory _importedInventory(
     selectedCountry: selectedCountry,
     selectedNodeKey: profile.selectedServerId,
   );
+}
+
+/// Узлы импортированного тела без тех, которые ядро назвало ВХОДОМ цепочки.
+///
+/// Инвентарь — это список того, что человек может закрепить как выход, и он же
+/// единственный источник стран для пикера. Релэй не выход: в живом теле
+/// подписки 34 это `relay 🇷🇺` (hysteria2, 141.98.191.214:11464), через который
+/// набираются 14 прокси «via 🇷🇺». Оставить его здесь значит и показать флаг
+/// страны входа среди стран выхода, и позволить `selectNode`/`_bestNodeIn`
+/// закрепить его — то есть увести человека в интернет ровно из той страны, от
+/// которой он уходил.
+///
+/// Убирается ТОЛЬКО заведомый вход: `role` ядро выводит из ссылки
+/// `dialer-proxy`/`detour`, а не из имени. Ядро старше этого поля отдаёт
+/// пустую роль — такой узел остаётся в списке, потому что прятать по молчанию
+/// источника значило бы терять чужие рабочие выходы. Строку с причиной вместо
+/// исчезновения даёт слой предложения (`buildImportedOffering`,
+/// [OfferingReason.nodeIsRelay]) — там у узла есть где её показать.
+List<ImportedServer> _exitsOnly(List<ImportedServer> servers) {
+  if (!servers.any((s) => s.isRelay)) return servers;
+  return servers.where((s) => !s.isRelay).toList(growable: false);
 }
 
 /// Накладывает СОБСТВЕННЫЕ замеры на узлы панели.

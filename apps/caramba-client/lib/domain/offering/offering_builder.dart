@@ -76,6 +76,7 @@ Offering buildPanelOffering({
 }) {
   final exits = <ExitOffer>[];
   final hops = <int, _HopAccumulator>{};
+  final relayIds = _panelRelayNodeIds(servers);
 
   for (final s in servers) {
     final raw = s.rawJson;
@@ -83,6 +84,12 @@ Offering buildPanelOffering({
     final hop = panelRelayHopOf(raw);
     final key = s.id.toString();
     final code = normalizeCountryCode(s.countryCode);
+    // `/servers` объявлен списком ВЫХОДОВ и сам вырезает релэй-узлы, поэтому
+    // строка без встречной ссылки — выход по контракту эндпоинта, а не по
+    // догадке. Ссылка же — прямое свидетельство обратного, и она сильнее
+    // контракта: панель отдала как выход машину, которую сама называет входом
+    // соседа.
+    final role = relayIds.contains(s.id) ? NodeRole.relay : NodeRole.exit;
 
     if (hop != null && hop.nodeId != 0) {
       hops
@@ -100,19 +107,31 @@ Offering buildPanelOffering({
         label: s.name,
         pingMs: s.pingMs,
         loadPct: s.load,
-        inbounds: read.rows.map((r) => r.toOffer()).toList(growable: false),
+        inbounds: read.rows
+            .map((r) => r.toOffer(role: role))
+            .toList(growable: false),
         inboundsKnown: read.known,
         viaRelay: hop?.toRef(),
+        role: role,
         // Пригодность узла решает тот же предикат, по которому подключение
         // выбирает путь: второй словарь статусов гарантированно разошёлся бы с
         // первым, и список рисовался бы живым там, где подключиться нельзя.
-        availability: s.isSelectable
-            ? const Availability.available(kPanelServersWire)
-            : Availability.unavailable(
-                OfferingReason.nodeFull,
-                kPanelServersWire,
-                detail: s.status,
-              ),
+        //
+        // Роль стоит ПЕРЕД статусом: «переполнен» описывает выход, которым
+        // сейчас нельзя воспользоваться, а вход не станет выходом и на пустой
+        // машине. Это разные новости, и вторая важнее.
+        availability: role.isRelay
+            ? const Availability.unavailable(
+                OfferingReason.nodeIsRelay,
+                kPanelViaRelayWire,
+              )
+            : (s.isSelectable
+                  ? const Availability.available(kPanelServersWire)
+                  : Availability.unavailable(
+                      OfferingReason.nodeFull,
+                      kPanelServersWire,
+                      detail: s.status,
+                    )),
       ),
     );
   }
@@ -164,6 +183,17 @@ Offering buildPanelOffering({
 /// восстановление тождества, а не выдумка: адрес в теле есть, id узла в нём нет,
 /// и слой честно помечает всю группу
 /// [OfferingReason.sourceDoesNotReportExitIdentity].
+///
+/// ДУБЛИ «via 🇷🇺» НЕ РАЗВОДЯТСЯ ПО СТРОКАМ. Панельный sing-box-генератор
+/// выпускает каждый вход дважды — прямым набором и набором через вход
+/// (`detour: relay 🇷🇺`, у mihomo это `dialer-proxy`); снято на подписке 34:
+/// 16 прокси немецкого узла при 8 инбаундах. Оба прокси упираются в ОДИН И ТОТ
+/// ЖЕ вход одной машины — `85.215.196.151:13400`, vless/httpupgrade/tls, — и
+/// экран отвечает на вопрос «чем узел принимает соединение», а не «каким путём
+/// до него набирать». Второй вопрос принадлежит контролу «Relay (вход)»;
+/// вынести его сюда значило бы поставить рядом две строки с побуквенно
+/// одинаковым заголовком и разными числами. Оба имени прокси остаются в
+/// строке, поэтому ни замер, ни закрепление не теряют ни одного из них.
 Offering buildImportedOffering({
   required List<ImportedServer> servers,
   Map<String, int> latencyByProxy = const <String, int>{},
@@ -173,7 +203,7 @@ Offering buildImportedOffering({
 }) {
   const wire = Provenance(
     OfferingSource.subscriptionBody,
-    'clash proxies[] (server/type/name)',
+    'clash proxies[] (server/type/name/network/tls)',
   );
   const identityUnknown = Availability.unknown(
     OfferingReason.sourceDoesNotReportExitIdentity,
@@ -206,6 +236,7 @@ Offering buildImportedOffering({
       if (ms == null || ms < 0) continue;
       if (best == null || ms < best) best = ms;
     }
+    final machineRole = _machineRoleOf(group);
     exits.add(
       ExitOffer(
         key: host,
@@ -213,27 +244,41 @@ Offering buildImportedOffering({
         countryName: countryNameOf(code),
         label: host,
         pingMs: best,
+        role: machineRole,
         inbounds: group
             .map(
               (s) => InboundOffer(
                 tag: s.name.isNotEmpty ? s.name : s.id,
-                key: ProtocolKey(protocol: s.type.toLowerCase()),
+                key: _importedKey(s),
                 port: s.port > 0 ? s.port : null,
                 label: s.type,
                 // Имя прокси в теле — тот самый ключ, которым ядро закрепляет
                 // выбор на сыром пути (`connectRaw` читает только его).
                 proxyName: s.id,
+                role: _importedRoleOf(s),
                 availability: const Availability.available(wire),
               ),
             )
             .toList(growable: false),
-        // Прокси в теле есть — значит инбаунды известны. Неизвестна их ФОРМА, и
-        // это отдельное утверждение, которое несёт [ProtocolSlate.known].
+        // Прокси в теле есть — значит инбаунды известны. Известна ли их ФОРМА
+        // — утверждение отдельное, и его несёт [ProtocolSlate.known]: тело
+        // называет `network` и `tls`, но ядро старше этих полей молчит о них,
+        // и тогда список честно схлопывается обратно в семейства.
         inboundsKnown: const Availability.available(wire),
         // Статуса у прокси в теле нет: ядро отдало то, что разобрало, и
         // объявлять узел недоступным было бы выдумкой. Страна, которую ядро не
         // вывело, делает группу «без страны», но не выключает её.
-        availability: const Availability.available(wire),
+        //
+        // Роль — единственное исключение, и оно не про качество узла. Машина,
+        // которую ядро назвало входом, выходом не является вовсе: в живом теле
+        // подписки 34 это `relay 🇷🇺` (hysteria2, 141.98.191.214:11464), через
+        // который набираются 14 прокси «via 🇷🇺». Оставить её нажимаемой —
+        // предложить человеку выйти в интернет из страны входа, то есть ровно
+        // оттуда, откуда он VPN и ставил. Строка при этом ОСТАЁТСЯ: её мерили,
+        // она есть в теле, и исчезнуть без объяснения она не должна.
+        availability: machineRole.isRelay
+            ? const Availability.unavailable(OfferingReason.nodeIsRelay, wire)
+            : const Availability.available(wire),
       ),
     );
   }
@@ -262,8 +307,13 @@ Offering buildImportedOffering({
       streaming: _presetCapability(routesStreaming: true),
       protocolPin: CapabilityOffer(
         availability: _protocolPin(exits, wire).availability,
-        // Закрепить прокси можно, а вот назвать его форму — нет.
-        verification: transportUnknown,
+        // Форму подтверждает само тело: `network` и `tls` у прокси называют
+        // транспорт и защиту, и по ним строка отличает `vless · ws · tls` от
+        // `vless · httpupgrade · tls`. Не назвало ни одного — подтверждать
+        // нечем, и это говорится причиной, а не молчанием.
+        verification: _anyFullyQualified(exits)
+            ? const Availability.available(wire)
+            : transportUnknown,
       ),
       nodePin: const CapabilityOffer(
         availability: Availability.available(
@@ -348,6 +398,10 @@ ProtocolSlate protocolSlateOf(Offering offering, {String? exitKey}) {
     for (final i in e.inbounds) {
       if (!byKey.containsKey(i.key)) order.add(i.key);
       final acc = byKey.putIfAbsent(i.key, () => _RowAccumulator(i));
+      // Узел в строке считается ОДИН РАЗ, сколько бы прокси он в неё ни
+      // положил. Панельный генератор выпускает один и тот же вход дважды —
+      // прямым набором и через вход («via 🇷🇺»), — и список без этой проверки
+      // объявлял бы «узлов с таким инбаундом: 2» про одну машину.
       acc.exitKeys.add(e.key);
       final pn = i.proxyName;
       if (pn != null && pn.isNotEmpty) acc.proxyNames.add(pn);
@@ -378,7 +432,96 @@ ProtocolSlate protocolSlateOf(Offering offering, {String? exitKey}) {
   );
 }
 
+// ─── роль узла ─────────────────────────────────────────────────────────────
+
+/// `nodes.id` тех строк `/servers`, на которые ДРУГИЕ строки того же ответа
+/// ссылаются как на свой вход (`via_relay.node_id`).
+///
+/// Зачем это вообще нужно, если панель релэи из `/servers` вырезает сама
+/// (`app.rs`, `filter(!n.is_relay)`): вырезает она по ОДНОЙ колонке `is_relay`,
+/// хотя роль узла в её же модели считается шире — `Node::normalized_node_type`
+/// объявляет релэем и узел с `node_type = 'relay'`. Узел, заведённый по
+/// второму признаку и не помеченный первым, проходит фильтр и приезжает в
+/// приложение как выход. Здесь он опознаётся тем же ответом, в котором
+/// приехал: сосед уже назвал его своим входом.
+///
+/// Ссылка на себя не считается: `via_relay` на самого себя — не цепочка, а
+/// испорченная строка, и выключать по ней рабочий узел нельзя.
+Set<int> _panelRelayNodeIds(List<Server> servers) {
+  final out = <int>{};
+  for (final s in servers) {
+    final hop = panelRelayHopOf(s.rawJson);
+    if (hop == null || hop.nodeId == 0 || hop.nodeId == s.id) continue;
+    out.add(hop.nodeId);
+  }
+  return out;
+}
+
+/// Роль ОДНОГО прокси импортированного тела — ровно то, что сказало ядро.
+///
+/// Ядро выводит её не из имени, а из ссылки: `dialer-proxy` (в sing-box —
+/// `detour`) у соседнего прокси и есть единственное свидетельство, что узел
+/// промежуточный (`subscription.ServersFromProxies` / `relayNames`).
+///
+/// Чего здесь СОЗНАТЕЛЬНО нет — догадки по имени. Живой `relay 🇷🇺` называется
+/// так только потому, что так его назвал генератор оператора; чужая подписка
+/// вправе назвать «relay-de-01» обычный выход, и слово в имени выключило бы
+/// человеку рабочий узел. Порт тоже ничего не доказывает: у входа подписки 34
+/// это hysteria2/11464 — то же семейство и соседний порт, что у выходов
+/// (11466 DE, 11474 CA). Поэтому ядро старше поля `role` (пустая строка)
+/// оставляет узел в списке: молчание — не запрет, и лучше показать лишнее, чем
+/// спрятать чужой рабочий выход.
+NodeRole _importedRoleOf(ImportedServer s) => switch (s.role) {
+  'relay' => NodeRole.relay,
+  'exit' => NodeRole.exit,
+  _ => NodeRole.unknown,
+};
+
+/// Роль МАШИНЫ по ролям её прокси.
+///
+/// Входной машина считается только тогда, когда входными оказались ВСЕ её
+/// прокси с известной ролью. Смешанный набор оставляет машину выходом: у неё
+/// есть чем выйти, и убрать её из списка значило бы отнять рабочий выбор ради
+/// соседнего прокси. Запрет в таком случае несёт сам прокси
+/// ([InboundOffer.role]) — его читает автоподбор.
+NodeRole _machineRoleOf(List<ImportedServer> group) {
+  var known = 0;
+  var relays = 0;
+  for (final s in group) {
+    final role = _importedRoleOf(s);
+    if (role == NodeRole.unknown) continue;
+    known++;
+    if (role.isRelay) relays++;
+  }
+  if (known == 0) return NodeRole.unknown;
+  return relays == known ? NodeRole.relay : NodeRole.exit;
+}
+
 // ─── внутреннее ────────────────────────────────────────────────────────────
+
+/// Тройка инбаунда из строки импортированного тела.
+///
+/// Строка экрана — это ВХОД, а не семейство протокола. Пока ключ строился по
+/// одному `type`, пять транспортов немецкой машины (reality, grpc, ws,
+/// httpupgrade, tcp+tls) сливались в одну строку «VLESS» с лучшим числом из
+/// пятерых, и сломанный httpupgrade был невидим: его отказ растворялся в
+/// соседе того же семейства. Тело подписки транспорт и защиту НАЗЫВАЕТ
+/// (`network`, `tls`, `reality-opts`), и ядро приносит их полями
+/// `transport`/`security` — читать только `type` значило выбрасывать сказанное.
+///
+/// Части, которых источник не назвал, остаются пустыми, а не дописываются: у
+/// hysteria2 и tuic транспорта поверх TCP нет вовсе, а ядро старше этих полей
+/// молчит о форме для всех сразу. Пустая часть — это «не сказано», и
+/// [ProtocolKey.isFullyQualified] отвечает на этот вопрос за строку.
+ProtocolKey _importedKey(ImportedServer s) => ProtocolKey(
+  protocol: s.type.trim().toLowerCase(),
+  transport: s.transport.trim().toLowerCase(),
+  security: s.security.trim().toLowerCase(),
+);
+
+/// Назвал ли источник форму хотя бы одного инбаунда целиком.
+bool _anyFullyQualified(List<ExitOffer> exits) =>
+    exits.any((e) => e.inbounds.any((i) => i.key.isFullyQualified));
 
 class _HopAccumulator {
   final PanelRelayHopRow hop;
@@ -387,7 +530,10 @@ class _HopAccumulator {
 }
 
 class _RowAccumulator {
-  final List<String> exitKeys = <String>[];
+  /// Узлы строки, каждый по одному разу и в порядке первой встречи. Множество,
+  /// а не список: строка отвечает на вопрос «сколько МАШИН предлагают этот
+  /// вход», и повтор машины в нём был бы выдуманной второй машиной.
+  final Set<String> exitKeys = <String>{};
   final List<String> proxyNames = <String>[];
   InboundOffer best;
   _RowAccumulator(this.best);

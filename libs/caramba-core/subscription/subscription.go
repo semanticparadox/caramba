@@ -45,7 +45,35 @@ type Server struct {
 	// Пусто, если определить не удалось. Используется автоподбором для relay-
 	// логики.
 	Country string `json:"country,omitempty"`
+
+	// Transport — способ, которым протокол уложен в провод: tcp, ws, grpc,
+	// httpupgrade, h2. Пусто означает «источник не назвал», а не «tcp».
+	//
+	// Поле заведено потому, что владелец спрашивал про ИНБАУНДЫ, а экран
+	// сводил двадцать узлов в четыре строки по одному типу протокола: отказ
+	// целого транспорта (httpupgrade) прятался за строкой «VLESS 510 мс»,
+	// которую вытягивал соседний транспорт того же протокола.
+	Transport string `json:"transport,omitempty"`
+
+	// Security — чем закрыт провод: reality, tls, none. Пусто — источник не
+	// назвал (или у семейства нет понятия TLS, как у wireguard).
+	Security string `json:"security,omitempty"`
+
+	// Role — RoleExit или RoleRelay. Relay это узел, через который НАБИРАЮТ
+	// другой узел (detour/dialer-proxy). Он не выход, и показывать его в
+	// списке выходов значит предлагать человеку подключиться к промежуточной
+	// машине — автоподбор на такой строке увозил трафик не туда.
+	Role string `json:"role"`
 }
+
+// Роли узла в подписке.
+const (
+	// RoleExit — обычный выходной узел: тот, чей адрес видит интернет.
+	RoleExit = "exit"
+	// RoleRelay — промежуточный узел: на него кто-то ссылается как на
+	// dialer-proxy, и сам по себе он выходом не является.
+	RoleRelay = "relay"
+)
 
 // Traffic — статистика трафика из заголовка subscription-userinfo.
 type Traffic struct {
@@ -258,16 +286,13 @@ func expiryFromUserInfo(header string) time.Time {
 	return time.Time{}
 }
 
-// clashProxy — минимальное представление прокси из mihomo-конфига.
-type clashProxy struct {
-	Name   string `yaml:"name"`
-	Type   string `yaml:"type"`
-	Server string `yaml:"server"`
-	Port   int    `yaml:"port"`
-}
-
+// clashDoc — минимальное представление секции proxies mihomo-конфига.
+//
+// Прокси читаются сырыми картами, а не типизированной структурой: транспорт и
+// защита живут в протокол-специфичных ключах (network, ws-opts, reality-opts),
+// и структура из четырёх полей их теряла.
 type clashDoc struct {
-	Proxies []clashProxy `yaml:"proxies"`
+	Proxies []map[string]any `yaml:"proxies"`
 }
 
 // ProxyMaps извлекает сырые clash-map'ы прокси из секции `proxies` конфига
@@ -314,18 +339,202 @@ func parseServers(raw []byte) ([]Server, error) {
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("разбор YAML конфигурации: %w", err)
 	}
-	servers := make([]Server, 0, len(doc.Proxies))
-	for _, p := range doc.Proxies {
+	return ServersFromProxies(doc.Proxies), nil
+}
+
+// ServersFromProxies строит список узлов для UI из сырых clash-карт прокси,
+// СОХРАНЯЯ порядок источника.
+//
+// Живёт здесь, а не в subimport, ровно по одной причине: обе дороги (подписка
+// панели и импорт пользователя) обязаны описывать узел одинаково. Пока
+// транспорт выводился в одном месте, а в другом нет, экран «Тип подключения»
+// зависел от того, каким путём попала подписка.
+func ServersFromProxies(proxies []map[string]any) []Server {
+	relays := relayNames(proxies)
+	servers := make([]Server, 0, len(proxies))
+	for _, px := range proxies {
+		name := asStr(px["name"])
+		role := RoleExit
+		if _, ok := relays[name]; ok && name != "" {
+			role = RoleRelay
+		}
 		servers = append(servers, Server{
-			ID:      p.Name,
-			Name:    p.Name,
-			Type:    p.Type,
-			Server:  p.Server,
-			Port:    p.Port,
-			Country: countryFromName(p.Name),
+			ID:        name,
+			Name:      name,
+			Type:      asStr(px["type"]),
+			Server:    asStr(px["server"]),
+			Port:      asPort(px["port"]),
+			Country:   countryFromName(name),
+			Transport: ProxyTransport(px),
+			Security:  ProxySecurity(px),
+			Role:      role,
 		})
 	}
-	return servers, nil
+	return servers
+}
+
+// relayNames собирает имена узлов, на которые кто-то ссылается как на
+// dialer-proxy. Ссылка и есть единственное свидетельство, что узел
+// промежуточный: своего признака у него нет.
+func relayNames(proxies []map[string]any) map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, px := range proxies {
+		if t := asStr(px["dialer-proxy"]); t != "" {
+			out[t] = struct{}{}
+		}
+	}
+	return out
+}
+
+// udpOnlyTypes — семейства, у которых нет понятия «транспорт поверх TCP»: они
+// сами себе транспорт. Пустая строка у них честнее, чем выдуманный «tcp».
+var udpOnlyTypes = map[string]struct{}{
+	"hysteria":  {},
+	"hysteria2": {},
+	"tuic":      {},
+	"wireguard": {},
+}
+
+// NormalizeProxyForCore чинит формы, которые источник называет иначе, чем ядро.
+//
+// Сегодня это ровно один случай, и он дорогой: панель отдаёт «network:
+// httpupgrade» прямо в clash-теле (снято с подписки 34: узлы 🇩🇪 HTTP и
+// 🇨🇦 HTTP), а mihomo такой сети не знает. Хуже, чем отказ: у vless нераспознанная
+// сеть МОЛЧА вырождается в обычный TLS-поток, узел ждёт апгрейда и отвечает
+// «unexpected response version» — то есть отказ выглядит как отвергнутый ключ.
+// Проверено разделением причин на живом флоте: с прежним именем — отказ, с
+// перекладкой в ws + v2ray-http-upgrade — 569 мс DE и 157 мс CA.
+//
+// Функция вызывается на ОБОИХ путях (сборка конфига для ядра и разбор узлов для
+// замера), потому что панельная подписка через импорт не проходит вовсе.
+// Повторный вызов безвреден: после перекладки сеть уже ws.
+//
+// Правку панели это не отменяет — там та же ошибка бьёт по всем прочим
+// клиентам, — но перестаёт держать наших пользователей заложниками её сроков.
+func NormalizeProxyForCore(px map[string]any) {
+	if !strings.EqualFold(strings.TrimSpace(asStr(px["network"])), "httpupgrade") {
+		return
+	}
+	path := "/"
+	host := ""
+	if hu, ok := px["http-upgrade-opts"].(map[string]any); ok {
+		if p := asStr(hu["path"]); p != "" {
+			path = p
+		}
+		host = asStr(hu["host"])
+		if host == "" {
+			if hdrs, ok := hu["headers"].(map[string]any); ok {
+				host = asStr(hdrs["Host"])
+			}
+		}
+	}
+	opts := map[string]any{"v2ray-http-upgrade": true, "path": path}
+	if host != "" {
+		// Host именно из опций апгрейда: подставлять сюда servername значило
+		// бы выдумать заголовок, которого источник не называл.
+		opts["headers"] = map[string]any{"Host": host}
+	}
+	px["network"] = "ws"
+	px["ws-opts"] = opts
+	delete(px, "http-upgrade-opts")
+}
+
+// IsUDPOnlyType отвечает, живёт ли семейство целиком на UDP.
+//
+// Ответ нужен замеру: на порту такого узла TCP никто не слушает, и справочная
+// TCP-проба возвращает -1 у совершенно здорового узла. Пока это -1 считалось
+// доказательством, вся ветка UDP-семейств сваливалась в «адрес не отвечает».
+func IsUDPOnlyType(typ string) bool {
+	_, ok := udpOnlyTypes[strings.ToLower(strings.TrimSpace(typ))]
+	return ok
+}
+
+// unbuildableProxyTypes — типы, для которых ядро (mihomo) НЕ СТРОИТ outbound ни
+// при каких полях.
+//
+// Список — общая правда для трёх мест: замер обязан сказать «ядро не умеет» без
+// единого соединения, сборка профиля обязана убрать такой прокси из конфига
+// (mihomo отвергает ВЕСЬ конфиг из-за одного незнакомого типа, то есть туннель
+// не поднялся бы вовсе), а импорт обязан сохранить честное имя типа вместо
+// подмены на похожий.
+var unbuildableProxyTypes = map[string]struct{}{
+	"naive": {},
+}
+
+// CoreCanBuildProxyType отвечает, есть ли смысл отдавать такой прокси ядру.
+func CoreCanBuildProxyType(typ string) bool {
+	_, bad := unbuildableProxyTypes[strings.ToLower(strings.TrimSpace(typ))]
+	return !bad
+}
+
+// ProxyTransport называет способ укладки протокола в провод.
+//
+// httpupgrade распознаётся по ФЛАГУ внутри ws-opts, а не по имени сети: mihomo
+// не знает network: httpupgrade, и импорт кладёт этот провод как ws с
+// v2ray-http-upgrade. Без обратного распознавания httpupgrade слился бы с ws в
+// одну строку — то есть спрятался бы ровно так же, как прятался раньше.
+func ProxyTransport(px map[string]any) string {
+	network := strings.ToLower(strings.TrimSpace(asStr(px["network"])))
+	if network == "ws" {
+		if opts, ok := px["ws-opts"].(map[string]any); ok {
+			if b, ok := opts["v2ray-http-upgrade"].(bool); ok && b {
+				return "httpupgrade"
+			}
+		}
+	}
+	if network != "" {
+		return network
+	}
+	if _, udp := udpOnlyTypes[strings.ToLower(strings.TrimSpace(asStr(px["type"])))]; udp {
+		return ""
+	}
+	// Отсутствие ключа network у TCP-семейств означает у mihomo именно tcp:
+	// это умолчание ядра, а не незнание источника.
+	return "tcp"
+}
+
+// ProxySecurity называет, чем закрыт провод.
+func ProxySecurity(px map[string]any) string {
+	if ro, ok := px["reality-opts"].(map[string]any); ok && len(ro) > 0 {
+		return "reality"
+	}
+	if b, ok := px["tls"].(bool); ok && b {
+		return "tls"
+	}
+	switch strings.ToLower(strings.TrimSpace(asStr(px["type"]))) {
+	case "hysteria", "hysteria2", "tuic":
+		// В clash-карте у них ключа tls нет вовсе: TLS в QUIC неотделим от
+		// самого протокола. Сказать «none» здесь было бы неправдой.
+		return "tls"
+	case "wireguard", "ss", "ssr":
+		// Своя криптография, TLS-понятия нет — и выдумывать его нечего.
+		return ""
+	}
+	return "none"
+}
+
+// asStr / asPort — локальные приведения сырых значений YAML. Дубликат хелперов
+// subimport здесь намеренный: subimport импортирует subscription, обратная
+// зависимость замкнула бы цикл.
+func asStr(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+func asPort(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	case string:
+		if i, err := strconv.Atoi(n); err == nil {
+			return i
+		}
+	}
+	return 0
 }
 
 // countryFromName извлекает ISO-2 код страны из имени прокси. Панель кодирует

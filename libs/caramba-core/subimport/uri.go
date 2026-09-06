@@ -192,12 +192,27 @@ func vmessFromJSON(dec []byte) (map[string]any, error) {
 	case "grpc":
 		px["network"] = "grpc"
 		px["grpc-opts"] = map[string]any{"grpc-service-name": asString(j["path"])}
-	case "h2", "httpupgrade":
-		px["network"] = "httpupgrade"
+	case "httpupgrade":
+		// См. applyTransport: у mihomo это ws с флагом v2ray-http-upgrade, и
+		// прежнее имя не отвергалось, а тихо деградировало до plain TCP.
+		px["network"] = "ws"
+		opts := map[string]any{"v2ray-http-upgrade": true}
+		putNonEmptyString(opts, "path", firstNonEmpty(asString(j["path"]), "/"))
+		if h := asString(j["host"]); h != "" {
+			opts["headers"] = map[string]any{"Host": h}
+		}
+		px["ws-opts"] = opts
+	case "h2":
+		// h2 и httpupgrade раньше лежали в одной ветке, хотя это разные
+		// провода: h2 — это HTTP/2 (у mihomo network: h2 с h2-opts), а
+		// httpupgrade — апгрейд одного запроса до сырого потока.
+		px["network"] = "h2"
 		opts := map[string]any{}
 		putNonEmptyString(opts, "path", asString(j["path"]))
-		putNonEmptyString(opts, "host", asString(j["host"]))
-		px["http-upgrade-opts"] = opts
+		if h := asString(j["host"]); h != "" {
+			opts["host"] = []any{h}
+		}
+		px["h2-opts"] = opts
 	default:
 		px["network"] = "tcp"
 	}
@@ -541,9 +556,12 @@ func amneziaOptionFromQuery(q url.Values) map[string]any {
 // --- NaiveProxy ---
 
 // parseNaiveURI разбирает naive+https://user:pass@host:port#name (и naive://).
-// mihomo не имеет нативного типа naive; Naive — это HTTP/2 CONNECT поверх TLS,
-// поэтому мапим в clash type:http с tls:true. Это единственный путь импорта Naive
-// (панель clash-наив не эмитит — см. RECON, наивысший риск расхождения).
+//
+// Тип остаётся naive, хотя ядро его не строит. Прежняя подмена на type:http
+// («Naive это HTTP/2 CONNECT поверх TLS») давала узел, который ядро охотно
+// набирало и получало отказ — и экран объяснял отказ чужой причиной вместо
+// единственной настоящей: «ядро не умеет Naive». Из конфига для ядра такие
+// прокси убираются на сборке профиля, поэтому честное имя туннель не ломает.
 func parseNaiveURI(raw string) (map[string]any, error) {
 	trimmed := strings.TrimPrefix(raw, "naive+")
 	u, err := url.Parse(trimmed)
@@ -554,7 +572,7 @@ func parseNaiveURI(raw string) (map[string]any, error) {
 	port := atoiPort(u.Port())
 	password, _ := u.User.Password()
 	px := map[string]any{
-		"type":   "http",
+		"type":   "naive",
 		"name":   nameOr(fragmentName(u), host, port),
 		"server": host,
 		"port":   port,
@@ -592,11 +610,20 @@ func applyTransport(px map[string]any, q url.Values) {
 		putNonEmptyString(opts, "grpc-service-name", firstNonEmpty(q.Get("serviceName"), q.Get("path")))
 		px["grpc-opts"] = opts
 	case "httpupgrade":
-		px["network"] = "httpupgrade"
-		opts := map[string]any{}
+		// У mihomo тот же провод называется ws с флагом v2ray-http-upgrade.
+		// Имя httpupgrade он при этом НЕ отвергает: adapter.ParseProxy
+		// (v1.19.27) строит прокси молча, а неизвестная сеть проваливается в
+		// default = голый TCP+TLS. Сервер не видит запроса на апгрейд, отвечает
+		// обычным HTTP-текстом, и клиент рапортует «unexpected response
+		// version» — по этой строке на транспорт не подумает никто. Поэтому
+		// имя перекладываем ЗДЕСЬ, а не надеемся на отказ адаптера.
+		px["network"] = "ws"
+		opts := map[string]any{"v2ray-http-upgrade": true}
 		putNonEmptyString(opts, "path", firstNonEmpty(q.Get("path"), "/"))
-		putNonEmptyString(opts, "host", q.Get("host"))
-		px["http-upgrade-opts"] = opts
+		if h := firstNonEmpty(q.Get("host"), q.Get("sni")); h != "" {
+			opts["headers"] = map[string]any{"Host": h}
+		}
+		px["ws-opts"] = opts
 	case "tcp", "":
 		// plain TCP — транспорт по умолчанию, опции не задаём.
 	default:

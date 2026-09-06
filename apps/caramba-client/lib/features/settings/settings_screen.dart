@@ -86,33 +86,6 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                   onTap: () => context.go(AppRoute.protocol),
                 ),
-                // Одна строка вместо двух.
-                //
-                // «Маршрутизация» и «Раздельное туннелирование» жили в разных
-                // разделах, хотя решают один вопрос — что и как идёт через
-                // туннель, — и ни одно из двух имён не говорило человеку, что
-                // за ним. Обе ведут на «Улучшения», где блок рекламы, список
-                // сайтов и режим страны лежат вместе и подписаны тем, что
-                // ядро реально применило.
-                //
-                // Значение — не [CRow], а [_EnhancementsSummaryRow]: сводка
-                // складывается из режима, счётчика сайтов и статуса рекламы
-                // (см. [enhancementsSummary]) и легко перерастает половину
-                // строки, которую [CRow] оставляет колонке значения. На узком
-                // экране это резало «только 1 сайт · без рекламы» до «...
-                // без ре…» посреди слова — [CRow] общий для всего приложения
-                // и здесь не трогается (тот же выбор уже сделан в
-                // [AppliedRouteCard] для собственных длинных строк).
-                _EnhancementsSummaryRow(
-                  value: enhancementsSummary(
-                    cfg,
-                    applied: ref.watch(appliedRouteProvider).valueOrNull,
-                  ),
-                  trailing: const CsmProvenanceTag(
-                    settingKey: CsmSettingKey.preset,
-                  ),
-                  onTap: () => context.go(AppRoute.splitTunnel),
-                ),
                 CRow(
                   label: 'Kill-switch',
                   trailing: Row(
@@ -138,6 +111,78 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ],
             ),
+
+            // ── Реклама и блокировки ──────────────────────────────────────
+            //
+            // Владелец: «настройки рекламы и блокировки вынеси только в
+            // настройки приложения а отсюда убери». Раньше блок рекламы и
+            // списки сайтов жили на вкладке «Улучшения», а отсюда туда вела
+            // строка — то есть на вопрос «где это включается» приложение
+            // отвечало двумя адресами. Теперь ответ один: реклама
+            // включается ЗДЕСЬ, списки сайтов — на своём экране за одной
+            // строкой отсюда, режим — на Главной. Вкладка «Улучшения»
+            // растворена, а не оставлена пустой оболочкой.
+            //
+            // Обе строки — [_StackedRow], а не [CRow]: и статус рекламы, и
+            // сводка списков перерастают половину строки, которую [CRow]
+            // оставляет колонке значения, а обрезка у dart:ui включается уже
+            // самим фактом `overflow` (даже без `maxLines`) и режет фразу
+            // посреди слова — «блок рекламы не рабо…». [CRow] общий для всего
+            // приложения и здесь не трогается.
+            const SectionTitle('Реклама и блокировки'),
+            RowsGroup(
+              children: [
+                _StackedRow(
+                  icon: Lucide.shield,
+                  label: 'Блокировать рекламу и трекеры',
+                  // Подпись — отчёт ядра, а не слово «включено»: просьба без
+                  // подъёма туннеля называется «включится», выброшенный
+                  // список — «не работает» с причиной (см. [adBlockStatus]).
+                  subtitle: adBlockStatus(
+                    cfg,
+                    ref.watch(appliedRouteProvider).valueOrNull,
+                  ).message,
+                  trailing: Switch(
+                    value: cfg.blockAds,
+                    onChanged: cfgN.setBlockAds,
+                  ),
+                ),
+                _StackedRow(
+                  icon: Lucide.globe,
+                  label: 'Правила по сайтам',
+                  subtitle: siteRulesSummary(cfg),
+                  chevron: true,
+                  trailing: const CsmProvenanceTag(
+                    settingKey: CsmSettingKey.splitMode,
+                  ),
+                  onTap: () => context.go(AppRoute.siteRules),
+                ),
+              ],
+            ),
+            // Граница метода, а не состояния конкретной сборки — стоит рядом
+            // с переключателем всегда, пока он включён, а не только когда
+            // список правил разрешился.
+            //
+            // Текст дублирует `AdBlockLimitNote` из
+            // libs/caramba-core/profile/profile.go: канонический смысл
+            // определён там, но константа заведена в Go и в Dart не протянута
+            // — ни FFI, ни отчёт ядра её не несут. Проводить канал ради одной
+            // статичной фразы означало бы менять контракт ядра ради строки,
+            // которая не зависит от состояния подключения, — поэтому текст
+            // здесь только СИНХРОНИЗИРОВАН с ним вручную; при правке одного
+            // источника проверяйте оба (см. profile/sniffer_test.go).
+            if (cfg.blockAds) ...[
+              const SizedBox(height: AppSpace.s3),
+              const InlineBanner(
+                tone: BannerTone.info,
+                glyph: Lucide.alert,
+                text:
+                    'Блок режет по имени домена из первого пакета '
+                    'соединения. Реклама, загруженная по голому IP или '
+                    'спрятанная шифрованием имени (ECH), проходит мимо — это '
+                    'граница метода, а не сбой конкретного списка.',
+              ),
+            ],
 
             const SectionTitle('Сеть и ядро'),
             RowsGroup(
@@ -403,24 +448,32 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
-/// Строка «Улучшения»: подпись и сводка на СВОИХ строках, а не в одной.
+/// Строка настройки, у которой подпись живёт ПОД именем, а не в колонке
+/// значения справа.
 ///
-/// [CRow] кладёт подпись и значение в одну строку и режет значение
+/// [CRow] кладёт имя и значение в одну строку и режет значение
 /// [TextOverflow.ellipsis] — а обрезка у dart:ui включается уже тем, что
 /// `overflow` задан, ДАЖЕ без `maxLines`: движок молча подставляет
-/// `maxLines: 1`, когда предела нет явно. Тут это резало «только 1 сайт ·
-/// без рекламы» до «... · бе…» ровно на границе слова. [CRow] общий для
-/// всего приложения и здесь не трогается (тот же фикс уже стоит в
-/// [AppliedRouteCard._WrapRow] для карточки «Что применилось») — сводке
-/// нужна не более широкая колонка, а разрешение перенестись, поэтому она
-/// вынесена под подпись, на всю ширину строки.
-class _EnhancementsSummaryRow extends StatelessWidget {
-  final String value;
+/// `maxLines: 1`, когда предела нет явно. На этих двух строках резать нельзя
+/// принципиально: подпись рекламы — это ПРИЧИНА отказа ядра («Список
+/// оператора не доехал…»), и обрезанная причина хуже отсутствующей, а сводка
+/// списков теряла бы в конце как раз счётчик. [CRow] общий для всего
+/// приложения и здесь не трогается (тот же выбор уже сделан в
+/// [AppliedRouteCard] для собственных длинных строк) — этим строкам нужна не
+/// более широкая колонка, а разрешение перенестись.
+class _StackedRow extends StatelessWidget {
+  final String? icon;
+  final String label;
+  final String subtitle;
+  final bool chevron;
   final Widget? trailing;
   final VoidCallback? onTap;
 
-  const _EnhancementsSummaryRow({
-    required this.value,
+  const _StackedRow({
+    required this.label,
+    required this.subtitle,
+    this.icon,
+    this.chevron = false,
     this.trailing,
     this.onTap,
   });
@@ -441,24 +494,25 @@ class _EnhancementsSummaryRow extends StatelessWidget {
           children: [
             Row(
               children: [
-                LucideIcon(Lucide.sliders, color: c.textMed, size: 20),
-                const SizedBox(width: AppSpace.s3 + 2),
+                if (icon != null) ...[
+                  LucideIcon(icon!, color: c.textMed, size: 20),
+                  const SizedBox(width: AppSpace.s3 + 2),
+                ],
                 Expanded(
                   child: Text(
-                    'Улучшения',
+                    label,
                     style: AppType.bodyMd.copyWith(color: c.textHi),
                   ),
                 ),
                 if (trailing != null) trailing!,
-                const SizedBox(width: AppSpace.s2),
-                LucideIcon(Lucide.chevronRight, color: c.textLow, size: 18),
+                if (chevron) ...[
+                  const SizedBox(width: AppSpace.s2),
+                  LucideIcon(Lucide.chevronRight, color: c.textLow, size: 18),
+                ],
               ],
             ),
             const SizedBox(height: 2),
-            Text(
-              value,
-              style: AppType.bodySm.copyWith(color: c.textMed),
-            ),
+            Text(subtitle, style: AppType.bodySm.copyWith(color: c.textMed)),
           ],
         ),
       ),

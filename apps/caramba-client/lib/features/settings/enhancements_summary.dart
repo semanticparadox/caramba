@@ -1,5 +1,11 @@
-/// Подписи вкладки «Улучшения» и — главное — правило, по которому здесь
-/// вообще позволено писать «включено».
+/// Подписи раздела «Реклама и блокировки» в Настройках и — главное — правило,
+/// по которому здесь вообще позволено писать «включено».
+///
+/// Имя файла осталось от вкладки «Улучшения», где эти подписи жили раньше;
+/// вкладка растворена (реклама уехала в Настройки, списки сайтов — на
+/// «Правила по сайтам», режим — на Главную), а правило переезда не пережило
+/// бы переименование файла ради одного слова: его импортирует ещё и
+/// [AppliedRouteCard].
 ///
 /// Владелец просил галочки: блок рекламы, «через VPN только эти сайты»,
 /// пресеты по странам. Галочка, которая ничего не включает, хуже её
@@ -12,7 +18,6 @@
 /// здесь не превращает «мы попросили» в «работает».
 library;
 
-import 'package:caramba_client/data/models/protocol.dart';
 import 'package:caramba_client/data/models/split_app.dart';
 import 'package:caramba_client/domain/offering/route_presets.dart';
 import 'package:caramba_client/features/settings/route_report.dart';
@@ -85,7 +90,7 @@ AdBlockStatus adBlockStatus(CoreConfig cfg, AppliedRoute? applied) {
     return const AdBlockStatus(
       AdBlockState.pending,
       'Включится при следующем подключении. Пока туннель не поднимался, '
-          'проверить нечем.',
+      'проверить нечем.',
     );
   }
 
@@ -99,7 +104,7 @@ AdBlockStatus adBlockStatus(CoreConfig cfg, AppliedRoute? applied) {
       RuleSourceState.mirror => const AdBlockStatus(
         AdBlockState.mirrored,
         'Список выпущен ссылкой на зеркало оператора. Доехал ли он, сборка '
-            'конфига не видит — это знает только движок во время работы.',
+        'конфига не видит — это знает только движок во время работы.',
       ),
       RuleSourceState.dropped => AdBlockStatus(
         // Список выброшен, но запасное правило по встроенной базе GEOSITE
@@ -137,49 +142,34 @@ AdBlockStatus adBlockStatus(CoreConfig cfg, AppliedRoute? applied) {
     return const AdBlockStatus(
       AdBlockState.broken,
       'Не работает: правила держатся на базе GEOSITE, а она в этой сборке '
-          'недоступна.',
+      'недоступна.',
     );
   }
   return const AdBlockStatus(
     AdBlockState.unconfirmed,
     'Ядро не назвало источник списка рекламы. Правила могли собраться по '
-        'встроенной базе, но подтвердить это нечем.',
+    'встроенной базе, но подтвердить это нечем.',
   );
 }
 
-/// Строка «Улучшения» для Home и Настроек.
+/// Сводка строки «Правила по сайтам» в Настройках.
 ///
-/// Порядок частей — порядок влияния на трафик: сперва то, что решает, КУДА
-/// идёт трафик (список сайтов сильнее режима страны), затем то, что решает,
-/// что из него вырезать.
-String enhancementsSummary(CoreConfig cfg, {AppliedRoute? applied}) {
-  final parts = <String>[];
-
-  if (cfg.allowSitesActive) {
-    // Режим страны здесь не называется намеренно: он не применяется, и
-    // назвать его значило бы приписать трафику правила, которых в туннеле нет.
-    parts.add('только ${_countSites(cfg.siteRuleCount)}');
-  } else {
-    parts.add(_routeName(cfg.route));
-    if (cfg.splitMode == SplitMode.bypassSelected && cfg.siteRuleCount > 0) {
-      parts.add('${_countSites(cfg.siteRuleCount)} напрямую');
-    }
-  }
-
-  if (cfg.blockAds) {
-    final ads = adBlockStatus(cfg, applied);
-    parts.add(ads.isBad ? 'блок рекламы не работает' : 'без рекламы');
-  }
-
-  return parts.join(' · ');
-}
-
-/// Имя режима страны по сохранённому индексу.
-String _routeName(int index) {
-  const modes = RoutingMode.defaults;
-  if (index < 0 || index >= modes.length) return 'режим не выбран';
-  return modes[index].name;
-}
+/// Режим (страна) здесь не называется НАМЕРЕННО, хотя раньше сводка
+/// «Улучшений» начиналась именно с него: режим переехал на Главную и там же
+/// подписан своим именем. Строка, которая повторяла бы его в Настройках,
+/// снова создала бы два места для одной величины — ровно то, что владелец и
+/// просил убрать.
+///
+/// Счёт идёт по тому, что РЕАЛЬНО уйдёт ядру ([CoreConfig.siteRuleCount]):
+/// домены, набранные при выключенном режиме, не считаются, потому что ядру
+/// они не уходят.
+String siteRulesSummary(CoreConfig cfg) => switch (cfg.splitMode) {
+  SplitMode.off => 'Выключено — списков нет',
+  SplitMode.onlySelected =>
+    'Только выбранные · ${_countSites(cfg.siteRuleCount)}',
+  SplitMode.bypassSelected =>
+    'Кроме выбранных · ${_countSites(cfg.siteRuleCount)} напрямую',
+};
 
 String _countSites(int n) {
   final mod100 = n % 100;

@@ -86,16 +86,27 @@ func skippedOutcome() probeOutcome {
 // ответил). Он и есть та вторая точка, без которой отличить «узел отверг ключ»
 // от «до узла не достучаться» нечем: обе ошибки выглядят как «не получилось».
 //
+// tcpBlind говорит, что TCP-свидетеля не было вовсе и молчание tcpMs ничего не
+// доказывает. Так у UDP-семейств (hysteria2/tuic/wireguard): на их порту TCP
+// никто не слушает, и раньше ровно отсюда бралось «адрес не отвечает» у
+// отвечающего адреса — любой отказ QUIC превращался в port_closed, потому что
+// tcpMs был -1 всегда. Так же у выходов, которые набираются через релей: прямой
+// TCP до них не лежит ни на одном настоящем пути. В обоих случаях достижимость
+// считается НЕИЗВЕСТНОЙ, и ни одна ветка не имеет права объявить адрес мёртвым
+// по одному лишь tcpMs.
+//
 // Порядок веток от конкретного к общему. Неизвестная ошибка при живом TCP
 // считается отказом узла, а не таймаутом: соединение состоялось и было
 // прервано чем-то на той стороне.
-func classifyProbeFailure(err error, tcpMs int) (string, string) {
+func classifyProbeFailure(err error, tcpMs int, tcpBlind bool) (string, string) {
 	if err == nil {
 		return ProbeVerdictOK, ""
 	}
 	detail := err.Error()
 	low := strings.ToLower(detail)
-	reachable := tcpMs >= 0
+	// «Адрес мёртв» — вывод из ОТСУТСТВИЯ ответа по TCP. Он допустим только
+	// там, где TCP вообще был свидетелем.
+	deadAddress := !tcpBlind && tcpMs < 0
 
 	switch {
 	case containsAny(low, "x509", "certificate", "tls: ", "handshake failure", "unknown authority", "bad certificate"):
@@ -108,25 +119,33 @@ func classifyProbeFailure(err error, tcpMs int) (string, string) {
 	case containsAny(low, "connection refused", "no route to host", "network is unreachable", "host is unreachable", "connect: "):
 		return ProbeVerdictPortClosed, detail
 
-	case isTimeoutErr(err) || containsAny(low, "deadline exceeded", "i/o timeout", "timeout"):
-		// Таймаут при живом адресе — почти всегда фильтрация протокола.
-		// Таймаут при мёртвом адресе это просто мёртвый адрес.
-		if reachable {
-			return ProbeVerdictTimeout, detail
+	case containsAny(low, "application error", "crypto_error", "crypto error", "authentication", "unauthorized", "token"):
+		// Подпись отказа QUIC-семейств: узел ОТВЕТИЛ и закрыл сессию
+		// прикладным кодом. Живой TUIC с чужим паролем даёт ровно это —
+		// «Application error 0x0 (remote)», — и до этой ветки такой узел
+		// объявлялся мёртвым адресом.
+		return ProbeVerdictAuthRejected, detail
+
+	case isTimeoutErr(err) || containsAny(low, "deadline exceeded", "i/o timeout", "timeout", "no recent network activity"):
+		// Таймаут при живом (или неизвестном) адресе — почти всегда
+		// фильтрация протокола. Таймаут при доказанно мёртвом адресе это
+		// просто мёртвый адрес.
+		if deadAddress {
+			return ProbeVerdictPortClosed, detail
 		}
-		return ProbeVerdictPortClosed, detail
+		return ProbeVerdictTimeout, detail
 
 	case containsAny(low, "eof", "connection reset", "broken pipe", "closed by"):
-		if reachable {
-			return ProbeVerdictAuthRejected, detail
+		if deadAddress {
+			return ProbeVerdictPortClosed, detail
 		}
-		return ProbeVerdictPortClosed, detail
-	}
-
-	if reachable {
 		return ProbeVerdictAuthRejected, detail
 	}
-	return ProbeVerdictPortClosed, detail
+
+	if deadAddress {
+		return ProbeVerdictPortClosed, detail
+	}
+	return ProbeVerdictAuthRejected, detail
 }
 
 // isTimeoutErr отвечает на вопрос по типу ошибки, а не по её тексту: у

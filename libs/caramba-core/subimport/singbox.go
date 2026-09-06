@@ -31,12 +31,55 @@ func parseSingbox(raw []byte) (proxyList, error) {
 	if len(out) == 0 {
 		return nil, fmt.Errorf("subimport: sing-box конфиг не дал ни одного прокси")
 	}
+	dropDanglingDialerProxy(out)
 	return out, nil
 }
 
-// singboxOutboundToClash маппит один sing-box outbound на clash proxy-map.
-// Возвращает nil для служебных/неподдерживаемых типов.
+// dropDanglingDialerProxy убирает ссылки dialer-proxy в никуда.
+//
+// sing-box отправляет detour и в служебные outbound'ы (direct/block), которых в
+// clash-списке нет по определению. Ссылка на несуществующее имя не ошибка
+// конфига: mihomo её проглотит при загрузке и провалит КАЖДЫЙ набор через этот
+// узел уже в бою. Дешевле снять её здесь и набирать напрямую — ровно так узел
+// и вёл себя до переноса detour.
+func dropDanglingDialerProxy(list proxyList) {
+	names := make(map[string]struct{}, len(list))
+	for _, px := range list {
+		if n := asString(px["name"]); n != "" {
+			names[n] = struct{}{}
+		}
+	}
+	for _, px := range list {
+		target := asString(px["dialer-proxy"])
+		if target == "" {
+			continue
+		}
+		if _, ok := names[target]; !ok {
+			delete(px, "dialer-proxy")
+		}
+	}
+}
+
+// singboxOutboundToClash маппит один sing-box outbound на clash proxy-map и
+// переносит detour.
+//
+// detour в sing-box означает «этот outbound НАБИРАТЬ ЧЕРЕЗ тот». У mihomo то же
+// самое называется dialer-proxy. Поле молча терялось, и цепочка «через 🇷🇺»
+// превращалась в прямой набор адреса выхода — другой маршрут под тем же именем.
+// Ссылка проверяется позже, в parseSingbox: sing-box часто отправляет detour в
+// служебный direct, которого в clash-списке нет.
 func singboxOutboundToClash(ob map[string]any) map[string]any {
+	px := singboxOutboundBody(ob)
+	if px == nil {
+		return nil
+	}
+	putNonEmptyString(px, "dialer-proxy", asString(ob["detour"]))
+	return px
+}
+
+// singboxOutboundBody строит сам proxy-map по типу outbound'а.
+// Возвращает nil для служебных/неподдерживаемых типов.
+func singboxOutboundBody(ob map[string]any) map[string]any {
 	typ := strings.ToLower(asString(ob["type"]))
 	tag := asString(ob["tag"])
 	server := asString(ob["server"])
@@ -110,7 +153,12 @@ func singboxOutboundToClash(ob map[string]any) map[string]any {
 		return singboxWireguardToClash(ob, name, server, port)
 
 	case "naive":
-		px := base("http")
+		// Тип остаётся naive, хотя ядро его не строит. Подмена на type:http
+		// была ложью дважды: экран называл чужой протокол, а отказ объяснял
+		// чужой причиной («вход не принял ключ» вместо «ядро не умеет
+		// Naive»). Из конфига для ядра такой прокси убирается на сборке
+		// профиля, поэтому туннель от честного имени не ломается.
+		px := base("naive")
 		px["tls"] = true
 		putNonEmptyString(px, "username", asString(ob["username"]))
 		putNonEmptyString(px, "password", asString(ob["password"]))
@@ -224,11 +272,23 @@ func applySingboxTransport(px map[string]any, ob map[string]any) {
 		px["network"] = "grpc"
 		px["grpc-opts"] = map[string]any{"grpc-service-name": asString(tr["service_name"])}
 	case "httpupgrade":
-		px["network"] = "httpupgrade"
-		opts := map[string]any{}
+		// В sing-box это законный transport.type, у mihomo — ws с флагом
+		// v2ray-http-upgrade. Пока сюда писалось «httpupgrade», адаптер
+		// СТРОИЛСЯ (отказа нет), но шёл голым TCP+TLS, и целое семейство
+		// входов молча не отвечало на замер, прячась за общей строкой VLESS.
+		px["network"] = "ws"
+		opts := map[string]any{"v2ray-http-upgrade": true}
 		putNonEmptyString(opts, "path", firstNonEmpty(asString(tr["path"]), "/"))
-		putNonEmptyString(opts, "host", asString(tr["host"]))
-		px["http-upgrade-opts"] = opts
+		host := asString(tr["host"])
+		if host == "" {
+			if hdrs, ok := tr["headers"].(map[string]any); ok {
+				host = asString(hdrs["Host"])
+			}
+		}
+		if host != "" {
+			opts["headers"] = map[string]any{"Host": host}
+		}
+		px["ws-opts"] = opts
 	}
 }
 

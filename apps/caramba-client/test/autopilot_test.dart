@@ -647,6 +647,214 @@ void main() {
       expect(label.value, 'Авто · CA · Canada');
       expect(label.subtitle, contains('на другом узле'));
     });
+
+    // Слово выбирается ПРИЧИНОЙ, а не фактом «что-то не так»: перезамер лечит
+    // только две причины из четырёх, и отправлять человека замерять там, где
+    // надо снять пин, — это и есть неточность, на которую пожаловался владелец.
+    test('расхождение с держателем — «не в силе», а не «устарело»', () {
+      for (final stale in <AutoStaleReason>[
+        AutoStaleReason.tunnelDisagrees,
+        AutoStaleReason.pinDisagrees,
+      ]) {
+        expect(AutoLabel(choice: 'CA', stale: stale).badge, 'не в силе');
+      }
+    });
+
+    test('состарившийся замер и сменившийся флот — «устарело»', () {
+      for (final stale in <AutoStaleReason>[
+        AutoStaleReason.age,
+        AutoStaleReason.fleetChanged,
+      ]) {
+        expect(AutoLabel(choice: 'CA', stale: stale).badge, 'устарело');
+      }
+    });
+
+    test('выбор в силе — бейджа нет вовсе', () {
+      expect(const AutoLabel(choice: 'CA').badge, isEmpty);
+    });
+  });
+
+  // Ровно тот дефект, что сняли с устройства: пин 🇩🇪 Stream, выбор
+  // автоподбора — Канада, а строка «Авто» на «Серверах» гласила
+  // «Авто · DE · Германия — Сейчас в туннеле», пока Главная в ту же секунду
+  // говорила «Автоподбор выбрал Канада… не в силе». Контрол автоподбора
+  // подписывался ДЕРЖАТЕЛЕМ — узлом, за который он не отвечает.
+  group('строка «Авто» называет выбор, а не держателя', () {
+    final facts = <String, FleetFact>{
+      '🇨🇦 Secure': _f(
+        '🇨🇦 Secure',
+        exitKey: '9',
+        country: 'CA',
+        title: 'Канада',
+        protocol: 'hysteria2',
+        transport: 'udp',
+        security: 'tls',
+      ),
+      '🇩🇪 Stream': _f(
+        '🇩🇪 Stream',
+        exitKey: '1',
+        country: 'DE',
+        title: 'Германия',
+      ),
+    };
+
+    /// Выбор автоподбора — Канада, ровно как на устройстве.
+    AutoPickRecord canada({int ageMinutes = 12, int fleet = 7}) =>
+        AutoPickRecord(
+          proxyName: '🇨🇦 Secure',
+          exitKey: '9',
+          countryCode: 'CA',
+          machineTitle: 'Канада',
+          protocolLabel: 'hysteria2 · udp · tls',
+          latencyMs: 118,
+          confirmed: true,
+          serversUpdatedMs: fleet,
+          updatedMs: DateTime.now()
+              .subtract(Duration(minutes: ageMinutes))
+              .millisecondsSinceEpoch,
+        );
+
+    ProviderContainer container({
+      String? activeProxy,
+      String? pinnedProxy,
+      AutoPickRecord? pick,
+      int fleet = 7,
+    }) {
+      final c = ProviderContainer(
+        overrides: [
+          fleetFactsProvider.overrideWithValue(facts),
+          activeProxyProvider.overrideWithValue(activeProxy),
+          activeConnectionProfileProvider.overrideWithValue(
+            ConnectionProfile(
+              id: 'p1',
+              type: ProfileType.rawSub,
+              displayName: 'Подписка',
+              source: 'https://example',
+              selectedServerId: pinnedProxy,
+              autoPick: pick,
+              serversUpdatedMs: fleet,
+            ),
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
+      return c;
+    }
+
+    test('живой туннель на чужом узле не переименовывает выбор', () {
+      final label = container(
+        activeProxy: '🇩🇪 Stream',
+        pinnedProxy: '🇩🇪 Stream',
+        pick: canada(),
+      ).read(autoServerLabelProvider);
+      expect(label.value, 'Авто · CA · Канада');
+      expect(label.value, isNot(contains('Германия')));
+      expect(label.badge, 'не в силе');
+      expect(label.subtitle, isNot(contains('Сейчас в туннеле')));
+      expect(label.subtitle, contains('на другом узле'));
+    });
+
+    // Та же половина фразы, что на Главной: два экрана обязаны описывать одно
+    // состояние одинаково, иначе для смотрящего это два разных состояния.
+    test('«Серверы» и Главная говорят про один и тот же выбор', () {
+      final c = container(
+        activeProxy: '🇩🇪 Stream',
+        pinnedProxy: '🇩🇪 Stream',
+        pick: canada(),
+      );
+      final label = c.read(autoServerLabelProvider);
+      final banner = autopilotBannerText(
+        pick: canada(),
+        stale: c.read(autoStaleProvider),
+        holder: c.read(autoHolderProvider),
+      );
+      expect(banner, contains('Автоподбор выбрал Канада'));
+      expect(label.value, contains('Канада'));
+      expect(banner, contains('Германия'));
+      expect(label.subtitle, isNot(contains('Германия')));
+    });
+
+    test('туннеля нет, пин на чужом узле — тоже «не в силе»', () {
+      final label = container(
+        pinnedProxy: '🇩🇪 Stream',
+        pick: canada(),
+      ).read(autoServerLabelProvider);
+      expect(label.value, 'Авто · CA · Канада');
+      expect(label.badge, 'не в силе');
+      expect(label.subtitle, contains('закреплён на другом узле'));
+    });
+
+    test('туннель стоит на выбранном узле — источник это туннель', () {
+      final label = container(
+        activeProxy: '🇨🇦 Secure',
+        pinnedProxy: '🇨🇦 Secure',
+        pick: canada(),
+      ).read(autoServerLabelProvider);
+      expect(label.value, 'Авто · CA · Канада');
+      expect(label.source, 'Сейчас в туннеле');
+      expect(label.badge, isEmpty);
+    });
+
+    // Без туннеля свидетельство одно — сам замер, и подпись обязана назвать
+    // его возрастом, а не обещанием «сейчас в туннеле».
+    test('туннеля нет и пин совпал — источником остаётся замер', () {
+      final label = container(
+        pinnedProxy: '🇨🇦 Secure',
+        pick: canada(),
+      ).read(autoServerLabelProvider);
+      expect(label.badge, isEmpty);
+      expect(label.source, contains('По замеру'));
+    });
+
+    test('состарившийся замер называется «устарело», а не «не в силе»', () {
+      final label = container(
+        pinnedProxy: '🇨🇦 Secure',
+        pick: canada(ageMinutes: 7 * 60),
+      ).read(autoServerLabelProvider);
+      expect(label.badge, 'устарело');
+    });
+
+    test('сменившийся флот называется «устарело»', () {
+      final label = container(
+        pinnedProxy: '🇨🇦 Secure',
+        pick: canada(fleet: 7),
+        fleet: 9,
+      ).read(autoServerLabelProvider);
+      expect(label.badge, 'устарело');
+    });
+
+    // Регрессия: раньше живой туннель сам по себе давал строке заголовок, и
+    // «Авто» называло узел, которого автоподбор не выбирал — потому что не
+    // запускался вовсе.
+    test('подбора не было — туннель не выдаётся за его выбор', () {
+      final label = container(
+        activeProxy: '🇩🇪 Stream',
+        pinnedProxy: '🇩🇪 Stream',
+      ).read(autoServerLabelProvider);
+      expect(label.value, 'Авто');
+      expect(label.subtitle, 'Выберется при подключении');
+      expect(label.badge, isEmpty);
+    });
+
+    // Тот же дефект жил и в строке «Тип подключения»: она называла форму
+    // инбаунда, поднятого ядром, выдавая её за выбор автоподбора.
+    test('«Тип подключения» тоже называет выбор, а не провод', () {
+      final label = container(
+        activeProxy: '🇩🇪 Stream',
+        pinnedProxy: '🇩🇪 Stream',
+        pick: canada(),
+      ).read(autoProtocolLabelProvider);
+      expect(label.value, 'Авто · hysteria2 · udp · tls');
+      expect(label.badge, 'не в силе');
+    });
+
+    test('«Тип подключения» без подбора молчит, а не берёт форму туннеля', () {
+      final label = container(
+        activeProxy: '🇩🇪 Stream',
+      ).read(autoProtocolLabelProvider);
+      expect(label.value, 'Авто');
+      expect(label.hasChoice, isFalse);
+    });
   });
 
   group('склейка замера с предложением', () {

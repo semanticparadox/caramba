@@ -61,6 +61,30 @@ class ProtocolKey {
   String toString() => 'ProtocolKey($label)';
 }
 
+/// Чем узел работает в цепочке: выходом или входом.
+///
+/// Отдельный тип, а не флаг, ровно из-за третьего значения. Источник, который
+/// про роль промолчал (ядро старше поля `role`, clash-тело без `dialer-proxy`),
+/// не даёт права ни назвать узел релэем, ни объявить его выходом: первое
+/// прячет чужой рабочий выход, второе возвращает исходный дефект. Молчание
+/// здесь [NodeRole.unknown] и ведёт себя как выход — потому что убирать из
+/// списка можно только по свидетельству, а не по его отсутствию.
+enum NodeRole {
+  /// Источник назвал узел выходом (или назвал так все остальные, а этот не
+  /// упомянул как чей-то вход).
+  exit,
+
+  /// Источник ПРЯМО сказал, что через узел набирают другие: `role: relay` у
+  /// ядра, ссылка `via_relay` у панели.
+  relay,
+
+  /// Источник про роль не говорит вовсе.
+  unknown;
+
+  /// Заведомо вход. Только это значение что-то запрещает.
+  bool get isRelay => this == NodeRole.relay;
+}
+
 /// Один инбаунд конкретного узла — то, из чего состоит пикер протокола.
 class InboundOffer {
   /// `inbounds.id` панели; `null` у легаси-прокси, который генератор
@@ -85,6 +109,15 @@ class InboundOffer {
 
   final Availability availability;
 
+  /// Роль ПРОКСИ, а не машины.
+  ///
+  /// Роль живёт здесь, а не только на [ExitOffer], потому что автоподбор
+  /// адресуется именно прокси: ядро меряет их поимённо и закрепляет выбор
+  /// именем. Машина, у которой одни прокси входные, а другие выходные, из
+  /// списка не исчезает (у неё есть рабочий выход), но её входной прокси
+  /// автоподбору всё равно запрещён — а различить это на уровне машины нечем.
+  final NodeRole role;
+
   const InboundOffer({
     required this.tag,
     required this.key,
@@ -93,6 +126,7 @@ class InboundOffer {
     this.panelInboundId,
     this.port,
     this.proxyName,
+    this.role = NodeRole.unknown,
   });
 
   bool get isAvailable => availability.isAvailable;
@@ -107,11 +141,19 @@ class InboundOffer {
       other.key == key &&
       other.port == port &&
       other.proxyName == proxyName &&
+      other.role == role &&
       other.availability == availability;
 
   @override
-  int get hashCode =>
-      Object.hash(panelInboundId, tag, key, port, proxyName, availability);
+  int get hashCode => Object.hash(
+    panelInboundId,
+    tag,
+    key,
+    port,
+    proxyName,
+    role,
+    availability,
+  );
 
   @override
   String toString() =>
@@ -156,6 +198,15 @@ class ExitOffer {
 
   final Availability availability;
 
+  /// Чем работает МАШИНА целиком.
+  ///
+  /// [NodeRole.relay] ставится только там, где входными оказались ВСЕ её
+  /// прокси, у которых роль вообще известна. Машина со смешанным набором
+  /// остаётся выходом: у неё есть чем выйти, и прятать её было бы потерей
+  /// рабочего выбора — запрет в таком случае несут отдельные прокси
+  /// ([InboundOffer.role]).
+  final NodeRole role;
+
   const ExitOffer({
     required this.key,
     required this.countryCode,
@@ -168,9 +219,13 @@ class ExitOffer {
     this.pingMs,
     this.loadPct,
     this.viaRelay,
+    this.role = NodeRole.unknown,
   });
 
   bool get isAvailable => availability.isAvailable;
+
+  /// Машина заведомо входная — выходом её предлагать нельзя.
+  bool get isRelay => role.isRelay;
 
   Provenance get origin => availability.origin;
 

@@ -350,3 +350,40 @@ func TestProbeWithoutAuthStaysEmpty(t *testing.T) {
 		t.Fatalf("без входа ожидался пустой список, получено %+v", rep.Servers)
 	}
 }
+
+// Выход за релеем обязан прийти в замер С КАРТОЙ релея. Ключ dialer-proxy сам
+// по себе в замере не работает: mihomo ищет релей по имени в живом туннеле,
+// которого во время замера нет, и адаптер провалил бы набор словами «tunnel is
+// invalid» — то есть здоровый узел объявлялся бы отвергнувшим ключ.
+func TestParseProbeNodesResolvesRelayChain(t *testing.T) {
+	const raw = `
+proxies:
+  - {name: "RU Relay", type: vless, server: 10.0.0.1, port: 443, uuid: u1}
+  - {name: "DE Exit", type: vless, server: 10.0.0.2, port: 443, uuid: u2, dialer-proxy: "RU Relay"}
+  - {name: "CA Direct", type: vless, server: 10.0.0.3, port: 443, uuid: u3}
+  - {name: "Dangling", type: vless, server: 10.0.0.4, port: 443, uuid: u4, dialer-proxy: "no such node"}
+`
+	nodes, err := parseProbeNodes([]byte(raw))
+	if err != nil {
+		t.Fatalf("parseProbeNodes: %v", err)
+	}
+	byName := map[string]probeNode{}
+	for _, n := range nodes {
+		byName[n.name] = n
+	}
+	relay := byName["DE Exit"].relayRaw
+	if relay == nil {
+		t.Fatal("цепочка не собрана: выход за релеем пришёл без карты релея")
+	}
+	if relay["name"] != "RU Relay" {
+		t.Fatalf("подставлен не тот релей: %v", relay["name"])
+	}
+	if byName["CA Direct"].relayRaw != nil {
+		t.Error("прямой узел получил релей")
+	}
+	// Ссылка в никуда не должна превращаться в чужую карту: набирать надо
+	// напрямую, а не через первый попавшийся узел.
+	if byName["Dangling"].relayRaw != nil {
+		t.Error("ссылка на несуществующий узел дала релей")
+	}
+}

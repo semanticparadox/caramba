@@ -55,6 +55,38 @@ pub fn parse_user_tag(tag: &str) -> Option<i64> {
     tag.strip_prefix("user_")?.parse::<i64>().ok()
 }
 
+/// Пароль, которым узел знает клиента в TUIC / naive / shadowsocks / shadowtls.
+///
+/// Это ЧЕТВЁРТЫЙ формат в дополнение к трём из шапки модуля, и он НЕ равен
+/// [`proxy_auth_password`]. Различие не косметическое: у Hysteria2 пароль —
+/// единственный секрет, и в него зашита идентичность (`{identity}:{uuid}`),
+/// чтобы узел мог посчитать трафик по одному полю. У TUIC идентичность несёт
+/// отдельное поле `uuid`, у naive — `username`, поэтому туда
+/// `orchestration_service` кладёт голый uuid без дефисов.
+///
+/// Пока подписка отдавала сюда `hy2_password`, узел отвечал
+/// «authentication: token mismatch» (проверено на TUIC-47a0b813, 85.215.196.151:16400),
+/// и вход был мёртв у всех клиентов сразу. Приводим подписку к УЗЛУ, а не
+/// наоборот: конфиги трёх нод уже выкачены с этим паролем, а переписать их
+/// нельзя без переразвёртывания — и такое переразвёртывание выбило бы всех
+/// живых пользователей TUIC ради формата, который сам по себе не лучше.
+///
+/// Отсюда правило: и генератор подписки, и `orchestration_service` зовут ЭТУ
+/// функцию, а не пишут `uuid.replace(...)` у себя.
+pub fn node_user_password(uuid: &str) -> String {
+    uuid.replace('-', "")
+}
+
+/// Достаёт идентичность клиента обратно из [`proxy_auth_password`].
+///
+/// Нужна там, где на руках только `hy2_password` (генератор подписки получает
+/// `UserKeys`, а не `users.id`), но выдать надо `user_{identity}` — логин naive.
+/// Возвращает `None`, если строка не в формате `{i64}:{...}`, чтобы вызывающий
+/// не собрал логин из мусора и не выдал заведомо неработающую учётку.
+pub fn client_identity_from_proxy_password(password: &str) -> Option<i64> {
+    password.split(':').next()?.parse::<i64>().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{config_client_identity, parse_user_tag, proxy_auth_password, user_tag};

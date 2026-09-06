@@ -33,9 +33,9 @@ List<RouteBase> _routes(GlobalKey<NavigatorState> root) => <RouteBase>[
     builder: (_, __) => const Text('protocol'),
   ),
   GoRoute(
-    path: AppRoute.splitTunnel,
+    path: AppRoute.siteRules,
     parentNavigatorKey: root,
-    builder: (_, __) => const Text('enhancements'),
+    builder: (_, __) => const Text('site-rules'),
   ),
   GoRoute(
     path: AppRoute.settingsAutotune,
@@ -126,21 +126,27 @@ void main() {
     expect(find.text('protocol'), findsNothing);
   });
 
-  testWidgets('«Улучшения»: «Назад» возвращает в Настройки, если пришли оттуда', (
-    tester,
-  ) async {
-    final router = _router(at: AppRoute.settings);
-    addTearDown(router.dispose);
-    await _mount(tester, router);
+  // Путь «Правил по сайтам» лежит ПОД настройками (`/settings/site-rules`), и
+  // это отдельная ловушка: похожий на ветку таба путь так и тянет объявить
+  // маршрут внутри ветки — и тогда «Назад» уводило бы в Настройки даже с тех
+  // экранов, откуда сюда не приходили. Маршрут объявлен накладным, и тест
+  // проверяет именно стек, а не совпадение префикса.
+  testWidgets(
+    '«Правила по сайтам»: «Назад» возвращает в Настройки, если пришли оттуда',
+    (tester) async {
+      final router = _router(at: AppRoute.settings);
+      addTearDown(router.dispose);
+      await _mount(tester, router);
 
-    router.go(AppRoute.splitTunnel);
-    await tester.pumpAndSettle();
-    expect(find.text('enhancements'), findsOneWidget);
+      router.go(AppRoute.siteRules);
+      await tester.pumpAndSettle();
+      expect(find.text('site-rules'), findsOneWidget);
 
-    expect(await router.routerDelegate.popRoute(), isTrue);
-    await tester.pumpAndSettle();
-    expect(find.text('settings'), findsOneWidget);
-  });
+      expect(await router.routerDelegate.popRoute(), isTrue);
+      await tester.pumpAndSettle();
+      expect(find.text('settings'), findsOneWidget);
+    },
+  );
 
   testWidgets('логин из шелла тоже возвращает назад, а не закрывает', (
     tester,

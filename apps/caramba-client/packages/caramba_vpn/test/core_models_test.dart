@@ -42,6 +42,59 @@ void main() {
       expect(result.servers.single.country, '');
     });
 
+    test('несёт транспорт, защиту и роль узла', () {
+      // Ядро отдаёт инбаунд целиком: без транспорта экран сводил двадцать
+      // узлов в четыре строки по одному типу, и отказ httpupgrade прятался
+      // за числом соседнего транспорта того же VLESS.
+      const json = '''
+{"servers":[
+  {"id":"HU","name":"HU","type":"vless","server":"h.example","port":443,
+   "country":"DE","transport":"httpupgrade","security":"tls","role":"exit"},
+  {"id":"RU","name":"RU relay","type":"vless","server":"r.example","port":443,
+   "country":"RU","transport":"tcp","security":"reality","role":"relay"}]}
+''';
+      final result = ImportResult.fromJson(json);
+      final hu = result.servers.first;
+      expect(hu.transport, 'httpupgrade');
+      expect(hu.security, 'tls');
+      expect(hu.role, 'exit');
+      expect(hu.isRelay, isFalse);
+      expect(result.servers.last.isRelay, isTrue);
+    });
+
+    test('ядро без этих полей не превращает узел в релей', () {
+      // «Не знаю» и «промежуточный» — разные ответы: спутав их, список
+      // выходов молча потерял бы узлы на старой сборке ядра.
+      final result = ImportResult.fromJson(
+        '{"servers":[{"id":"A","type":"vless"}]}',
+      );
+      final only = result.servers.single;
+      expect(only.transport, '');
+      expect(only.security, '');
+      expect(only.role, '');
+      expect(only.isRelay, isFalse);
+    });
+
+    test('поля переживают сериализацию в JSON и обратно', () {
+      // Профили подключений хранятся на диске через toJson: потеря поля там
+      // означала бы, что после перезапуска релей снова выглядит выходом.
+      const server = ImportedServer(
+        id: 'A',
+        name: 'A',
+        type: 'vless',
+        server: 'a.example',
+        port: 443,
+        country: 'DE',
+        transport: 'ws',
+        security: 'reality',
+        role: 'relay',
+      );
+      final back = ImportedServer.fromMap(server.toJson());
+      expect(back.transport, 'ws');
+      expect(back.security, 'reality');
+      expect(back.role, 'relay');
+    });
+
     test('broken JSON degrades to an empty result', () {
       expect(ImportResult.fromJson('not json').servers, isEmpty);
       expect(ImportResult.fromJson('').servers, isEmpty);

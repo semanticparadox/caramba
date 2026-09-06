@@ -74,7 +74,10 @@ class ExitNodeList extends ConsumerWidget {
           title: auto.value,
           subtitle: _autoSubtitle(inventory, auto),
           selected: selectedKey == null,
-          titleBadges: [if (auto.isStale) const Tag('устарело')],
+          // Слово берётся у подписи, а не пишется константой: при расхождении с
+          // держателем замер свежий, и «устарело» отправляло бы перезамерять
+          // там, где надо снять закрепление. Оба слова — в [AutoLabel.badge].
+          titleBadges: [if (auto.badge.isNotEmpty) Tag(auto.badge)],
           // Замер строки НЕ блокирует: список показан сразу, числа доезжают
           // отдельно, и выбирать во время замера можно.
           onTap: () => onSelect(null),
@@ -134,8 +137,10 @@ class ExitNodeList extends ConsumerWidget {
         ? null
         : (inventory.locationOf(cc)?.displayName ?? cc);
 
-    // Что автоподбор УЖЕ выбрал (или что держит ядро прямо сейчас) — важнее
-    // объяснения, как он работает: первое это факт, второе — инструкция.
+    // Что автоподбор УЖЕ выбрал — важнее объяснения, как он работает: первое
+    // это факт, второе — инструкция. Узел, который держит ядро сейчас, здесь
+    // намеренно НЕ называется: он и так виден галочкой на своей строке, а в
+    // подписи контрола автоподбора он выдавал бы чужой выбор за его собственный.
     final chosen = auto.hasChoice ? auto.subtitle : null;
 
     if (pinned == null) {
@@ -144,8 +149,20 @@ class ExitNodeList extends ConsumerWidget {
     final tail =
         'В пределах страны: $pinned. Нажмите, чтобы снять '
         'закрепление.';
-    return chosen == null ? tail : '$chosen. $tail';
+    return chosen == null ? tail : _joinSentences(chosen, tail);
   }
+}
+
+/// Соединяет два предложения РОВНО одной точкой на стыке.
+///
+/// `chosen` — это [AutoLabel.subtitle], а он иногда УЖЕ законченное
+/// предложение с точкой (устаревший выбор называется через
+/// `AutoLabel._staleText`, который сам кончается на «…переподключении.»).
+/// Слепое `'$chosen. $tail'` в этом случае удваивало точку; здесь точка
+/// добавляется, только если её ещё нет.
+String _joinSentences(String head, String tail) {
+  final h = head.trimRight();
+  return h.endsWith('.') ? '$h $tail' : '$h. $tail';
 }
 
 /// Порядок строк: доступные раньше недоступных, внутри — по задержке, затем по

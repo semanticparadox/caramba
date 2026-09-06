@@ -21,6 +21,7 @@ import 'package:caramba_client/domain/offering/availability.dart';
 import 'package:caramba_client/domain/offering/offering_providers.dart';
 import 'package:caramba_client/features/csm/config_age_card.dart';
 import 'package:caramba_client/features/csm/keep_or_revert_card.dart';
+import 'package:caramba_client/features/home/autopilot_button.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
 import 'package:caramba_client/features/protocol/protocol_truth.dart';
 import 'package:caramba_client/features/servers/access_card.dart';
@@ -631,23 +632,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ),
           _relayRow(relay: relay, autoRelayCountry: relayFromOperator),
           _protocolRow(cfg: cfg, protocols: protocols),
-          // Строка открывает `_pickRoute()` — тот же лист выбора режима
-          // страны, что и «Набор правил» внутри «Улучшения» → «Режим для
-          // страны» (см. showRoutePicker). Это НЕ переход на саму вкладку
-          // «Улучшения» (там ещё блок рекламы и список сайтов), поэтому имя
-          // строки обязано называть именно то, что откроется по тапу —
-          // «Режим для страны», как заголовок того же листа, — а не имя
-          // вкладки, куда лист вложен. Полный путь к «Улучшения» остаётся
-          // строкой в Настройках; здесь — прямой ярлык к одной его части,
-          // и он полезен сам по себе, но только под правильным именем.
+          // Строка открывает `_pickRoute()` — лист «Режим» (showRoutePicker),
+          // и называется его именем. Правило не стилистическое: дважды подряд
+          // строка называлась вкладкой настроек, а открывала один её лист, и
+          // человек шёл искать на вкладке то, чего строка ему не показывала
+          // (регрессия закреплена enhancements_naming_regression_test).
           // Значение — не [CRow] (см. [_RouteModeRow] за обрезку).
           _RouteModeRow(
             value: modes[cfg.route].name,
             onTap: () => _pickRoute(),
           ),
-          _autopilotRow(),
         ],
       ),
+      // Автоподбор вынесен ИЗ группы: он не выбор из списка, а действие, и
+      // форма обязана это говорить (см. [AutopilotButton]).
+      const SizedBox(height: AppSpace.s3),
+      const AutopilotButton(),
       ..._protocolTruthBanner(),
       ..._autopilotBanner(),
       if (!ref
@@ -826,18 +826,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 Relay.defaults[effectiveRelayIndex(cfg.relay, Relay.defaults)],
           ),
           _protocolRow(cfg: cfg, protocols: protocols),
-          // Та же строка, что и в панельной ветке выше, и то же
-          // рассуждение: тап открывает лист «Режим для страны»
-          // (showRoutePicker), а не вкладку «Улучшения» целиком — значит и
-          // называться строка обязана по листу, который откроет, а не по
-          // вкладке, где этот лист лишь один из трёх разделов.
+          // Та же строка, что и в панельной ветке выше, и то же рассуждение:
+          // тап открывает лист «Режим» (showRoutePicker), и имя строки — имя
+          // этого листа.
           _RouteModeRow(
             value: modes[cfg.route].name,
             onTap: () => _pickRoute(),
           ),
-          _autopilotRow(),
         ],
       ),
+      // Та же кнопка, что и в панельной ветке: автоподбор одинаково не
+      // принадлежит группе выборов на обоих путях.
+      const SizedBox(height: AppSpace.s3),
+      const AutopilotButton(),
       ..._protocolTruthBanner(),
       ..._autopilotBanner(),
       if (!chaining.isAvailable) ...[
@@ -998,39 +999,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     ];
   }
 
-  /// Строка автоподбора — вход в режим, которого владелец не нашёл.
-  ///
-  /// Значение отвечает на единственный вопрос, ради которого на неё смотрят:
-  /// подбирали ли вообще и в силе ли ещё тот подбор.
-  Widget _autopilotRow() {
-    final pick = ref.watch(autoPickRecordProvider);
-    final stale = ref.watch(autoStaleProvider);
-    final String value;
-    if (pick == null) {
-      value = 'Не запускали';
-    } else if (stale == AutoStaleReason.tunnelDisagrees ||
-        stale == AutoStaleReason.pinDisagrees) {
-      // Замер тут как раз свежий — не в силе сам ВЫБОР: трафик идёт (или
-      // пойдёт) мимо него. Назвать это «устарел» значило бы отправить человека
-      // перезамерять там, где перезамер ничего не меняет.
-      value = 'Не в силе';
-    } else if (stale != AutoStaleReason.none) {
-      value = 'Устарел';
-    } else {
-      value = '${pick.shortLabel} · ${pick.latencyMs} мс';
-    }
-    return CRow(
-      icon: Lucide.gauge,
-      label: 'Автоподбор',
-      value: value,
-      chevron: true,
-      // Экран живёт в ветке настроек, и своего маршрута у Home для него нет.
-      // Заводить второй путь к тому же экрану значило бы править роутер,
-      // который сейчас держат три исполнителя.
-      onTap: () => context.go('${AppRoute.settings}/autotune'),
-    );
-  }
-
   /// Что именно выбрал автоподбор и что с этим выбором сейчас.
   ///
   /// Текст собирает [autopilotBannerText], и подпись он берёт у ДЕРЖАТЕЛЯ
@@ -1101,17 +1069,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Future<void> _pickRoute() => showRoutePicker(context, ref);
 }
 
-/// Строка «Режим для страны» на Home: подпись и значение на СВОИХ строках.
+/// Строка «Режим» на Home: подпись и значение на СВОИХ строках.
 ///
 /// [CRow] кладёт подпись и значение в одну строку и режет значение
 /// [TextOverflow.ellipsis] без явного `maxLines` — dart:ui подставляет
-/// `maxLines: 1` самим фактом `overflow`. Имена вроде «Россия (полный
-/// обход)» на строке с полноразмерной подписью («Режим для страны» длиннее
-/// бывшей «Улучшения») этим резались на узком экране. [CRow] общий для
-/// всего приложения и здесь не трогается (тот же фикс уже стоит в
-/// [AppliedRouteCard._WrapRow] и в настройках, см.
-/// `_EnhancementsSummaryRow` в settings_screen.dart) — значению нужна не
-/// более широкая колонка, а разрешение перенестись.
+/// `maxLines: 1` самим фактом `overflow`. Двухстрочная раскладка нужна не
+/// подписи, а ЗНАЧЕНИЮ: имена режимов длинные («Российский полный обход»),
+/// и на одной строке они резались на узком экране. Короткое имя подписи
+/// («Режим» вместо «Режим для страны») этого не отменяет — оно лишь отдаёт
+/// значению ещё немного места. [CRow] общий для всего приложения и здесь не
+/// трогается (тот же фикс уже стоит в `_WrapRow` карточки [AppliedRouteCard])
+/// — значению нужна не более широкая колонка, а разрешение перенестись.
 class _RouteModeRow extends StatelessWidget {
   final String value;
   final VoidCallback? onTap;
@@ -1138,7 +1106,7 @@ class _RouteModeRow extends StatelessWidget {
                 const SizedBox(width: AppSpace.s3 + 2),
                 Expanded(
                   child: Text(
-                    'Режим для страны',
+                    'Режим',
                     style: AppType.bodyMd.copyWith(color: c.textHi),
                   ),
                 ),

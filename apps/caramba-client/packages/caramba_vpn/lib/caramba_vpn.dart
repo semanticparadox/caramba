@@ -14,6 +14,8 @@ library;
 
 import 'package:caramba_vpn/src/contract.dart';
 import 'package:caramba_vpn/src/core_policy.dart';
+import 'package:caramba_vpn/src/ffi/caramba_core_bindings.dart'
+    show CarambaCoreMissingSymbol;
 import 'package:caramba_vpn/src/ffi_vpn_connection.dart';
 import 'package:caramba_vpn/src/method_channel_vpn_connection.dart';
 import 'package:caramba_vpn/src/mock_vpn_connection.dart';
@@ -43,6 +45,26 @@ export 'package:caramba_vpn/src/method_channel_vpn_connection.dart'
     show MethodChannelVpnConnection;
 export 'package:caramba_vpn/src/mock_vpn_connection.dart'
     show MockVpnConnection;
+
+/// Отказ означает «такого вызова в этой сборке НЕТ ВОВСЕ», а не «сейчас не
+/// получилось».
+///
+/// ЗАЧЕМ ОТЛИЧАТЬ. Настройки ядра ([VpnConnection.setPolicy],
+/// [VpnConnection.setTunnelMode]) не обязаны быть на каждом мосту: старая
+/// нативная сборка их не регистрирует, старая динамическая библиотека не
+/// экспортирует символ. Для приложения это не поломка, а свойство сборки:
+/// туннель поднимается на умолчаниях, и говорить человеку «настройки не
+/// применились, переподключитесь» тут нельзя — переподключение ничего не
+/// изменит, а баннер не погаснет никогда.
+///
+/// Всё остальное — отказ ЗДЕСЬ И СЕЙЧАС (мост есть, вызов не прошёл), и вот о
+/// нём молчать нельзя: ядро работает не на том, что выбрал человек.
+///
+/// Знание о транспорте остаётся в плагине: у приложения перед глазами только
+/// [VpnConnection], и разбирать там `MissingPluginException` значило бы вернуть
+/// туда канальные подробности, ради сокрытия которых контракт и вынесен.
+bool isMissingCoreBridge(Object error) =>
+    error is MissingPluginException || error is CarambaCoreMissingSymbol;
 
 /// Какой транспорт до ядра использовать.
 enum CarambaVpnBackend {

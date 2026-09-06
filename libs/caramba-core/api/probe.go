@@ -12,6 +12,7 @@ import (
 
 	"github.com/semanticparadox/caramba/libs/caramba-core/profile"
 	"github.com/semanticparadox/caramba/libs/caramba-core/subimport"
+	"github.com/semanticparadox/caramba/libs/caramba-core/subscription"
 	"gopkg.in/yaml.v3"
 )
 
@@ -101,6 +102,15 @@ type probeNode struct {
 	// raw — исходный clash-map прокси. Нужен сборке с ядром: из него строится
 	// адаптер для честной проверки через URLTest.
 	raw map[string]any
+	// relayRaw — clash-map промежуточного узла, если этот выход набирается
+	// ЧЕРЕЗ него (dialer-proxy). nil означает прямой набор.
+	//
+	// Поле существует потому, что dialer-proxy разрешается у mihomo по имени
+	// в ЖИВОМ туннеле, а замер идёт без туннеля: адаптер, собранный отдельно,
+	// провалил бы набор со словами «tunnel is invalid», и классификатор
+	// объявил бы здоровый узел отвергнувшим ключ. Имея карту релея, замер
+	// строит цепочку сам и меряет тот путь, которым туннель и пойдёт.
+	relayRaw map[string]any
 }
 
 // Probe меряет задержку до КАЖДОГО узла текущей загруженной конфигурации, не
@@ -269,6 +279,18 @@ func parseProbeNodes(rawYAML []byte) ([]probeNode, error) {
 	if err := yaml.Unmarshal(rawYAML, &doc); err != nil {
 		return nil, fmt.Errorf("api: разбор узлов конфигурации: %w", err)
 	}
+	// Формы, которые источник называет иначе, чем ядро, чинятся ДО сборки
+	// адаптера: иначе замер меряет не тот провод, которым пойдёт туннель, а
+	// то, во что нераспознанная сеть молча выродилась.
+	for _, px := range doc.Proxies {
+		subscription.NormalizeProxyForCore(px)
+	}
+	byName := make(map[string]map[string]any, len(doc.Proxies))
+	for _, px := range doc.Proxies {
+		if name, _ := px["name"].(string); name != "" {
+			byName[name] = px
+		}
+	}
 	nodes := make([]probeNode, 0, len(doc.Proxies))
 	for _, px := range doc.Proxies {
 		name, _ := px["name"].(string)
@@ -277,12 +299,17 @@ func parseProbeNodes(rawYAML []byte) ([]probeNode, error) {
 		}
 		typ, _ := px["type"].(string)
 		server, _ := px["server"].(string)
+		var relayRaw map[string]any
+		if target, _ := px["dialer-proxy"].(string); target != "" {
+			relayRaw = byName[target]
+		}
 		nodes = append(nodes, probeNode{
-			name:   name,
-			typ:    typ,
-			server: server,
-			port:   anyToInt(px["port"]),
-			raw:    px,
+			name:     name,
+			typ:      typ,
+			server:   server,
+			port:     anyToInt(px["port"]),
+			raw:      px,
+			relayRaw: relayRaw,
 		})
 	}
 	return nodes, nil
@@ -304,6 +331,35 @@ func anyToInt(v any) int {
 		}
 	}
 	return 0
+}
+
+// isUDPProxyType отвечает, бессмысленна ли TCP-проба для этого типа.
+//
+// Список семейств — в subscription: тот же ответ нужен и разбору подписки (там
+// от него зависит поле Transport), а два списка неминуемо разъехались бы.
+func isUDPProxyType(typ string) bool {
+	return subscription.IsUDPOnlyType(typ)
+}
+
+// coreCanBuildProxyType отвечает, есть ли смысл вообще пытаться.
+//
+// naive попал в список осознанно. Раньше импорт подменял его на type:http
+// «чтобы хоть что-то было», и экран говорил про узел неправду дважды: называл
+// чужой протокол и объяснял отказ чужой причиной. Честный ответ — «ядро не
+// умеет Naive», и он не требует ни одного соединения.
+func coreCanBuildProxyType(typ string) bool {
+	return subscription.CoreCanBuildProxyType(typ)
+}
+
+// unsupportedOutcome — итог для типа, который ядро не строит. Ни одного dial:
+// про узел это не говорит ничего, и выдумывать про его адрес нечего.
+func unsupportedOutcome(typ string) probeOutcome {
+	return probeOutcome{
+		latencyMs: -1,
+		tcpMs:     -1,
+		verdict:   ProbeVerdictUnsupported,
+		detail:    "the core has no outbound for proxy type " + typ + ", so nothing was dialled",
+	}
 }
 
 // tcpProbe меряет RTT установки TCP-соединения с узлом. Возвращает -1, если
