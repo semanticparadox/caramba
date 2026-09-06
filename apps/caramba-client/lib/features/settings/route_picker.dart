@@ -1,4 +1,4 @@
-/// Пикер маршрута — один на все экраны.
+/// Пикер режима для страны — один на все экраны.
 ///
 /// Он открывался из двух мест (Home и Настройки) двумя почти одинаковыми
 /// кусками кода, и разойтись им было достаточно одной правки: на Home список
@@ -15,6 +15,15 @@
 /// пообещать, что зеркало их отдаст, — и он приходит из
 /// [routePresetOffersProvider] со статусом «неизвестно». Такая строка остаётся
 /// выбираемой (остальные правила пресета работают), но помечена причиной.
+///
+/// Четвёртое: «Только блок рекламы» перестал быть режимом. Блок рекламы теперь
+/// отдельный переключатель на «Улучшениях» и работает поверх ЛЮБОГО режима, а
+/// эта строка вдобавок уводила весь трафик мимо туннеля — то есть выбор
+/// «резать рекламу» молча выключал VPN. Строка не удалена: сохранённый
+/// `CoreConfig.route` — это ИНДЕКС в [RoutingMode.defaults], и вынуть элемент
+/// значило бы сдвинуть выбор живых пользователей на соседний режим. Она видна
+/// и выключена с причиной (02-SPEC.md 7.9), кроме случая, когда именно она
+/// сейчас и выбрана: отнять у человека его текущий выбор нельзя.
 library;
 
 import 'package:flutter/material.dart';
@@ -49,6 +58,15 @@ Future<int?> showRoutePicker(BuildContext context, WidgetRef ref) async {
   final options = <({String name, String desc, String? icon})>[];
   for (var i = 0; i < modes.length; i++) {
     final m = modes[i];
+    if (m.id == kAdBlockRouteId && cfg.route != i) {
+      disabled.putIfAbsent(
+        i,
+        () =>
+            'Это отдельный переключатель: «Улучшения» → «Блокировать рекламу '
+            'и трекеры». Он работает поверх любого режима, а как режим эта '
+            'строка ещё и уводит весь трафик мимо VPN.',
+      );
+    }
     final offer = offerFor(i);
     // Пресета нет в зеркале реестра ядра — значит списки разъехались, и это
     // факт, а не повод молча показать строку как обычную.
@@ -68,7 +86,7 @@ Future<int?> showRoutePicker(BuildContext context, WidgetRef ref) async {
 
   final picked = await showPickerSheet(
     context: context,
-    title: 'Маршрутизация',
+    title: 'Режим для страны',
     subtitle:
         'Какие сайты и сервисы идут через VPN, а какие напрямую. Это правила '
         'трафика, а не страна входа — вход выбирается в «Relay (вход)».',
@@ -78,6 +96,9 @@ Future<int?> showRoutePicker(BuildContext context, WidgetRef ref) async {
   );
   if (picked == null || !context.mounted) return null;
   CsmSettingsBridge.setRoute(ref, picked);
-  showCarambaToast(context, 'Маршрут: ${modes[picked].name}');
+  showCarambaToast(context, 'Режим: ${modes[picked].name}');
   return picked;
 }
+
+/// Идентификатор режима, ставшего переключателем.
+const String kAdBlockRouteId = 'adblock';

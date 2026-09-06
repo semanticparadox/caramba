@@ -48,16 +48,36 @@ class CorePolicySplit {
   /// Домены, которые уходят мимо туннеля.
   final List<String> bypassDomains;
 
+  /// Домены, которые в режиме `allow` идут ЧЕРЕЗ туннель, а всё остальное —
+  /// мимо. Правило доменное: «youtube.com» покрывает поддомены, соединение по
+  /// голому IP под него не попадает.
+  final List<String> allowDomains;
+
+  /// Теги GEOSITE того же allow-списка (готовые наборы доменов сервисов).
+  /// Ядро принимает только закрытый словарь: незнакомый тег отвергается
+  /// целиком, а не пропускается молча.
+  final List<String> allowSites;
+
   const CorePolicySplit({
     this.mode = 'off',
     this.apps = const <String>[],
     this.bypassDomains = const <String>[],
+    this.allowDomains = const <String>[],
+    this.allowSites = const <String>[],
   });
 
+  /// Пустые списки НЕ пишутся.
+  ///
+  /// `allowDomains`/`allowSites` появились позже остальной политики, и ABI v2
+  /// их не знает. Слать их всегда значит менять форму сообщения у всех, кто
+  /// раздельным туннелем не пользуется вовсе; ядро читает отсутствие поля как
+  /// пустой список, и это ровно то же самое, только совместимо.
   Map<String, Object?> toJson() => <String, Object?>{
     'mode': mode,
     'apps': apps,
     'bypassDomains': bypassDomains,
+    if (allowDomains.isNotEmpty) 'allowDomains': allowDomains,
+    if (allowSites.isNotEmpty) 'allowSites': allowSites,
   };
 }
 
@@ -110,6 +130,13 @@ class CorePolicy {
   final bool? fakeIp;
   final bool? killSwitch;
 
+  /// Блок рекламы и трекеров ПОВЕРХ выбранного пресета (`Policy.BlockAds`).
+  ///
+  /// Отдельно от [preset] намеренно: до него «резать рекламу» означало сменить
+  /// режим страны, то есть в интерфейсе это была не галочка, а выбор из
+  /// списка.
+  final bool? adblock;
+
   final CorePolicyDns? dns;
   final CorePolicySplit? split;
 
@@ -122,6 +149,7 @@ class CorePolicy {
     this.ipv6,
     this.fakeIp,
     this.killSwitch,
+    this.adblock,
     this.dns,
     this.split,
   });
@@ -138,6 +166,7 @@ class CorePolicy {
     bool? ipv6,
     bool? fakeIp,
     bool? killSwitch,
+    bool? adblock,
     CorePolicyDns? dns,
     CorePolicySplit? split,
   }) => CorePolicy(
@@ -149,6 +178,7 @@ class CorePolicy {
     ipv6: ipv6 ?? this.ipv6,
     fakeIp: fakeIp ?? this.fakeIp,
     killSwitch: killSwitch ?? this.killSwitch,
+    adblock: adblock ?? this.adblock,
     dns: dns ?? this.dns,
     split: split ?? this.split,
   );
@@ -165,6 +195,7 @@ class CorePolicy {
     if (ipv6 != null) map['ipv6'] = ipv6;
     if (fakeIp != null) map['fakeIp'] = fakeIp;
     if (killSwitch != null) map['killSwitch'] = killSwitch;
+    if (adblock != null) map['adblock'] = adblock;
     if (dns != null) map['dns'] = dns!.toJson();
     if (split != null) map['split'] = split!.toJson();
     return map;

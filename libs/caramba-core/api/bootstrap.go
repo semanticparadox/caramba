@@ -255,6 +255,8 @@ func (c *Core) routingForBuild(plan bootstrapPlan) (*routing.Config, routeSnapsh
 	c.mu.Lock()
 	presetID := c.presetID
 	current := c.policy.Routing
+	blockAds := c.policy.BlockAds
+	allowSites := c.policy.Split.AllowSitesActive()
 	c.mu.Unlock()
 
 	snap := routeSnapshot{
@@ -262,28 +264,88 @@ func (c *Core) routingForBuild(plan bootstrapPlan) (*routing.Config, routeSnapsh
 		geoManaged: plan.boot.Managed,
 		geoURL:     plan.boot.GeoSiteURL,
 	}
-	// Своя конфигурация без пресета: состав правил известен, происхождение —
-	// нет, и разбирать её на источники здесь не по чему. Теги GEOSITE всё
-	// равно считаем: база нужна им ровно так же, как правилам пресета.
-	if current != nil {
-		snap.source = RouteSourceCustom
-		n := len(current.Rules)
-		snap.rules = &n
-		snap.geositeTags = geositeTagsOf(current.Rules)
+
+	// Сайтовый allow-список отменяет режим страны, и отменяет его ЗДЕСЬ, а не
+	// только в сборке конфига. Иначе отчёт называл бы применённым тот пресет,
+	// чьи правила в туннель не попали, — то есть ровно та ложь, ради
+	// устранения которой отчёт и написан.
+	preset, fromRegistry := routing.PresetByID(presetID)
+
+	if fromRegistry && !allowSites {
+		if blockAds {
+			preset = routing.WithAdBlock(preset)
+		}
+		return c.buildPresetRouting(preset, plan, snap)
 	}
-	if presetID == "" {
-		return current, snap
+
+	// Дальше страновой маршрутизации нет: либо пресет отменён сайтовым
+	// списком, либо его не выбирали, либо правила поданы напрямую (SetRouting).
+	if fromRegistry || current == nil {
+		if !blockAds {
+			// Маршрутизации не остаётся. Возвращается nil: вызывающий тогда НЕ
+			// подменяет policy.Routing, а сборка конфига сама срежет отменённый
+			// пресет до локальной сети (profile.effectiveRouting).
+			return nil, snap
+		}
+		// Блок рекламы остаётся единственным содержимым маршрутизации. Финал
+		// НЕ берётся из реестра: «пресета нет» исторически означает весь
+		// трафик в туннель, и зашитый DIRECT молча выключил бы его. При
+		// сайтовом списке финал всё равно назначит сам список.
+		final := routing.ActionProxy
+		if allowSites {
+			final = routing.ActionDirect
+		}
+		ads := routing.AdBlockOnlyPreset(final)
+		if ads.ID == "" {
+			return nil, snap
+		}
+		return c.buildPresetRouting(ads, plan, snap)
 	}
-	preset, ok := routing.PresetByID(presetID)
-	if !ok {
-		return current, snap
+
+	// Своя конфигурация (SetRouting) без сайтового списка: происхождение правил
+	// неизвестно, разбирать её на источники не по чему.
+	effective := *current
+	snap.source = RouteSourceCustom
+	if blockAds && !hasAdBlockRule(effective.Rules) {
+		// Провайдера здесь взять неоткуда: адрес зеркала знает пресет, а не
+		// поданная снаружи конфигурация. Остаётся встроенная база mihomo —
+		// честная подстраховка, судьбу которой опишет отчёт о GEOSITE.
+		// Правила копируются в новый срез: current принадлежит c.policy, и
+		// дописывать в него значило бы менять политику на подъёме.
+		effective.Rules = append([]routing.Rule{{
+			Type:   routing.MatchGeosite,
+			Value:  routing.AdBlockGeositeTag,
+			Action: routing.ActionReject,
+		}}, effective.Rules...)
 	}
+	n := len(effective.Rules)
+	snap.rules = &n
+	snap.geositeTags = geositeTagsOf(effective.Rules)
+	return &effective, snap
+}
+
+// hasAdBlockRule — есть ли в наборе хоть одно правило блока рекламы.
+func hasAdBlockRule(rules []routing.Rule) bool {
+	for _, r := range rules {
+		if r.Action != routing.ActionReject {
+			continue
+		}
+		if (r.Type == routing.MatchRuleSet && r.Value == routing.AdBlockRuleSet) ||
+			(r.Type == routing.MatchGeosite && r.Value == routing.AdBlockGeositeTag) {
+			return true
+		}
+	}
+	return false
+}
+
+// buildPresetRouting собирает конфигурацию пресета и сырьё отчёта о ней.
+func (c *Core) buildPresetRouting(preset routing.Preset, plan bootstrapPlan, snap routeSnapshot) (*routing.Config, routeSnapshot) {
 	cfg, rep := preset.BuildWithReport(plan.pool, profile.CarambaSelector)
 	if err := cfg.Validate(); err != nil {
 		// Несогласованный набор правил лучше не подсовывать ядру: остаёмся на
 		// том, что уже было применено. Отчёт при этом обязан описывать ТО, что
 		// осталось в силе, а не сборку, которая была отвергнута.
-		return current, snap
+		return nil, snap
 	}
 	snap.source = RouteSourcePreset
 	snap.preset = &rep
@@ -322,15 +384,30 @@ func presetCountry(presetID string) string {
 	return preset.Country
 }
 
-// ruleSetNames перечисляет имена rule-set'ов пресета (в порядке объявления).
-func ruleSetNames(presetID string) []string {
-	preset, ok := routing.PresetByID(presetID)
-	if !ok {
-		return nil
+// ruleSetNames перечисляет имена rule-set'ов, которые понадобятся сборке.
+//
+// blockAds добавляет список рекламы к спискам пресета: он приходит не из
+// пресета, а из отдельного переключателя, и незаказанный каталогу список
+// означал бы включённый блок рекламы без единого проверенного источника.
+// Дубль невозможен — пресет со своим блоком рекламы уже объявил то же имя,
+// и оно отсеивается здесь же.
+func ruleSetNames(presetID string, blockAds bool) []string {
+	var out []string
+	seen := map[string]struct{}{}
+	add := func(name string) {
+		if _, dup := seen[name]; dup {
+			return
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
 	}
-	out := make([]string, 0, len(preset.Providers))
-	for _, p := range preset.Providers {
-		out = append(out, p.Name)
+	if preset, ok := routing.PresetByID(presetID); ok {
+		for _, p := range preset.Providers {
+			add(p.Name)
+		}
+	}
+	if blockAds {
+		add(routing.AdBlockRuleSet)
 	}
 	return out
 }

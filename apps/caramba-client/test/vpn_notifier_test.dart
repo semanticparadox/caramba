@@ -36,7 +36,16 @@ class FakeVpnConnection with FakeCsmDevice implements VpnConnection {
   bool failPolicy = false;
 
   @override
-  VpnStatus get currentStatus => const VpnStatus.disconnected();
+  VpnStatus get currentStatus => _current;
+
+  VpnStatus _current = const VpnStatus.disconnected();
+
+  /// Что ответит ПЛАТФОРМА на вопрос о подлинной стадии. Отдельно от того, что
+  /// приложение помнит: расхождение между этими двумя и есть проверяемый случай.
+  VpnStatus platformTruth = const VpnStatus.disconnected();
+
+  /// Сколько раз приложение спросило платформу.
+  int platformAsks = 0;
 
   @override
   Stream<VpnStatus> get status => _statusCtrl.stream;
@@ -94,9 +103,22 @@ class FakeVpnConnection with FakeCsmDevice implements VpnConnection {
   @override
   Future<void> disconnect() async => calls.add('disconnect');
 
+  /// Как нативная сторона: ответ уходит в общий поток статуса, отдельного
+  /// канала для него нет.
+  @override
+  Future<VpnStatus> refreshStatus() async {
+    platformAsks++;
+    calls.add('refreshStatus');
+    emit(platformTruth);
+    return platformTruth;
+  }
+
   /// Стадия «пришла от ядра»: нотифаер обязан не только показать её, но и
   /// разбудить сторожа доступа.
-  void emit(VpnStatus status) => _statusCtrl.add(status);
+  void emit(VpnStatus status) {
+    _current = status;
+    _statusCtrl.add(status);
+  }
 
   @override
   Future<void> dispose() async => _statusCtrl.close();
@@ -345,6 +367,51 @@ void main() {
 
       expect(asked, afterStop, reason: 'вне сессии спрашивать некого и незачем');
       guard.dispose();
+    });
+  });
+
+  group('правда о стадии', () {
+    test('переспрос платформы снимает пережившее туннель «подключено»', () async {
+      // Кадр из нативного кэша: он пережил и туннель, и прошлый запуск
+      // приложения. Пока его не переспросили, приложение утверждает защиту.
+      final conn = FakeVpnConnection();
+      final notifier = build(conn, profile: rawProfile());
+      conn.emit(
+        VpnStatus(
+          stage: VpnStage.connected,
+          connectedSince: DateTime.now().subtract(
+            const Duration(minutes: 3, seconds: 35),
+          ),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(notifier.state.stage, VpnStage.connected);
+
+      // Платформа знает правду: сеанса нет.
+      conn.platformTruth = const VpnStatus.disconnected();
+      await notifier.refreshStage();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(conn.platformAsks, 1);
+      expect(notifier.state.stage, VpnStage.disconnected);
+      expect(
+        notifier.state.connectedSince,
+        isNull,
+        reason: 'таймер не имеет права идти от подъёма, которого больше нет',
+      );
+    });
+
+    test('подтверждённый туннель переспросом не рвётся', () async {
+      final conn = FakeVpnConnection();
+      final notifier = build(conn, profile: rawProfile());
+      const live = VpnStatus(stage: VpnStage.connected);
+      conn.emit(live);
+      conn.platformTruth = live;
+
+      await notifier.refreshStage();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(notifier.state.stage, VpnStage.connected);
     });
   });
 }

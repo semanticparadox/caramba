@@ -34,14 +34,11 @@ class CarambaVpnService : VpnService() {
         const val NOTIF_ID = 0x6361
         const val POLL_INTERVAL_MS = 1000L
 
-        // TUN interface parameters. The mihomo core terminates the tunnel; these
-        // are the local virtual-interface settings (private CGNAT-range address,
-        // catch-all routes, DNS handled inside the core's fake-ip stack).
-        const val TUN_ADDRESS = "172.19.0.1"
-        const val TUN_PREFIX = 30
-        const val TUN_MTU = 1500
-        const val TUN_DNS = "1.1.1.1"
-        const val TUN_DNS_FALLBACK = "8.8.8.8"
+        // Параметры TUN-интерфейса переехали в CarambaTun (CarambaTunnelWitness.kt).
+        // Их читают ДВОЕ: сервис строит по ним интерфейс, свидетель по ним же его
+        // узнаёт. Вторая копия адреса разошлась бы с первой молча, и свидетель
+        // перестал бы находить живой туннель — то есть начал бы врать в самую
+        // опасную сторону.
     }
 
     private var tunInterface: ParcelFileDescriptor? = null
@@ -86,6 +83,10 @@ class CarambaVpnService : VpnService() {
             // Already up: a second connect replaces the session. Tear down first.
             stopTunnel(CarambaStage.CONNECTING, "Switching server")
         }
+        // Сеанс открыт: с этого момента шина имеет право отдавать «connected».
+        // Открывается ДО первого кадра, потому что закрывается он в stopTunnel, и
+        // пара обязана быть симметричной на всех путях выхода.
+        CarambaVpnBus.openSession()
         publishStatus(CarambaStage.CONNECTING, if (rawMode) "Importing profile" else "Securing tunnel")
 
         // Foreground BEFORE heavy work so the system does not kill us mid-setup.
@@ -196,18 +197,53 @@ class CarambaVpnService : VpnService() {
     }
 
     private fun pollLoop(c: CarambaCore) {
+        // Наблюдение за счётчиками поднятого адаптера. Своё на каждый подъём:
+        // «уже отвечал» и базовый отсчёт отброшенных принадлежат конкретному
+        // TUN, а не сервису.
+        val tun = CarambaTunWatch()
         while (running.get()) {
             try {
                 val status = c.status()
+                // Сеанс свернули, пока читался статус. Этот снимок описывает уже
+                // ПРОШЛОЕ, и опубликовать его — значит оставить в шине «connected»
+                // поверх «disconnected», который stopTunnel вот-вот отправит.
+                // Именно так кэш шины переживал туннель и врал следующему запуску.
+                if (!running.get()) break
                 // Prefer the core's connectedSinceMs; fall back to the local mark
                 // so the UI uptime timer starts even if the core reports 0.
                 val since = if (status.connectedSinceMs > 0) status.connectedSinceMs else connectedSinceMs
-                publishStatusSnapshot(
-                    CarambaStatusSnapshot(status.stage, status.detail, since)
-                )
+                // copy, а не сборка нового снимка из трёх полей: пересборка
+                // роняла activeProxy/mode/mixedPort, и Android оставался без
+                // сверки узла.
+                publishStatusSnapshot(status.copy(connectedSinceMs = since))
 
                 if (status.stage == CarambaStage.CONNECTED) {
                     publishTraffic(c.traffic())
+                    // ПОДНЯЛИСЬ БЕЗ АДАПТЕРА — и это не то состояние, которое
+                    // можно просто не называть защитой.
+                    //
+                    // Проверка на устройстве поймала подъём, у которого не было
+                    // строки «[TUN] Tun adapter listening»: интерфейс создан,
+                    // система гонит в него весь трафик, а mihomo к дескриптору
+                    // не подключился. Сеть на телефоне при этом мертва ЦЕЛИКОМ —
+                    // не «VPN не работает», а «интернета нет», потому что
+                    // маршрут по умолчанию ведёт в трубу без читателя.
+                    //
+                    // Поэтому туннель опускается, а не остаётся висеть молча:
+                    // это возвращает человеку сеть тем же действием, которым
+                    // снимает ложное «Защищено». Автоповтора здесь намеренно
+                    // нет: причина не в сети, а в подъёме, и цикл повторов
+                    // пересоздавал бы ту же чёрную дыру, пока человек смотрит
+                    // на «переподключение». Повтор — решение человека, как и
+                    // всякий обрыв туннеля в этом приложении.
+                    if (tun.unserviced()) {
+                        Log.e(
+                            "CarambaVpnService",
+                            "TUN adapter is not being serviced (no reader on the fd); tearing down",
+                        )
+                        stopTunnel(CarambaStage.ERROR, CarambaFailureReason.TUN_NOT_SERVICED)
+                        break
+                    }
                 } else {
                     publishTraffic(CarambaTrafficSnapshot.ZERO)
                 }
@@ -226,6 +262,11 @@ class CarambaVpnService : VpnService() {
 
     private fun stopTunnel(stage: String, detail: String?) {
         running.set(false)
+        // Сеанс закрывается ПЕРВЫМ действием, до down() и до любых публикаций:
+        // разбор занимает сотни миллисекунд, и всё это время шина не должна
+        // отдавать никому «connected» — ни опоздавшему кадру опроса, ни движку
+        // Flutter, который в этот момент подключился заново.
+        CarambaVpnBus.closeSession()
         pollThread?.interrupt()
         pollThread = null
 
@@ -257,6 +298,12 @@ class CarambaVpnService : VpnService() {
         if (running.get() || core != null) {
             stopTunnel(CarambaStage.DISCONNECTED, null)
         }
+        // Безусловно, даже когда поднимать было нечего: сервис уходит, туннеля
+        // в этом процессе больше нет. Процесс же остаётся жить, и открытый
+        // сеанс пережил бы того, кто его открыл, — а именно на этом кэш и
+        // начинал врать. Путь без stopTunnel не гипотетический: подъём, упавший
+        // на buildInterface, уходит сразу в stopSelf().
+        CarambaVpnBus.closeSession()
         super.onDestroy()
     }
 
@@ -271,15 +318,15 @@ class CarambaVpnService : VpnService() {
     private fun buildInterface(serverName: String): ParcelFileDescriptor {
         val builder = Builder()
             .setSession(if (serverName.isNotEmpty()) "exarobot — $serverName" else "exarobot")
-            .setMtu(TUN_MTU)
-            .addAddress(TUN_ADDRESS, TUN_PREFIX)
+            .setMtu(CarambaTun.MTU)
+            .addAddress(CarambaTun.ADDRESS, CarambaTun.PREFIX)
             // Catch-all routes: send all IPv4 (and IPv6) traffic into the tunnel.
             // The mihomo core's rule engine then decides direct vs proxy per the
             // panel config + client policy (split tunnel is applied inside rules).
             .addRoute("0.0.0.0", 0)
             .addRoute("::", 0)
-            .addDnsServer(TUN_DNS)
-            .addDnsServer(TUN_DNS_FALLBACK)
+            .addDnsServer(CarambaTun.DNS)
+            .addDnsServer(CarambaTun.DNS_FALLBACK)
 
         // Keep our own app out of the tunnel so config/subscription fetches and
         // the management plane never loop back through mihomo while connecting.

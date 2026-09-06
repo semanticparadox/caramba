@@ -3,14 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/models/protocol.dart';
-import 'package:caramba_client/data/models/split_app.dart';
 import 'package:caramba_client/data/models/csm_settings.dart';
 import 'package:caramba_client/features/settings/reconnect_banner.dart';
 import 'package:caramba_client/features/csm/config_age_card.dart';
 import 'package:caramba_client/features/csm/keep_or_revert_card.dart';
 import 'package:caramba_client/features/settings/csm_settings_bridge.dart';
 import 'package:caramba_client/features/settings/csm_write_status_note.dart';
-import 'package:caramba_client/features/settings/route_picker.dart';
+import 'package:caramba_client/features/settings/enhancements_summary.dart';
+import 'package:caramba_client/features/settings/route_report.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
@@ -21,6 +21,7 @@ import 'package:caramba_client/state/vpn_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/vpn/core_policy.dart';
 import 'package:caramba_client/theme/tokens.dart';
+import 'package:caramba_client/theme/typography.dart';
 import 'package:caramba_client/widgets/lucide.dart';
 import 'package:caramba_client/widgets/ui.dart';
 
@@ -38,7 +39,6 @@ class SettingsScreen extends ConsumerWidget {
     final settingsN = ref.read(settingsProvider.notifier);
 
     final protocols = ref.watch(protocolsProvider);
-    final modes = ref.watch(routingModesProvider);
     final isLight = settings.themeMode == ThemeMode.light;
     final tunnelMode = ref.watch(tunnelModeProvider);
     final authed = ref.watch(authProvider).stage == AuthStage.authenticated;
@@ -78,7 +78,7 @@ class SettingsScreen extends ConsumerWidget {
               children: [
                 CRow(
                   icon: Lucide.shield,
-                  label: 'Протокол',
+                  label: 'Тип подключения',
                   value: protocols[cfg.protocol].name,
                   chevron: true,
                   trailing: const CsmProvenanceTag(
@@ -86,17 +86,32 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                   onTap: () => context.go(AppRoute.protocol),
                 ),
-                CRow(
-                  icon: Lucide.route,
-                  label: 'Маршрутизация',
-                  value: modes[cfg.route].name,
-                  chevron: true,
+                // Одна строка вместо двух.
+                //
+                // «Маршрутизация» и «Раздельное туннелирование» жили в разных
+                // разделах, хотя решают один вопрос — что и как идёт через
+                // туннель, — и ни одно из двух имён не говорило человеку, что
+                // за ним. Обе ведут на «Улучшения», где блок рекламы, список
+                // сайтов и режим страны лежат вместе и подписаны тем, что
+                // ядро реально применило.
+                //
+                // Значение — не [CRow], а [_EnhancementsSummaryRow]: сводка
+                // складывается из режима, счётчика сайтов и статуса рекламы
+                // (см. [enhancementsSummary]) и легко перерастает половину
+                // строки, которую [CRow] оставляет колонке значения. На узком
+                // экране это резало «только 1 сайт · без рекламы» до «...
+                // без ре…» посреди слова — [CRow] общий для всего приложения
+                // и здесь не трогается (тот же выбор уже сделан в
+                // [AppliedRouteCard] для собственных длинных строк).
+                _EnhancementsSummaryRow(
+                  value: enhancementsSummary(
+                    cfg,
+                    applied: ref.watch(appliedRouteProvider).valueOrNull,
+                  ),
                   trailing: const CsmProvenanceTag(
                     settingKey: CsmSettingKey.preset,
                   ),
-                  // Лист общий с Home: две копии этого выбора уже успели
-                  // разойтись — на Home он открывался без карты недоступного.
-                  onTap: () => showRoutePicker(context, ref),
+                  onTap: () => context.go(AppRoute.splitTunnel),
                 ),
                 CRow(
                   label: 'Kill-switch',
@@ -248,17 +263,6 @@ class SettingsScreen extends ConsumerWidget {
                     }
                   },
                 ),
-                CRow(
-                  label: 'Раздельное туннелирование',
-                  value: cfg.splitMode == SplitMode.off
-                      ? 'Выкл'
-                      : '${cfg.splitCount} прил.',
-                  chevron: true,
-                  trailing: const CsmProvenanceTag(
-                    settingKey: CsmSettingKey.splitMode,
-                  ),
-                  onTap: () => context.go(AppRoute.splitTunnel),
-                ),
               ],
             ),
 
@@ -395,6 +399,69 @@ class SettingsScreen extends ConsumerWidget {
           .map((o) => (name: o.name, desc: o.desc, icon: null as String?))
           .toList(),
       selected: selected,
+    );
+  }
+}
+
+/// Строка «Улучшения»: подпись и сводка на СВОИХ строках, а не в одной.
+///
+/// [CRow] кладёт подпись и значение в одну строку и режет значение
+/// [TextOverflow.ellipsis] — а обрезка у dart:ui включается уже тем, что
+/// `overflow` задан, ДАЖЕ без `maxLines`: движок молча подставляет
+/// `maxLines: 1`, когда предела нет явно. Тут это резало «только 1 сайт ·
+/// без рекламы» до «... · бе…» ровно на границе слова. [CRow] общий для
+/// всего приложения и здесь не трогается (тот же фикс уже стоит в
+/// [AppliedRouteCard._WrapRow] для карточки «Что применилось») — сводке
+/// нужна не более широкая колонка, а разрешение перенестись, поэтому она
+/// вынесена под подпись, на всю ширину строки.
+class _EnhancementsSummaryRow extends StatelessWidget {
+  final String value;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+
+  const _EnhancementsSummaryRow({
+    required this.value,
+    this.trailing,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 54),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpace.s4,
+          vertical: AppSpace.s3,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                LucideIcon(Lucide.sliders, color: c.textMed, size: 20),
+                const SizedBox(width: AppSpace.s3 + 2),
+                Expanded(
+                  child: Text(
+                    'Улучшения',
+                    style: AppType.bodyMd.copyWith(color: c.textHi),
+                  ),
+                ),
+                if (trailing != null) trailing!,
+                const SizedBox(width: AppSpace.s2),
+                LucideIcon(Lucide.chevronRight, color: c.textLow, size: 18),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text(
+              value,
+              style: AppType.bodySm.copyWith(color: c.textMed),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

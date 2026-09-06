@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/features/auth/login_screen.dart';
 import 'package:caramba_client/features/autotune/autotune_screen.dart';
+import 'package:caramba_client/features/billing/plans_screen.dart';
 import 'package:caramba_client/features/connections/connection_import_screen.dart';
 import 'package:caramba_client/features/connections/connections_screen.dart';
 import 'package:caramba_client/features/csm/documents_screen.dart';
@@ -124,6 +125,123 @@ String _pathOf(String location) {
   return q < 0 ? location : location.substring(0, q);
 }
 
+/// Роутер приложения. От [GoRouter] отличается ровно одним: маршрут из
+/// [AppRoute.overlays] ЛОЖИТСЯ НА СТЕК, а не заменяет его.
+///
+/// ПОЧЕМУ ЭТО ЖИВЁТ В РОУТЕРЕ, А НЕ В ЭКРАНАХ. `context.go` не переходит, а
+/// заменяет весь стек: после `go('/protocol')` в корневом навигаторе остаётся
+/// одна страница, шелл из-под неё исчезает, и системной кнопке «Назад»
+/// нечего снимать — Android закрывает приложение целиком, а вместе с ним
+/// умирал и туннель. Мест вызова таких переходов около тридцати, в пятнадцати
+/// файлах, и каждое из них — отдельный шанс написать `go` там, где нужен
+/// `push`. Решение принимается один раз и здесь.
+///
+/// Обратная сторона уже написана: почти каждый полноэкранный экран закрывается
+/// через `if (context.canPop()) context.pop()` и лишь потом падает в запасное
+/// `go(...)`. То есть приложение всегда рассчитывало на стек — его просто
+/// никто не создавал.
+class CarambaRouter extends GoRouter {
+  /// [canOverlay] — можно ли сейчас класть [location] поверх стека. Гейт
+  /// навигации ([resolveRedirect]) умеет увести с маршрута; класть поверх
+  /// приложения экран, который редирект тут же заменит, значит оставить в
+  /// стеке чужую страницу. Спрашиваем заранее.
+  factory CarambaRouter({
+    required List<RouteBase> routes,
+    required GoRouterRedirect redirect,
+    required GlobalKey<NavigatorState> navigatorKey,
+    required String initialLocation,
+    Listenable? refreshListenable,
+    bool Function(String location)? canOverlay,
+  }) {
+    final config = ValueNotifier<RoutingConfig>(
+      RoutingConfig(routes: routes, redirect: redirect),
+    );
+    return CarambaRouter._(
+      config,
+      canOverlay,
+      navigatorKey: navigatorKey,
+      initialLocation: initialLocation,
+      refreshListenable: refreshListenable,
+    );
+  }
+
+  CarambaRouter._(
+    ValueNotifier<RoutingConfig> config,
+    this._canOverlay, {
+    required GlobalKey<NavigatorState> navigatorKey,
+    required String initialLocation,
+    super.refreshListenable,
+  }) : _config = config,
+       super.routingConfig(
+         routingConfig: config,
+         navigatorKey: navigatorKey,
+         initialLocation: initialLocation,
+       );
+
+  /// Конфигурация принадлежит нам (у [GoRouter.routingConfig] владельца нет),
+  /// поэтому и закрывать её нам.
+  final ValueNotifier<RoutingConfig> _config;
+
+  final bool Function(String location)? _canOverlay;
+
+  @override
+  void go(String location, {Object? extra}) {
+    // Повторный переход на уже открытый экран (двойной тап по строке, возврат
+    // по той же ссылке). Ни push, ни go здесь не годятся: первый положил бы
+    // вторую копию, и «Назад» вернуло бы на тот же экран; второй СНЁС БЫ стек,
+    // из-под уже открытого экрана — и «Назад» снова закрыло бы приложение.
+    // Мы уже там, где просят.
+    if (AppRoute.isOverlay(location) && _topLocation() == _pathOf(location)) {
+      return;
+    }
+    if (opensOverStack(location)) {
+      // Результат push'а — это то, что вернёт экран через `pop(value)`. Здесь
+      // его никто не ждёт: `go` ничего не возвращает по контракту.
+      unawaited(push<void>(location, extra: extra));
+      return;
+    }
+    super.go(location, extra: extra);
+  }
+
+  /// Ляжет ли переход на [location] поверх текущего стека.
+  ///
+  /// Открыто для теста: это единственное решение, которое здесь принимается, и
+  /// проверять его наблюдением за живым навигатором дороже и хуже.
+  @visibleForTesting
+  bool opensOverStack(String location) {
+    if (!AppRoute.isOverlay(location)) return false;
+    final current = routerDelegate.currentConfiguration;
+    // Под экраном обязано быть само приложение. На сплеше, логине холодного
+    // старта и в энроллменте шелла ещё нет, и класть поверх нечего: там
+    // маршрут именно ЗАМЕНЯЕТ то, что показано.
+    if (current.isEmpty || current.matches.first is! ShellRouteMatch) {
+      return false;
+    }
+    final gate = _canOverlay;
+    if (gate != null && !gate(location)) return false;
+    return true;
+  }
+
+  /// Путь верхней СТРАНИЦЫ стека. Ветка шелла раскрывается до листа: на
+  /// вкладках верхняя страница это `/home` или `/settings`, а не сам шелл.
+  String? _topLocation() {
+    final current = routerDelegate.currentConfiguration;
+    if (current.isEmpty) return null;
+    RouteMatchBase match = current.matches.last;
+    while (match is ShellRouteMatch) {
+      if (match.matches.isEmpty) return null;
+      match = match.matches.last;
+    }
+    return match.matchedLocation;
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+    _config.dispose();
+  }
+}
+
 /// Гейт роутера открыт: локальные настройки и профили прочитаны, и redirect
 /// больше не держит сплеш. До этого момента любая навигация по deeplink была бы
 /// съедена, поэтому [DeepLinkHandler] ждёт именно его, чтобы повторить ссылку.
@@ -140,25 +258,80 @@ final _routerGateReadyProvider = Provider<bool>(
 /// `authenticating` -> `/login`; `authenticated` + первый вход -> `/autotune`;
 /// `authenticated` -> `/home`. Решение про онбординг ждёт [appBootProvider]:
 /// до чтения prefs `firstRunProvider` держит дефолтное `true`, и autotune
-/// всплывал бы при каждом запуске. Протокол и split-tunnel живут вне табов поверх
-/// шелла (полноэкранные пикеры с крестиком).
+/// всплывал бы при каждом запуске. «Тип подключения» (`/protocol`) и
+/// «Улучшения» (`/split-tunnel`) живут вне табов поверх шелла (полноэкранные
+/// пикеры с крестиком).
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = _AuthRefresh(ref);
   ref.onDispose(refresh.dispose);
 
-  final router = GoRouter(
+  String? gate(String location) => resolveRedirect(
+    stage: ref.read(authProvider).stage,
+    firstRun: ref.read(firstRunProvider),
+    bootReady: ref.read(appBootReadyProvider),
+    profilesReady: ref.read(connectionProfilesReadyProvider),
+    guest: ref.read(guestAllowedProvider),
+    location: location,
+  );
+
+  final router = CarambaRouter(
     navigatorKey: _rootKey,
     initialLocation: AppRoute.splash,
     refreshListenable: refresh,
-    redirect: (context, state) => resolveRedirect(
-      stage: ref.read(authProvider).stage,
-      firstRun: ref.read(firstRunProvider),
-      bootReady: ref.read(appBootReadyProvider),
-      profilesReady: ref.read(connectionProfilesReadyProvider),
-      guest: ref.read(guestAllowedProvider),
-      location: state.matchedLocation,
-    ),
-    routes: [
+    redirect: (context, state) => gate(state.matchedLocation),
+    // Тем же гейтом проверяется и право лечь поверх стека: экран, с которого
+    // редирект тут же уведёт, класть туда нельзя.
+    canOverlay: (location) => gate(location) == null,
+    routes: appRoutes(),
+  );
+
+  // Deeplink intake (carambaconnect://enroll|import): стартуем после сборки
+  // роутера, чтобы навигация шла в готовый GoRouter. Гасим при dispose.
+  final deepLinks = DeepLinkHandler(
+    router,
+    // Ссылка импорта — вход в generic-режим: без этого флага пользователь без
+    // аккаунта панели отскочил бы на /login с уже открытого экрана импорта.
+    onImport: () => ref.read(guestModeProvider.notifier).enable(),
+    // Отказ показываем: ссылка без TLS (INV-8) или без кода иначе просто
+    // ничего не делает, и это неотличимо от зависшего приложения.
+    onRefused: (refusal) {
+      final messenger = rootMessengerKey.currentState;
+      if (messenger == null) return;
+      messenger.clearSnackBars();
+      messenger.showSnackBar(
+        SnackBar(
+          duration: const Duration(milliseconds: 3200),
+          content: Text(refusal.message),
+        ),
+      );
+    },
+  );
+  unawaited(deepLinks.start());
+  ref.onDispose(deepLinks.dispose);
+
+  // Ссылка холодного старта приходит раньше, чем гейт открылся: повторяем её,
+  // как только локальные настройки и профили прочитаны.
+  void onGate(bool? prev, bool next) {
+    if (next) deepLinks.replayPending();
+  }
+
+  final gateSub = ref.listen<bool>(
+    _routerGateReadyProvider,
+    onGate,
+    fireImmediately: true,
+  );
+  ref.onDispose(gateSub.close);
+
+  return router;
+});
+
+/// Таблица маршрутов приложения.
+///
+/// Вынесена из [routerProvider] отдельной функцией, чтобы тест мог прочитать её
+/// без Riverpod, платформенных каналов и сети: свойство «каждый полноэкранный
+/// маршрут объявлен как накладной» проверяется по самой таблице, а не по
+/// памяти автора.
+List<RouteBase> appRoutes() => <RouteBase>[
       GoRoute(
         path: AppRoute.splash,
         builder: (context, state) => const SplashScreen(),
@@ -190,6 +363,18 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoute.autotune,
         builder: (context, state) => const AutotuneScreen(),
+      ),
+      // Повторный автоподбор. РАНЬШЕ ЭТОТ МАРШРУТ БЫЛ ВЛОЖЕН В ВЕТКУ НАСТРОЕК,
+      // и это ломало возврат: открывают его с трёх мест (Главная, Настройки,
+      // Серверы), а «Назад» из ветки всегда приводило в Настройки — то есть
+      // туда, откуда человек, как правило, и не приходил. Следующее «Назад» в
+      // корне навигатора снимать было уже нечего, и приложение закрывалось.
+      // Здесь он такой же полноэкранный пикер, как остальные, и ложится поверх
+      // того, откуда его позвали. Путь не изменился.
+      GoRoute(
+        path: AppRoute.settingsAutotune,
+        parentNavigatorKey: _rootKey,
+        builder: (context, state) => const AutotuneScreen(fromSettings: true),
       ),
       // Полноэкранные пикеры поверх шелла.
       GoRoute(
@@ -246,6 +431,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoute.csmDisclosure,
         parentNavigatorKey: _rootKey,
         builder: (context, state) => const WhatWeSendScreen(),
+      ),
+      // Тарифы: поверх шелла, как остальные полноэкранные пикеры. Гейта на
+      // авторизацию у маршрута нет намеренно — витрину запрашивает экран, и
+      // отказ панели («панель не подключена», 404 старой панели) он объясняет
+      // словами; редирект на /login вместо объяснения показал бы человеку,
+      // нажавшему «Купить», форму входа без единой причины.
+      GoRoute(
+        path: AppRoute.plans,
+        parentNavigatorKey: _rootKey,
+        builder: (context, state) => const PlansScreen(),
       ),
       GoRoute(
         path: AppRoute.referrals,
@@ -315,60 +510,12 @@ final routerProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: AppRoute.settings,
                 builder: (context, state) => const SettingsScreen(),
-                routes: [
-                  GoRoute(
-                    path: 'autotune',
-                    builder: (context, state) =>
-                        const AutotuneScreen(fromSettings: true),
-                  ),
-                ],
               ),
             ],
           ),
         ],
       ),
-    ],
-  );
-
-  // Deeplink intake (carambaconnect://enroll|import): стартуем после сборки
-  // роутера, чтобы навигация шла в готовый GoRouter. Гасим при dispose.
-  final deepLinks = DeepLinkHandler(
-    router,
-    // Ссылка импорта — вход в generic-режим: без этого флага пользователь без
-    // аккаунта панели отскочил бы на /login с уже открытого экрана импорта.
-    onImport: () => ref.read(guestModeProvider.notifier).enable(),
-    // Отказ показываем: ссылка без TLS (INV-8) или без кода иначе просто
-    // ничего не делает, и это неотличимо от зависшего приложения.
-    onRefused: (refusal) {
-      final messenger = rootMessengerKey.currentState;
-      if (messenger == null) return;
-      messenger.clearSnackBars();
-      messenger.showSnackBar(
-        SnackBar(
-          duration: const Duration(milliseconds: 3200),
-          content: Text(refusal.message),
-        ),
-      );
-    },
-  );
-  unawaited(deepLinks.start());
-  ref.onDispose(deepLinks.dispose);
-
-  // Ссылка холодного старта приходит раньше, чем гейт открылся: повторяем её,
-  // как только локальные настройки и профили прочитаны.
-  void onGate(bool? prev, bool next) {
-    if (next) deepLinks.replayPending();
-  }
-
-  final gateSub = ref.listen<bool>(
-    _routerGateReadyProvider,
-    onGate,
-    fireImmediately: true,
-  );
-  ref.onDispose(gateSub.close);
-
-  return router;
-});
+    ];
 
 /// Bridges [authProvider] + first-run changes into a [Listenable] go_router
 /// can refresh on.

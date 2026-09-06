@@ -171,16 +171,104 @@ type DNSConfig struct {
 	FakeIPRange string
 }
 
+// SnifferPolicy — восстановление имени домена из первых байтов соединения
+// (SNI из TLS ClientHello, ClientHello внутри QUIC Initial, заголовок Host у
+// открытого HTTP).
+//
+// Зачем оно вообще нужно. Доменное правило (GEOSITE, DOMAIN-SUFFIX) ядро
+// сопоставляет с именем, которое оно ЗНАЕТ про соединение, а знает оно его
+// ровно из двух мест: клиент назвал имя сам (SOCKS5/CONNECT) либо имя пришло
+// из таблицы fake-ip, которую заполняет НАШ резолвер. Браузер, ходящий в
+// DNS-over-HTTPS — Chrome делает это по умолчанию, в журнале ядра это
+// «[UDP] ... 8.8.8.8:443 match Match using CARAMBA», — получает адрес мимо
+// туннельного DNS и открывает соединение ПО IP. Имени в таком соединении нет,
+// и ни одно доменное правило по нему не срабатывает.
+//
+// Ровно на этом ломался блок рекламы: галочка включена, правило
+// GEOSITE,category-ads-all,REJECT в конфиге, список из 911 записей загружен, а
+// googleads.g.doubleclick.net и www.googletagservices.com скачиваются. Правило
+// было живым — сопоставлять его было не с чем.
+//
+// Что снифер стоит, честно:
+//   - соединение без имени платит чтением первых байтов с крайним сроком
+//     (1 с у TCP, до 3 с ожидания пакетов у QUIC) и разбором ClientHello.
+//     Протокол, в котором первым говорит СЕРВЕР, простоит этот срок впустую,
+//     поэтому порты держатся узкими (443 и 80), а не «все»;
+//   - имя читается, только пока оно открыто. Encrypted ClientHello прячет
+//     настоящее имя за публичным именем провайдера, и такая реклама не
+//     режется. Ни снифер, ни что-либо ещё в конфиге этого не меняет;
+//   - соединение по голому IP, не несущее ни TLS, ни QUIC, ни HTTP, имени не
+//     содержит вовсе — резать его по домену нечем.
+//
+// Границы описаны текстом в AdBlockLimitNote: интерфейс обязан назвать их сам,
+// а не обещать «вся реклама заблокирована».
+type SnifferPolicy struct {
+	// Enable включает секцию sniffer в конфиге.
+	//
+	// По умолчанию поднят (DefaultPolicy): дыра «браузер сходил в чужой DoH и
+	// соединился по IP» одинаково обесценивает ВСЕ доменные правила, а не
+	// только рекламные — GEOSITE,youtube,PROXY у пресета РФ промахивается по
+	// той же причине и так же незаметно.
+	Enable bool
+	// SkipDomains — имена, которым подсмотренное имя НЕ подставляется
+	// (skip-domain у ядра).
+	//
+	// Нужны там, где имя из ClientHello заведомо врёт или вредит: клиент,
+	// специально ходящий на конкретный адрес чужого хоста. Список пуст по
+	// умолчанию — при выключенной подмене назначения (см. applySniffer) цена
+	// ошибки здесь мала, и выдумывать записи заранее незачем.
+	SkipDomains []string
+}
+
+// AdBlockLimitNote — текст для экрана про то, чего блок рекламы НЕ ловит.
+//
+// Существует затем, чтобы интерфейс не обещал больше сделанного. Рядом уже
+// живёт «включён, подтвердить нечем» — та же порода ответа: сказать ровно то,
+// что известно, и назвать остаток вслух.
+const AdBlockLimitNote = "Режется по имени домена. Имя берётся из первого пакета соединения, " +
+	"поэтому реклама, загруженная по голому IP или спрятанная шифрованием имени (ECH), проходит мимо."
+
 // SplitTunnel описывает раздельное туннелирование.
 //
 // Семантика:
 //   - BypassDomains/BypassProcesses всегда идут напрямую (DIRECT) мимо туннеля.
-//   - Если задан AllowProcesses (allow-list), то ТОЛЬКО эти процессы идут в
-//     туннель, остальные — напрямую.
+//   - Если задан allow-список (AllowProcesses/AllowDomains/AllowSites), то в
+//     туннель идёт ТОЛЬКО перечисленное, остальное — напрямую (или REJECT при
+//     kill-switch).
 type SplitTunnel struct {
 	BypassDomains   []string
 	BypassProcesses []string
 	AllowProcesses  []string
+	// AllowDomains — домены, которые идут В ТУННЕЛЬ в режиме «через VPN только
+	// выбранные сайты». Правило доменное (DOMAIN-SUFFIX), поэтому «youtube.com»
+	// покрывает и поддомены, а соединение, открытое по голому IP, под него не
+	// попадает вовсе — это ограничение обязано быть названо в интерфейсе.
+	AllowDomains []string
+	// AllowSites — теги GEOSITE того же allow-списка (готовые наборы доменов
+	// сервисов: telegram, youtube, ...). Живут отдельно от AllowDomains, потому
+	// что зависят от базы GeoSite.dat: без неё это заведомо мёртвые правила, и
+	// отчёт о применённом маршруте обязан их различать.
+	AllowSites []string
+}
+
+// AllowListActive сообщает, задан ли allow-список хоть чем-нибудь.
+//
+// Три источника проверяются вместе: пользователь, включивший «только эти
+// сайты», и пользователь, оставивший allow-список процессов, оказываются в
+// одном режиме — весь остальной трафик мимо туннеля. Разделять эти случаи в
+// финальном правиле нечем и незачем.
+func (s SplitTunnel) AllowListActive() bool {
+	return len(s.AllowProcesses) > 0 || s.AllowSitesActive()
+}
+
+// AllowSitesActive — задан ли ИМЕННО сайтовый allow-список.
+//
+// Он сильнее режима страны: человек, попросивший «через VPN только эти сайты»,
+// не должен обнаружить, что ru-smart продолжает гнать в туннель Telegram и
+// YouTube. Поэтому при непустом сайтовом списке страновой пресет не
+// применяется вовсе (см. routingForBuild и compileSmartRules).
+func (s SplitTunnel) AllowSitesActive() bool {
+	return len(s.AllowDomains) > 0 || len(s.AllowSites) > 0
 }
 
 // Policy — локальная политика клиента, накладываемая на конфиг панели.
@@ -192,11 +280,29 @@ type Policy struct {
 	// Proxy — параметры mixed-инбаунда; используются только при Mode == ModeProxy.
 	Proxy ProxyConfig
 	DNS   DNSConfig
+	// Sniffer — восстановление имени домена из первых байтов соединения. Без
+	// него доменные правила промахиваются по любому соединению, открытому по
+	// IP (браузер с собственным DoH), см. SnifferPolicy.
+	Sniffer SnifferPolicy
 	// KillSwitch: при включении весь нераспознанный трафик в туннеле, который
 	// не может выйти через прокси, отбрасывается (REJECT) вместо утечки в
 	// DIRECT. Достигается заменой финального fallback-правила.
 	KillSwitch bool
 	Split      SplitTunnel
+	// BlockAds включает блок рекламы и трекеров ПОВЕРХ выбранного режима
+	// маршрутизации.
+	//
+	// Отдельным флагом, а не пресетом: до него блок рекламы существовал только
+	// внутри двух пресетов (cn-smart и adblock), то есть «резать рекламу»
+	// означало «сменить страну маршрутизации» или «отказаться от маршрутизации
+	// вовсе». Это и есть переключатель, которого владелец не нашёл.
+	//
+	// Правила и провайдер списка подмешиваются там, где известна судьба
+	// самого списка (api.routingForBuild → routing.WithAdBlock): только там
+	// отчёт может назвать источник, а интерфейс — не показывать галочку,
+	// за которой ничего нет. profile здесь лишь страхует прямые вызовы
+	// AssembleMihomoConfig (CLI, тесты) запасным правилом GEOSITE.
+	BlockAds bool
 	// IPv6 разрешает IPv6 в ядре (верхнеуровневый ipv6 и dns.ipv6). По
 	// умолчанию выключен: на мобильных операторах полурабочий IPv6 чаще ломает
 	// соединение, чем помогает.
@@ -408,6 +514,12 @@ func DefaultPolicy() Policy {
 			EnhancedMode:           "fake-ip",
 			FakeIPRange:            "198.18.0.1/16",
 		},
+		// Снифер поднят по умолчанию: fake-ip даёт имя только тем соединениям,
+		// чей DNS-запрос прошёл через нас, а браузер со своим DoH такого
+		// запроса не задаёт. Без снифера доменные правила молча промахиваются
+		// в самом частом сценарии, и «неизвестно, работает ли» становится
+		// единственным возможным ответом про любое из них.
+		Sniffer:    SnifferPolicy{Enable: true},
 		KillSwitch: true,
 		LogLevel:   "info",
 	}
@@ -533,6 +645,7 @@ func AssembleMihomoConfigPinned(rawYAML []byte, policy Policy, pinProxy string) 
 	applyLoopbackInbound(doc, policy)
 	applyGeoX(doc, policy)
 	applyDNS(doc, policy)
+	applySniffer(doc, policy)
 	applyRuleProviders(doc, policy)
 	applyRules(doc, policy)
 	applyProtocol(doc, policy)
@@ -765,15 +878,107 @@ func applyDNS(doc map[string]any, p Policy) {
 	doc["dns"] = dns
 }
 
+// SniffDomains сообщает, попадёт ли секция sniffer в собранный конфиг.
+//
+// Блок рекламы включает снифер САМ, даже когда политика про снифер молчит.
+// Иначе получается галочка, которая честно кладёт правило в конфиг и столь же
+// честно ничего не режет: правило доменное, а имени в соединении нет.
+// Переключатель обязан отвечать за результат, а не за наличие строки в YAML.
+func (p Policy) SniffDomains() bool {
+	return p.Sniffer.Enable || p.BlockAds
+}
+
+// snifferTLSPorts, snifferHTTPPorts, snifferQUICPorts — порты, на которых ядро
+// читает первые байты.
+//
+// Список узкий намеренно. Разбор запускается только для соединений БЕЗ имени
+// (parse-pure-ip), но соединение, где первым говорит сервер, простоит на
+// крайнем сроке чтения впустую — а на 443 и 80 таких протоколов практически не
+// бывает. Каждый добавленный сюда порт это новая горсть протоколов, которым мы
+// вслепую вставляем паузу; реклама живёт на этих двух.
+var (
+	snifferTLSPorts  = []string{"443"}
+	snifferQUICPorts = []string{"443"}
+	snifferHTTPPorts = []string{"80"}
+)
+
+// applySniffer формирует секцию sniffer — восстановление имени домена из
+// первых байтов соединения. См. SnifferPolicy про то, зачем и какой ценой.
+//
+// Три решения, каждое из которых меняет поведение и потому названо здесь.
+//
+// override-destination ВЫКЛЮЧЕН. Имя нужно ядру, чтобы ВЫБРАТЬ правило, а не
+// чтобы набрать адрес: доменные матчеры сопоставляются с Metadata.RuleHost(),
+// а он предпочитает подсмотренное имя и без подмены назначения (mihomo,
+// constant/metadata.go). Включённая подмена выбросила бы адрес, который выбрал
+// сам клиент, и заставила бы ядро разрешить имя заново своим резолвером — то
+// есть сломала бы всё, что от конкретного адреса зависит: привязку к узлу CDN,
+// раздельный горизонт DNS в корпоративных сетях, клиента, который специально
+// пришёл на этот адрес. Ради REJECT рекламы подмена не нужна вовсе: у
+// отброшенного соединения адресата нет.
+//
+// force-dns-mapping ВЫКЛЮЧЕН. Соединение, чьё имя пришло из таблицы fake-ip,
+// уже названо, и повторное чтение первых байтов не добавляет к нему ничего —
+// зато ставит крайний срок чтения на КАЖДОЕ соединение вместо только
+// безымянных.
+//
+// parse-pure-ip ВКЛЮЧЁН. Это и есть разбираемый случай: имени нет, и взять его
+// больше неоткуда.
+//
+// Чужая секция sniffer из конфига подписки перезаписывается целиком, как и
+// остальные верхнеуровневые секции политики: два источника правды про то,
+// читает ли ядро первые байты, дают поведение, которого никто не выбирал.
+func applySniffer(doc map[string]any, p Policy) {
+	if !p.SniffDomains() {
+		delete(doc, "sniffer")
+		return
+	}
+	sniffer := map[string]any{
+		"enable":               true,
+		"parse-pure-ip":        true,
+		"force-dns-mapping":    false,
+		"override-destination": false,
+		"sniff": map[string]any{
+			"TLS":  map[string]any{"ports": snifferTLSPorts},
+			"QUIC": map[string]any{"ports": snifferQUICPorts},
+			"HTTP": map[string]any{"ports": snifferHTTPPorts},
+		},
+	}
+	if len(p.Sniffer.SkipDomains) > 0 {
+		sniffer["skip-domain"] = append([]string(nil), p.Sniffer.SkipDomains...)
+	}
+	doc["sniffer"] = sniffer
+}
+
 // applyRuleProviders формирует секцию rule-providers из активного пресета
 // маршрутизации (если он задан). Без Routing секция не трогается.
 func applyRuleProviders(doc map[string]any, p Policy) {
-	if p.Routing == nil {
+	route := effectiveRouting(p)
+	if route == nil {
 		return
 	}
-	if providers := p.Routing.CompiledProviders(); providers != nil {
+	if providers := route.CompiledProviders(); providers != nil {
 		doc["rule-providers"] = providers
 	}
+}
+
+// effectiveRouting возвращает конфигурацию маршрутизации в том виде, в каком
+// она действительно попадёт в конфиг.
+//
+// Существует ради одного: секция rule-providers и секция rules ОБЯЗАНЫ
+// строиться из одного и того же набора. Когда сайтовый allow-список отменяет
+// страновой пресет, его списки правил больше никем не упоминаются — объявить
+// их провайдерами значило бы заставить ядро качать файлы, к которым не ведёт
+// ни одно правило, и показать в отчёте источники, которых в сборке нет.
+func effectiveRouting(p Policy) *routing.Config {
+	if p.Routing == nil {
+		return nil
+	}
+	if !p.Split.AllowSitesActive() {
+		return p.Routing
+	}
+	only := routing.AdBlockOnly(*p.Routing)
+	return &only
 }
 
 // applyRules собирает список rules. Если задан Routing — используется движок
@@ -783,9 +988,13 @@ func applyRuleProviders(doc map[string]any, p Policy) {
 // Kill-switch НЕ превращает финал в MATCH,REJECT: финальное правило всегда
 // ведёт в селектор CARAMBA (иначе при включённом kill-switch клиент просто
 // терял бы весь трафик, даже когда прокси жив). Отказ «в закрытую» обеспечивает
-// applyKillSwitch, который убирает DIRECT из фолбэка селектора. Единственное
-// место, где REJECT уместен, — allow-list split: трафик ВНЕ списка при
-// kill-switch отбрасывается, а без него идёт напрямую.
+// applyKillSwitch, который убирает DIRECT из фолбэка селектора.
+//
+// В allow-list split финал тоже НЕ REJECT, и это исправление, а не упущение:
+// трафик вне списка идёт напрямую потому, что человек сам так попросил, а не
+// потому, что туннель сломался. Пока здесь стоял REJECT, галочка «через VPN
+// только выбранные сайты» при kill-switch (включённом по умолчанию) отрезала
+// весь остальной интернет — проверено на устройстве.
 func applyRules(doc map[string]any, p Policy) {
 	if p.Routing != nil {
 		doc["rules"] = compileSmartRules(p)
@@ -809,8 +1018,22 @@ func applyRules(doc map[string]any, p Policy) {
 	// Страновая логика живёт в пресетах (routing.Presets), см. Policy.Routing.
 	rules = append(rules, "GEOIP,private,DIRECT,no-resolve")
 
-	if len(p.Split.AllowProcesses) > 0 {
-		// Allow-list: в туннель идут ТОЛЬКО перечисленные процессы.
+	// Запасной блок рекламы для прямых вызовов сборки (CLI, тесты): здесь нет
+	// ни каталога, ни зеркала, поэтому доступна только встроенная база mihomo.
+	// На пути приложения сюда не попадают — там правила и провайдер приходят
+	// готовыми в Policy.Routing вместе с судьбой списка.
+	if p.BlockAds {
+		rules = append(rules, "GEOSITE,"+routing.AdBlockGeositeTag+",REJECT")
+	}
+
+	if p.Split.AllowListActive() {
+		// Allow-list: в туннель идёт ТОЛЬКО перечисленное.
+		for _, dom := range p.Split.AllowDomains {
+			rules = append(rules, fmt.Sprintf("DOMAIN-SUFFIX,%s,%s", dom, CarambaSelector))
+		}
+		for _, tag := range p.Split.AllowSites {
+			rules = append(rules, fmt.Sprintf("GEOSITE,%s,%s", tag, CarambaSelector))
+		}
 		for _, proc := range p.Split.AllowProcesses {
 			rules = append(rules, fmt.Sprintf("PROCESS-NAME,%s,%s", proc, CarambaSelector))
 		}
@@ -849,22 +1072,45 @@ func compileSmartRules(p Policy) []string {
 			Type: routing.MatchProcessName, Value: proc, Action: routing.ActionDirect,
 		})
 	}
+	for _, dom := range p.Split.AllowDomains {
+		hp.Rules = append(hp.Rules, routing.Rule{
+			Type: routing.MatchDomainSuffix, Value: dom, Action: routing.ActionProxy,
+		})
+	}
+	for _, tag := range p.Split.AllowSites {
+		hp.Rules = append(hp.Rules, routing.Rule{
+			Type: routing.MatchGeosite, Value: tag, Action: routing.ActionProxy,
+		})
+	}
 	for _, proc := range p.Split.AllowProcesses {
 		hp.Rules = append(hp.Rules, routing.Rule{
 			Type: routing.MatchProcessName, Value: proc, Action: routing.ActionProxy,
 		})
 	}
-	if len(p.Split.AllowProcesses) > 0 {
-		// Allow-list перебивает финал пресета: вне списка — REJECT при
-		// kill-switch, иначе DIRECT.
-		if p.effectiveKillSwitch() {
-			hp.FinalAction = routing.ActionReject
-		} else {
-			hp.FinalAction = routing.ActionDirect
-		}
+	if p.Split.AllowListActive() {
+		// Allow-list перебивает финал пресета: вне списка — НАПРЯМУЮ, и
+		// kill-switch этого не меняет.
+		//
+		// Здесь смешивались два разных смысла. Kill-switch стережёт трафик,
+		// который ДОЛЖЕН идти через туннель: если туннель упал, такой трафик
+		// режется, чтобы не утечь мимо. Трафик вне allow-списка идёт напрямую
+		// не потому, что что-то сломалось, а потому, что человек прямо этого
+		// попросил, — утечкой он не является.
+		//
+		// Пока REJECT ставился и здесь, галочка «через VPN только выбранные
+		// сайты» при kill-switch (а он включён по умолчанию) давала финальное
+		// `MATCH,REJECT` и отрезала весь остальной интернет. Экран при этом
+		// обещал «всё остальное — напрямую». Проверено на устройстве: после
+		// включения списка ifconfig.me отвечал ERR_CONNECTION_CLOSED.
+		hp.FinalAction = routing.ActionDirect
 	}
 
-	merged := p.Routing.Merge(hp)
+	// «Через VPN только эти сайты» отменяет режим страны целиком (см.
+	// effectiveRouting): иначе ru-smart продолжил бы уводить в туннель свой
+	// список заблокированного, и человек, назвавший три сайта, получил бы
+	// совсем не три. Блок рекламы при этом остаётся — он про то, ЧТО резать,
+	// а не про то, что проксировать.
+	merged := effectiveRouting(p).Merge(hp)
 
 	return merged.CompiledRules(CarambaSelector)
 }

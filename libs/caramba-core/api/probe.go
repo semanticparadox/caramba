@@ -18,7 +18,13 @@ import (
 // probeConcurrency — сколько узлов меряется одновременно. Ограничение важно и на
 // мобильном (лимит дескрипторов, батарея), и на десктопе (подписка на сотню
 // узлов иначе откроет сотню соединений разом).
-const probeConcurrency = 8
+//
+// 16, а не 8: по живому замеру боевого флота рабочий узел отвечает за 150-540
+// мс, и при восьми слотах проход по тринадцати узлам упирался не в узлы, а в
+// очередь. Автоподбор при этом ждёт ВЕСЬ проход, поэтому очередь здесь — прямая
+// секунда ожидания человека. Каждый слот в сборке с ядром открывает до двух
+// соединений (URL-тест и справочный TCP), то есть потолок дескрипторов — 32.
+const probeConcurrency = 16
 
 // defaultProbeTimeout — таймаут на один узел, если приложение не задало свой.
 const defaultProbeTimeout = 3 * time.Second
@@ -56,8 +62,9 @@ func probeTargetURL() string {
 // ProbeServer — результат замера одного узла (контракт ABI v2, CarambaProbe).
 //
 // ID совпадает с именем прокси в конфиге: его же приложение передаёт в
-// Up(serverID), чтобы закрепить узел. LatencyMs = -1 означает «узел не ответил в
-// пределах таймаута» (в отличие от 0, который значил бы «мгновенно»).
+// Up(serverID), чтобы закрепить узел. LatencyMs = -1 означает «через узел не
+// прошёл настоящий запрос» (в отличие от 0, который значил бы «мгновенно»), и
+// это НЕ синоним «адрес мёртв»: почему именно, говорит Verdict.
 type ProbeServer struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
@@ -66,6 +73,18 @@ type ProbeServer struct {
 	Port      int    `json:"port"`
 	Country   string `json:"country"`
 	LatencyMs int    `json:"latencyMs"`
+
+	// TcpMs — RTT установки TCP-соединения с адресом узла; -1, если адрес не
+	// ответил. Справочное число: оно отвечает на вопрос «жив ли адрес», а не
+	// «работает ли узел», и само по себе задержкой узла не является.
+	TcpMs int `json:"tcpMs"`
+
+	// Verdict — чем кончилась проверка (ProbeVerdict*). Приложение решает по
+	// НЕМУ, а не по числу: LatencyMs >= 0 бывает только при ok и tcp_only.
+	Verdict string `json:"verdict"`
+
+	// Detail — сырой текст ошибки для «Подробностей». Пусто при ok.
+	Detail string `json:"detail,omitempty"`
 }
 
 // ProbeReport — полный результат CarambaProbe.
@@ -95,7 +114,10 @@ type probeNode struct {
 // timeoutMs <= 0 означает таймаут по умолчанию (3с). Замеры идут параллельно, но
 // не более probeConcurrency одновременно. Способ замера зависит от сборки:
 // TCP-соединение с server:port без тега mihomo и настоящий URL-тест через прокси
-// под -tags mihomo (см. probe_default.go / probe_mihomo.go).
+// под -tags mihomo (см. probe_default.go / probe_mihomo.go). В обоих случаях
+// узел приходит с ВЕРДИКТОМ, и фолбэка «URL-тест не прошёл — покажем TCP» больше
+// нет: он был единственной причиной, по которой узел с отвергнутым ключом
+// выглядел самым быстрым в списке.
 //
 // Замер идёт ДО и БЕЗ туннеля и меряет расстояние ЭТОГО устройства до узла —
 // это и есть то, чего у приложения не было: панель отдаёт `nodes.last_latency`,
@@ -130,6 +152,7 @@ func (c *Core) Probe(ctx context.Context, timeoutMs int) (ProbeReport, error) {
 	var wg sync.WaitGroup
 
 	for i, n := range nodes {
+		skipped := skippedOutcome()
 		servers[i] = ProbeServer{
 			ID:        n.name,
 			Name:      n.name,
@@ -137,7 +160,12 @@ func (c *Core) Probe(ctx context.Context, timeoutMs int) (ProbeReport, error) {
 			Server:    n.server,
 			Port:      n.port,
 			Country:   subimport.CountryFromName(n.name),
-			LatencyMs: -1,
+			LatencyMs: skipped.latencyMs,
+			TcpMs:     skipped.tcpMs,
+			// Узел, до которого проход не дошёл, обязан отличаться от узла,
+			// который проверили и он не ответил. Раньше оба были «-1».
+			Verdict: skipped.verdict,
+			Detail:  skipped.detail,
 		}
 		wg.Add(1)
 		go func(idx int, node probeNode) {
@@ -151,7 +179,23 @@ func (c *Core) Probe(ctx context.Context, timeoutMs int) (ProbeReport, error) {
 				return
 			}
 			defer func() { <-sem }()
-			servers[idx].LatencyMs = probeOne(ctx, node, timeout)
+			// Слот мог достаться уже после отмены: select выше выбирает
+			// случайно, когда готовы обе ветки. Замер под отменённым
+			// контекстом провалится по причине, к узлу не относящейся, и
+			// назвать её «порт закрыт» значило бы оболгать живой узел.
+			if ctx.Err() != nil {
+				return
+			}
+			out := probeOne(ctx, node, timeout)
+			// То же самое, но про отмену ПОСРЕДИ замера. Успех остаётся
+			// успехом: если запрос сквозь узел прошёл, он прошёл.
+			if ctx.Err() != nil && out.verdict != ProbeVerdictOK {
+				return
+			}
+			servers[idx].LatencyMs = out.latencyMs
+			servers[idx].TcpMs = out.tcpMs
+			servers[idx].Verdict = out.verdict
+			servers[idx].Detail = out.detail
 		}(i, n)
 	}
 	wg.Wait()

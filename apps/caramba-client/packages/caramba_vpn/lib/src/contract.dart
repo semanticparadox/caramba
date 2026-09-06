@@ -22,6 +22,56 @@ import 'package:caramba_vpn/src/core_policy.dart';
 /// (disconnected -> connecting -> connected -> error, + reconnecting).
 enum VpnStage { disconnected, connecting, connected, reconnecting, error }
 
+/// НЕЗАВИСИМОЕ наблюдение платформы: есть ли сейчас VPN-транспорт.
+///
+/// Стадия туннеля целиком принадлежит Go-ядру: оно само себя объявляет
+/// подключённым, а приложение это повторяет. Когда ядро ошибается — а оно
+/// ошибалось, — сверить его не с чем: весь путь от mihomo до слова «Защищено»
+/// состоит из утверждений одного источника. Это поле приносит второй, которому
+/// приложение приказать не может: сеть с транспортом VPN, ровно та, которой
+/// определяется значок в статус-баре, плюс локальный TUN-интерфейс.
+///
+/// ТРИ ЗНАЧЕНИЯ, А НЕ ДВА, — и это главное. Ошибка в другую сторону
+/// («Отключено» на живом туннеле) опаснее исходного дефекта: человек полезет
+/// включать защиту заново и оборвёт работающий туннель. Поэтому «не знаю» —
+/// полноценный ответ, отдельный от «нет», и вето срабатывает ТОЛЬКО на
+/// [absent]. Платформа, которая наблюдение не присылает вовсе (iOS, desktop,
+/// FFI-путь, мок, сборка старее этого моста), даёт [unknown] и ничего не гасит.
+enum TunnelWitness {
+  /// Туннель наблюдается системой.
+  present,
+
+  /// Оба независимых наблюдения ответили «VPN нет», и оба ответили без ошибки.
+  absent,
+
+  /// Спросить не удалось: разрешения нет, API молчит, платформа не отвечает.
+  unknown;
+
+  /// Разбор значения с провода. Всё незнакомое — [unknown]: неизвестное слово
+  /// не должно превращаться в приговор туннелю.
+  static TunnelWitness fromWire(String? s) => switch (s) {
+    'present' => TunnelWitness.present,
+    'absent' => TunnelWitness.absent,
+    _ => TunnelWitness.unknown,
+  };
+}
+
+/// Причины отказа, которые называет САМ КЛИЕНТ, а не ядро.
+///
+/// Ошибки ядра приезжают текстом и переводятся в `core_error.dart`; эти две
+/// придумывает клиентская сторона, поэтому они машинные и стабильные — их
+/// печатает нативный мост (`CarambaFailureReason` в Kotlin) и разбирает
+/// приложение. Один и тот же литерал по обе стороны провода.
+abstract final class VpnFailureReason {
+  /// Ядро говорит «подключено», а независимое наблюдение — «VPN-транспорта
+  /// нет». Утверждать защиту в этот момент нельзя.
+  static const String noVpnTransport = 'no_vpn_transport';
+
+  /// Туннель поднялся, интерфейс создан, но читателя у дескриптора нет:
+  /// весь трафик уходит в трубу, из которой никто не читает.
+  static const String tunNotServiced = 'tun_adapter_not_serviced';
+}
+
 /// Поля узла, которые нативная сторона получает при `connect`.
 ///
 /// Плагин не знает тип модели сервера приложения, поэтому приложение отдаёт
@@ -70,6 +120,13 @@ class VpnStatus<S extends Object> {
   /// присылается ядром в connected).
   final String? activeProxy;
 
+  /// Что о туннеле говорит НЕ ядро, а платформа (см. [TunnelWitness]).
+  ///
+  /// Приходит только в стадиях, которые что-то утверждают о защите, и только с
+  /// мостов, где такое наблюдение вообще есть. Везде остальное —
+  /// [TunnelWitness.unknown], по которому ничего не гасится.
+  final TunnelWitness witness;
+
   const VpnStatus({
     required this.stage,
     this.server,
@@ -78,6 +135,7 @@ class VpnStatus<S extends Object> {
     this.mode,
     this.mixedPort,
     this.activeProxy,
+    this.witness = TunnelWitness.unknown,
   });
 
   const VpnStatus.disconnected()
@@ -87,7 +145,8 @@ class VpnStatus<S extends Object> {
       connectedSince = null,
       mode = null,
       mixedPort = null,
-      activeProxy = null;
+      activeProxy = null,
+      witness = TunnelWitness.unknown;
 
   bool get isConnected => stage == VpnStage.connected;
   bool get isBusy =>
@@ -115,6 +174,11 @@ class VpnStatus<S extends Object> {
       mode: TunnelMode.fromWire(map['mode'] as String?),
       mixedPort: (map['mixedPort'] as num?)?.toInt(),
       activeProxy: rawProxy is String && rawProxy.isNotEmpty ? rawProxy : null,
+      // Ключа нет (мост без наблюдения, старая нативная сборка, чужой тип) —
+      // «не знаю». Отсутствие наблюдения не есть наблюдение отсутствия.
+      witness: TunnelWitness.fromWire(
+        map['tunnelWitness'] is String ? map['tunnelWitness'] as String : null,
+      ),
     );
   }
 
@@ -143,6 +207,7 @@ class VpnStatus<S extends Object> {
     TunnelMode? mode,
     int? mixedPort,
     String? activeProxy,
+    TunnelWitness? witness,
   }) => VpnStatus<S>(
     stage: stage ?? this.stage,
     server: server ?? this.server,
@@ -151,6 +216,7 @@ class VpnStatus<S extends Object> {
     mode: mode ?? this.mode,
     mixedPort: mixedPort ?? this.mixedPort,
     activeProxy: activeProxy ?? this.activeProxy,
+    witness: witness ?? this.witness,
   );
 }
 
@@ -562,6 +628,21 @@ abstract interface class VpnConnection<S extends Object> {
 
   /// Опустить туннель.
   Future<void> disconnect();
+
+  /// Переспросить платформу о ПОДЛИННОЙ стадии туннеля и выдать ответ в
+  /// [status] как обычный снимок.
+  ///
+  /// Поток статуса пассивен: он отдаёт то, что ему прислали, и между
+  /// присылками верит последнему кадру. Этого мало ровно в один момент — когда
+  /// приложение только что запустилось или вернулось из фона, а туннель за это
+  /// время умер, не успев (или не сумев) об этом сообщить. Именно так главный
+  /// экран показывал «Защищено» с идущим таймером над мёртвым tun0.
+  ///
+  /// Поэтому спрашивать надо самому, а не ждать. Вызов дешёвый (нативная
+  /// сторона отвечает из своего кэша, в сеть не ходит) и безопасный: если
+  /// платформа ответить не смогла, состояние остаётся прежним — «не знаю» это
+  /// не повод объявить туннель разорванным.
+  Future<VpnStatus<S>> refreshStatus();
 
   /// Освободить ресурсы (каналы/контроллеры/ядро).
   Future<void> dispose();

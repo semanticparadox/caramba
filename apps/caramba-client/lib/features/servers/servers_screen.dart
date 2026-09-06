@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/subscription.dart' show AccessState;
 import 'package:caramba_client/features/servers/access_card.dart';
@@ -165,12 +166,19 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
         onPressed: (run.measuring || nothingToMeasure) ? null : _probe,
       ),
       const SizedBox(height: AppSpace.s2),
+      // Вход в автоподбор стоит РЯДОМ с замером, а не только в настройках:
+      // человек, который смотрит на список узлов и не знает, какой выбрать, —
+      // это ровно тот, кому нужен подбор.
+      GhostButton(
+        label: 'Подобрать лучший узел',
+        icon: Lucide.route,
+        onPressed: nothingToMeasure
+            ? null
+            : () => context.go('${AppRoute.settings}/autotune'),
+      ),
+      const SizedBox(height: AppSpace.s2),
       Text(
-        measuredAt == null
-            // Пока своего замера не было, числа в списке принадлежат оператору,
-            // и сказать это надо один раз словами, а не только подписью у цифр.
-            ? 'Пока не мерили: показаны задержки, которые сообщил оператор.'
-            : 'Ваш замер: ${_timeText(measuredAt)}',
+        _probeSummary(measuredAt, profile),
         style: AppType.bodySm.copyWith(color: c.textLow),
       ),
       const SizedBox(height: AppSpace.s5),
@@ -186,6 +194,27 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
         const SizedBox(height: AppSpace.s5),
       ],
     ];
+  }
+
+  /// Одна строка о том, чей замер показан и что он показал.
+  ///
+  /// «Работает N из M» — не украшение. На боевом флоте девять прокси из
+  /// тринадцати мертвы для клиента (самоподписанный сертификат), и до
+  /// вердиктов ядра список показывал их живыми: у них был ping. Число
+  /// работающих — единственное место, где эта разница видна человеку сразу.
+  String _probeSummary(DateTime? measuredAt, ConnectionProfile profile) {
+    if (measuredAt == null) {
+      // Пока своего замера не было, числа в списке принадлежат оператору, и
+      // сказать это надо один раз словами, а не только подписью у цифр.
+      return 'Пока не мерили: показаны задержки, которые сообщил оператор.';
+    }
+    final probe = profile.lastProbe;
+    final judged = probe?.verdicts.length ?? 0;
+    if (probe == null || judged == 0) {
+      return 'Ваш замер: ${_timeText(measuredAt)}';
+    }
+    return 'Ваш замер: ${_timeText(measuredAt)} · работает '
+        '${probe.workingCount} из $judged';
   }
 
   /// Запускает замер один раз на открытие экрана, когда узлы уже есть, а своих

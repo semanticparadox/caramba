@@ -4,14 +4,15 @@ import 'dart:io' show Platform;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/panel_probe.dart';
 import 'package:caramba_client/data/subscription_fetch.dart';
+import 'package:caramba_client/features/connections/entry_classifier.dart';
 import 'package:caramba_client/features/connections/qr_scan_sheet.dart';
-import 'package:caramba_client/features/enroll/connect_link.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
@@ -28,6 +29,14 @@ import 'package:caramba_client/widgets/ui.dart';
 
 /// Формат входных данных импорта. Соответствует контракту Go `subimport.Import`
 /// (Build A): auto/clash/singbox/v2ray/uri. По умолчанию [auto] — детект.
+///
+/// ВЫБОР ФОРМАТА БОЛЬШЕ НЕ СПРАШИВАЕТСЯ ЗАРАНЕЕ. Ядро определяет формат по
+/// самим байтам (`subimport.detectFormat`: одиночный URI известной схемы, `{`
+/// в начале, ключ `proxies:`, декодируемый base64-список), то есть знает о
+/// строке строго больше, чем человек, который её вставил. Единственное место
+/// догадки там — последний пункт цепочки, и он проваливается ВНЯТНОЙ ошибкой
+/// разбора, а не тихой пустотой. Поэтому список форматов показывается только
+/// после такой ошибки — как запасной ход, а не как вопрос на входе.
 enum ImportFormat {
   auto('auto', 'Авто', 'Определить формат'),
   clash('clash', 'Clash', 'mihomo / clash YAML'),
@@ -110,6 +119,13 @@ String panelOfferTitle(PanelProbeResult panel) {
 ///
 /// Одинаковые имена нумеруются: два профиля «Подписка» человек не различит, а
 /// различать их надо — это разные конфигурации.
+///
+/// [typed] с экрана больше не приходит: поля «Имя» на входе нет. Параметр
+/// остался, потому что переименование живёт на экране списка подключений
+/// (`connections_screen.dart`, пункт «Переименовать») и потому что спрашивать
+/// имя ДО того, как человек увидел, что вообще импортировалось, — это вопрос,
+/// на который нечем ответить. Здесь имя всегда выводится: из конфига, иначе
+/// «Подписка N».
 String subscriptionProfileName({
   required String typed,
   String? fromCore,
@@ -135,32 +151,110 @@ String subscriptionProfileName({
   return base;
 }
 
-/// Экран импорта подписки: вставка URL или сырого текста, QR или файл, плюс
-/// выбор формата (auto по умолчанию).
+/// Экран импорта подписки: одно поле, QR и кнопка «Продолжить».
 ///
-/// Порядок шагов важен: сначала «Проверить» — тело подписки загружается (если
-/// вставлена ссылка) и уходит в ядро на `importSubscription`, БЕЗ поднятия
-/// туннеля. Пользователь видит имя подписки и список узлов до того, как профиль
-/// появится в списке; ошибку показываем текстом ядра. Только после этого
-/// «Сохранить» заводит [ConnectionProfile] типа [ProfileType.rawSub] с телом,
-/// форматом и кэшем узлов и делает его активным.
-class ConnectionImportScreen extends ConsumerStatefulWidget {
+/// Тонкая обёртка вокруг [ConnectionEntryForm] — вся работа в форме, потому что
+/// ровно та же форма стоит и на первом экране приложения (`login_screen.dart`).
+/// Копия здесь означала бы, что `caramba://` из одного входа работает, а из
+/// другого — нет.
+class ConnectionImportScreen extends ConsumerWidget {
   /// Ссылка из deeplink `carambaconnect://import?url=...`, подставляется в поле.
   final String? initialUrl;
 
   const ConnectionImportScreen({this.initialUrl, super.key});
 
   @override
-  ConsumerState<ConnectionImportScreen> createState() =>
-      _ConnectionImportScreenState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.c;
+    return Scaffold(
+      backgroundColor: c.bgCanvas,
+      body: SafeArea(
+        bottom: false,
+        child: ConnectionEntryForm(
+          initialText: initialUrl,
+          head: ScreenHead(
+            'Подключение',
+            trailing: IconBtn(Lucide.arrowLeft, onTap: () => _close(context)),
+          ),
+          onDone: () => _close(context),
+        ),
+      ),
+    );
+  }
+
+  void _close(BuildContext context) {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(AppRoute.connections);
+    }
+  }
 }
 
-class _ConnectionImportScreenState
-    extends ConsumerState<ConnectionImportScreen> {
-  final _nameController = TextEditingController();
+/// Одно поле, из которого начинается всё подключение.
+///
+/// ЧТО ЗДЕСЬ ПРОИЗОШЛО. Раньше до первого узла нужно было пройти два экрана и
+/// четыре-пять решений: выбрать раздел («Подписка» / «Панель Caramba» / «Код из
+/// бота»), придумать имя профиля, выбрать формат из пяти, нажать «Проверить», а
+/// потом ещё «Сохранить профиль». Ни одно из этих решений человек принять не
+/// может: раздел зависит от того, что за строку ему прислали, имя ему всё равно
+/// не с чем сравнивать, формат знает ядро, а «Проверить» и «Сохранить» — это
+/// два имени одного намерения.
+///
+/// Осталось одно поле и одна кнопка. Куда нести строку, решает
+/// [classifyEntry]; формат определяет ядро; имя выводится из разобранного
+/// конфига; «Продолжить» проверяет, а появившаяся после проверки «Подключить»
+/// сохраняет. Всё редкое (файл, код приглашения, код из бота) уехало под «Ещё»
+/// — оно не исчезло, потому что исчезнувшая функция неотличима от несуществующей.
+///
+/// ЗАПАСНОЙ ХОД ПО ФОРМАТУ. Список форматов появляется ТОЛЬКО после того, как
+/// ядро не смогло разобрать вставленное. До первой неудачи его нет: вопрос,
+/// на который в 99 случаях из 100 правильный ответ «авто», — это не выбор, а
+/// налог.
+class ConnectionEntryForm extends ConsumerStatefulWidget {
+  /// Что подставить в поле сразу (deeplink `carambaconnect://import?url=...`).
+  final String? initialText;
+
+  /// Шапка экрана. Разная у двух хозяев формы, поэтому приходит снаружи.
+  final Widget head;
+
+  /// Дополнительные пункты под «Ещё». Первый экран кладёт сюда код приглашения
+  /// и вход по коду из бота; экрану импорта они не нужны.
+  final List<Widget> extras;
+
+  /// Вызывается ПЕРЕД сохранением профиля. Первый экран включает здесь
+  /// generic-режим: без него редирект роутера отбросил бы на /login ровно в
+  /// момент, когда подключаться уже есть чем.
+  final Future<void> Function()? onBeforeSave;
+
+  /// Куда уйти после сохранения, если человек уже внутри приложения.
+  final VoidCallback onDone;
+
+  const ConnectionEntryForm({
+    required this.head,
+    required this.onDone,
+    this.initialText,
+    this.extras = const <Widget>[],
+    this.onBeforeSave,
+    super.key,
+  });
+
+  @override
+  ConsumerState<ConnectionEntryForm> createState() =>
+      _ConnectionEntryFormState();
+}
+
+class _ConnectionEntryFormState extends ConsumerState<ConnectionEntryForm> {
   final _sourceController = TextEditingController();
+
+  /// Формат. Меняется только через запасной ход после ошибки разбора.
   ImportFormat _format = ImportFormat.auto;
+
+  /// Показывать ли выбор формата: ядро уже один раз не справилось.
+  bool _formatOffered = false;
+
   bool _busy = false;
+  bool _moreOpen = false;
   String? _error;
 
   /// Исходный текст отказа — под «Подробности». На экран идёт перевод.
@@ -176,16 +270,20 @@ class _ConnectionImportScreenState
   /// Тело подписки, отданное ядру на проверке (его и сохраняем).
   String? _fetchedRaw;
 
+  /// Что записать в `ConnectionProfile.source`. Для голой ссылки это она сама,
+  /// для `carambaconnect://import?url=X` — X, а не обёртка: иначе «Обновить
+  /// подписку» на экране подключений качало бы диплинк вместо подписки.
+  String _savedSource = '';
+
   @override
   void initState() {
     super.initState();
-    final url = widget.initialUrl?.trim();
+    final url = widget.initialText?.trim();
     if (url != null && url.isNotEmpty) _sourceController.text = url;
   }
 
   @override
   void dispose() {
-    _nameController.dispose();
     _sourceController.dispose();
     super.dispose();
   }
@@ -193,157 +291,155 @@ class _ConnectionImportScreenState
   /// QR-скан доступен только там, где есть камера и плагин: Android и iOS.
   bool get _qrAvailable => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
+  /// Есть ли что показывать под «Ещё». На desktop «Из файла» стоит основной
+  /// кнопкой вместо QR, и без внешних пунктов раскрывать нечего.
+  bool get _hasMore => _qrAvailable || widget.extras.isNotEmpty;
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
     final preview = _preview;
+    final ready = _sourceController.text.trim().isNotEmpty;
 
-    return Scaffold(
-      backgroundColor: c.bgCanvas,
-      body: SafeArea(
-        bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpace.s5,
-            AppSpace.s5,
-            AppSpace.s5,
-            AppSpace.s12,
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpace.s5,
+        AppSpace.s5,
+        AppSpace.s5,
+        AppSpace.s12,
+      ),
+      children: [
+        widget.head,
+        Text(
+          'Вставьте ссылку на подписку, конфиг sing-box или clash, или ссылку '
+          'caramba:// — либо отсканируйте QR. Что это, приложение поймёт само.',
+          style: AppType.bodyMd.copyWith(color: c.textMed),
+        ),
+        const SizedBox(height: AppSpace.s5),
+
+        TextField(
+          controller: _sourceController,
+          enabled: !_busy,
+          minLines: 3,
+          maxLines: 6,
+          style: AppType.monoMd.copyWith(color: c.textHi),
+          onChanged: (_) => _onTyped(),
+          decoration: const InputDecoration(
+            hintText: 'https://... · vless://... · caramba://... · YAML/JSON',
           ),
-          children: [
-            ScreenHead(
-              'Импорт подписки',
-              trailing: IconBtn(Lucide.arrowLeft, onTap: () => _close(context)),
-            ),
-            Text(
-              'Вставьте ссылку на подписку или сам конфиг. Формат можно оставить '
-              'на авто.',
-              style: AppType.bodyMd.copyWith(color: c.textMed),
-            ),
-            const SizedBox(height: AppSpace.s5),
+        ),
+        const SizedBox(height: AppSpace.s3),
 
-            // Имя профиля (опционально).
-            const SectionTitle('Имя'),
-            TextField(
-              controller: _nameController,
-              enabled: !_busy,
-              style: AppType.bodyMd.copyWith(color: c.textHi),
-              decoration: const InputDecoration(
-                hintText: 'Например, «Резерв» (необязательно)',
+        // Кнопки стоят друг под другом, а не пополам в одной строке: половины
+        // строки на узком экране не хватает на «Сканировать QR» целиком —
+        // GhostButton режет подпись [TextOverflow.ellipsis], а dart:ui
+        // включает предел в одну строку уже тем, что `ellipsis` задан, даже
+        // без явного `maxLines`. Так подпись обрывалась до «Сканировать …».
+        // GhostButton общий на всё приложение и здесь не трогается: вместо
+        // более широкой колонки, которой всё равно неоткуда взяться в
+        // половине строки, каждой кнопке отдаётся вся ширина.
+        GhostButton(
+          label: 'Вставить',
+          icon: Lucide.copy,
+          onPressed: _busy ? null : _paste,
+        ),
+        const SizedBox(height: AppSpace.s3),
+        _qrAvailable
+            ? GhostButton(
+                label: 'Сканировать QR',
+                icon: Lucide.appWindow,
+                onPressed: _busy ? null : _scanQr,
+              )
+            : GhostButton(
+                label: 'Из файла',
+                icon: Lucide.inbox,
+                onPressed: _busy ? null : _pickFile,
               ),
-            ),
-            const SizedBox(height: AppSpace.s5),
+        const SizedBox(height: AppSpace.s5),
 
-            // Источник: URL или сырой конфиг.
-            const SectionTitle('Ссылка или конфиг'),
-            TextField(
-              controller: _sourceController,
-              enabled: !_busy,
-              minLines: 3,
-              maxLines: 8,
-              style: AppType.monoMd.copyWith(color: c.textHi),
-              onChanged: (_) => _resetPreview(),
-              decoration: const InputDecoration(
-                hintText: 'https://... или vless://... или YAML/JSON',
-              ),
-            ),
-            const SizedBox(height: AppSpace.s3),
-
-            Row(
-              children: [
-                Expanded(
-                  child: GhostButton(
-                    label: _qrAvailable
-                        ? 'Сканировать QR'
-                        : 'QR: вставьте текст',
-                    icon: Lucide.appWindow,
-                    onPressed: (_busy || !_qrAvailable) ? null : _scanQr,
+        FilledButton.icon(
+          onPressed: _busy || (!ready && preview == null)
+              ? null
+              : (preview == null ? _continue : _save),
+          icon: _busy
+              ? SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: c.textOnAccent,
                   ),
+                )
+              : LucideIcon(
+                  preview == null ? Lucide.chevronRight : Lucide.zap,
+                  color: c.textOnAccent,
+                  size: 18,
                 ),
-                const SizedBox(width: AppSpace.s3),
-                Expanded(
-                  child: GhostButton(
-                    label: 'Из файла',
-                    icon: Lucide.inbox,
-                    onPressed: _busy ? null : _pickFile,
-                  ),
-                ),
-              ],
-            ),
-            if (!_qrAvailable) ...[
-              const SizedBox(height: AppSpace.s2),
-              Text(
-                'Камеры здесь нет. Вставьте ссылку или конфиг текстом.',
-                style: AppType.bodySm.copyWith(color: c.textLow),
-              ),
-            ],
-            const SizedBox(height: AppSpace.s5),
+          label: Text(
+            _busy
+                ? 'Проверяю'
+                : (preview == null ? 'Продолжить' : 'Подключить'),
+          ),
+        ),
 
-            // Выбор формата (auto по умолчанию).
-            const SectionTitle('Формат'),
-            RowsGroup(
-              children: [
-                CRow(
-                  icon: Lucide.layers,
-                  label: 'Формат',
-                  value: _format.label,
-                  chevron: true,
-                  onTap: _busy ? null : _pickFormat,
-                ),
-              ],
-            ),
+        if (_error != null) ...[
+          const SizedBox(height: AppSpace.s4),
+          FailureNotice(
+            message: _error!,
+            technical: _errorDetail,
+            onRetry: _errorPayable ? null : _continue,
+            payable: _errorPayable,
+          ),
+          // Запасной ход: формат показывается только тут и только после того,
+          // как автоопределение уже не справилось.
+          if (_formatOffered) ...[
             const SizedBox(height: AppSpace.s2),
-            Text(
-              _format.desc,
-              style: AppType.bodySm.copyWith(color: c.textLow),
-            ),
-            const SizedBox(height: AppSpace.s6),
-
-            if (_error != null) ...[
-              FailureNotice(
-                message: _error!,
-                technical: _errorDetail,
-                onRetry: _errorPayable ? null : _check,
-                payable: _errorPayable,
-              ),
-              const SizedBox(height: AppSpace.s5),
-            ],
-
-            if (preview != null) ...[
-              _PreviewCard(result: preview),
-              const SizedBox(height: AppSpace.s5),
-            ],
-
-            FilledButton.icon(
-              onPressed: _busy ? null : (preview == null ? _check : _save),
-              icon: _busy
-                  ? SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: c.textOnAccent,
-                      ),
-                    )
-                  : LucideIcon(
-                      preview == null ? Lucide.search : Lucide.check,
-                      color: c.textOnAccent,
-                      size: 18,
-                    ),
-              label: Text(
-                _busy
-                    ? 'Проверяю'
-                    : (preview == null ? 'Проверить' : 'Сохранить профиль'),
-              ),
+            GhostButton(
+              label: _format == ImportFormat.auto
+                  ? 'Указать формат вручную'
+                  : 'Формат: ${_format.label}',
+              icon: Lucide.layers,
+              onPressed: _busy ? null : _pickFormat,
             ),
           ],
-        ),
-      ),
+        ],
+
+        if (preview != null) ...[
+          const SizedBox(height: AppSpace.s5),
+          _PreviewCard(result: preview),
+        ],
+
+        if (_hasMore) ...[
+          const SizedBox(height: AppSpace.s5),
+          GhostButton(
+            label: _moreOpen ? 'Скрыть' : 'Ещё',
+            icon: _moreOpen ? Lucide.chevronUp : Lucide.chevronDown,
+            onPressed:
+                _busy ? null : () => setState(() => _moreOpen = !_moreOpen),
+          ),
+          if (_moreOpen) ...[
+            const SizedBox(height: AppSpace.s3),
+            if (_qrAvailable) ...[
+              GhostButton(
+                label: 'Из файла',
+                icon: Lucide.inbox,
+                onPressed: _busy ? null : _pickFile,
+              ),
+              const SizedBox(height: AppSpace.s2),
+            ],
+            for (final w in widget.extras) ...[
+              w,
+              const SizedBox(height: AppSpace.s2),
+            ],
+          ],
+        ],
+      ],
     );
   }
 
-  /// Любая правка ввода делает прошлый разбор неактуальным.
-  void _resetPreview() {
-    if (_error == null && _preview == null) return;
+  /// Любая правка ввода делает прошлый разбор неактуальным. Кнопка «Продолжить»
+  /// зависит от непустоты поля, поэтому перерисовываемся на каждом символе.
+  void _onTyped() {
     setState(() {
       _error = null;
       _errorDetail = null;
@@ -353,47 +449,68 @@ class _ConnectionImportScreenState
     });
   }
 
+  void _fail(String message, {String? detail, bool payable = false}) {
+    setState(() {
+      _busy = false;
+      _error = message;
+      _errorDetail = detail;
+      _errorPayable = payable;
+    });
+  }
+
   Future<void> _pickFormat() async {
     const values = ImportFormat.values;
     final selected = await showPickerSheet(
       context: context,
-      title: 'Формат импорта',
-      subtitle: 'Авто подходит для большинства подписок.',
+      title: 'Формат конфига',
+      subtitle:
+          'Обычно определяется сам. Выберите вручную, если разбор не удался.',
       selected: values.indexOf(_format),
       options: [
         for (final f in values)
           (name: f.label, desc: f.desc, icon: Lucide.layers),
       ],
     );
-    if (selected != null && mounted) {
-      setState(() {
-        _format = values[selected];
-        _preview = null;
-        _fetchedRaw = null;
-      });
+    if (selected == null || !mounted) return;
+    setState(() {
+      _format = values[selected];
+      _preview = null;
+      _fetchedRaw = null;
+    });
+    await _continue();
+  }
+
+  /// Единственная кнопка входа. Классифицирует строку и уводит либо на
+  /// подтверждение приглашения, либо в энроллмент, либо разбирает подписку.
+  Future<void> _continue() async {
+    final entry = classifyEntry(_sourceController.text);
+    switch (entry.kind) {
+      case EntryKind.empty:
+        _fail('Вставьте ссылку или конфиг.');
+        return;
+      case EntryKind.refused:
+        // Ссылка наша, но отвергнута, и причина названа: http:// вместо https,
+        // пустой код, неразбираемый адрес. Раньше такая строка уезжала в ядро и
+        // возвращалась ошибкой разбора YAML.
+        _fail(entry.refusalMessage ?? 'Ссылка не распознана.');
+        return;
+      case EntryKind.connectLink:
+      case EntryKind.enrollLink:
+        // Ссылку подключения и ссылку подписки бот присылает одним сообщением,
+        // и перепутать поля проще простого. Разбирать приглашение как конфиг
+        // бессмысленно: уводим туда, где оно и обрабатывается.
+        context.go(entry.target!);
+        return;
+      case EntryKind.subscriptionUrl:
+      case EntryKind.configText:
+        await _import(entry);
     }
   }
 
-  /// Шаг 1: загрузить тело (если это ссылка) и отдать ядру на разбор.
-  Future<void> _check() async {
-    final source = _sourceController.text.trim();
-    if (source.isEmpty) {
-      setState(() => _error = 'Вставьте ссылку или конфиг.');
-      return;
-    }
-    // Ссылку подключения панели легко перепутать со ссылкой подписки: и ту, и
-    // другую присылает один и тот же бот в одном сообщении. Разбирать её как
-    // конфиг бессмысленно, а ошибка ядра «не разобрать подписку» ничего не
-    // объясняет. Уводим туда, где эта ссылка и обрабатывается.
-    if (looksLikeConnectLink(source)) {
-      context.go(
-        Uri(
-          path: AppRoute.connect,
-          queryParameters: {'link': source},
-        ).toString(),
-      );
-      return;
-    }
+  /// Загрузить тело (если это ссылка) и отдать ядру на разбор. Туннель не
+  /// поднимается: человек видит список узлов ДО того, как появится профиль.
+  Future<void> _import(EntryClassification entry) async {
+    final text = _sourceController.text.trim();
     setState(() {
       _busy = true;
       _error = null;
@@ -402,12 +519,11 @@ class _ConnectionImportScreenState
       _preview = null;
     });
 
+    final url = entry.url;
     try {
-      final looksLikeUrl =
-          source.startsWith('http://') || source.startsWith('https://');
-      // Ссылку на подписку тянем здесь и сохраняем тело: нативная сторона
+      // Ссылку на подписку тянет приложение: нативная сторона
       // (subimport.Import) умеет только парсить байты, HTTP-клиента у неё нет.
-      final raw = looksLikeUrl ? await fetchSubscriptionBody(source) : source;
+      final raw = url == null ? text : await fetchSubscriptionBody(url);
       final result = await ref
           .read(vpnConnectionProvider)
           .importSubscription(raw: raw, format: _format.wire);
@@ -415,42 +531,43 @@ class _ConnectionImportScreenState
       setState(() {
         _busy = false;
         _fetchedRaw = raw;
+        _savedSource = url ?? text;
         _preview = result;
       });
     } on SubscriptionFetchException catch (e) {
       if (!mounted) return;
       // Владелец увидел здесь «ответ сервера 403» и три часа искал прокси и
       // истёкший токен. Отказ панели теперь называется тем, чем он является.
+      // Формат тут ни при чём: тело даже не доехало, предлагать его выбор
+      // значило бы отправить человека чинить не то.
       final failure = describeFailure(e);
-      setState(() {
-        _busy = false;
-        _error = failure?.text ?? 'Не удалось загрузить подписку: ${e.message}';
-        _errorDetail = failure?.technical;
-        _errorPayable = failure?.payable ?? false;
-      });
+      _fail(
+        failure?.text ?? 'Не удалось загрузить подписку: ${e.message}',
+        detail: failure?.technical,
+        payable: failure?.payable ?? false,
+      );
     } catch (e) {
       if (!mounted) return;
+      // Разбор. Вот теперь запасной ход по формату уместен: байты у ядра были,
+      // и не сошлось именно на них.
       final failure = describeFailure(e);
-      setState(() {
-        _busy = false;
-        _error =
-            failure?.text ??
-            'Не удалось разобрать подписку. Проверьте ссылку, конфиг и формат.';
-        _errorDetail = failure?.technical;
-        _errorPayable = failure?.payable ?? false;
-      });
+      setState(() => _formatOffered = true);
+      _fail(
+        failure?.text ??
+            'Не удалось разобрать: это не похоже ни на подписку, ни на конфиг.',
+        detail: failure?.technical,
+        payable: failure?.payable ?? false,
+      );
     }
   }
 
-  /// Шаг 2: завести профиль с телом, форматом и кэшем узлов.
-
   /// Спрашивает, подключать ли распознанную панель.
   ///
-  /// РАНЬШЕ ЗДЕСЬ БЫЛ ТУПИК. Единственная кнопка вела на `/enroll` БЕЗ кода, то
-  /// есть на экран «введите инвайт-код», а выпускать эти коды на живой панели
-  /// было нечем: таблица пуста, и человек с уже готовым аккаунтом упирался в
-  /// требование, которое не может выполнить никто. Владелец наткнулся ровно на
-  /// это, вставив ссылку своей подписки.
+  /// РАНЬШЕ ЗДЕСЬ БЫЛ ТУПИК. Единственная кнопка вела на экран «введите
+  /// инвайт-код» БЕЗ кода, а выпускать эти коды на живой панели было нечем:
+  /// таблица пуста, и человек с уже готовым аккаунтом упирался в требование,
+  /// которое не может выполнить никто. Владелец наткнулся ровно на это, вставив
+  /// ссылку своей подписки.
   ///
   /// Поэтому лист предлагает ТОЛЬКО то, что панель действительно умеет выдать:
   /// ссылку подключения `caramba://connect`, которую даёт бот оператора рядом
@@ -493,12 +610,12 @@ class _ConnectionImportScreenState
               Text(
                 botUrl.isEmpty
                     ? 'Подключение делается ссылкой, которую выдаёт бот '
-                          'оператора. Адрес бота эта панель не публикует, '
-                          'поэтому открыть его отсюда нельзя: возьмите ссылку у '
-                          'оператора и вставьте её.'
+                        'оператора. Адрес бота эта панель не публикует, '
+                        'поэтому открыть его отсюда нельзя: возьмите ссылку у '
+                        'оператора и вставьте её.'
                     : 'Подключение делается ссылкой из бота оператора: она '
-                          'приходит личным сообщением рядом со ссылкой на '
-                          'подписку.',
+                        'приходит личным сообщением рядом со ссылкой на '
+                        'подписку.',
                 style: AppType.bodySm.copyWith(color: c.textLow),
               ),
               const SizedBox(height: AppSpace.s5),
@@ -534,17 +651,22 @@ class _ConnectionImportScreenState
     return answer ?? _PanelOffer.none;
   }
 
+  /// Заводит профиль с телом, форматом и кэшем узлов и делает его активным.
   Future<void> _save() async {
     final preview = _preview;
     final raw = _fetchedRaw;
     if (preview == null || raw == null) return;
-    final source = _sourceController.text.trim();
+    final source = _savedSource;
+    await widget.onBeforeSave?.call();
+    if (!mounted) return;
     final now = DateTime.now();
     final profile = ConnectionProfile(
       id: 'cp_${now.millisecondsSinceEpoch}',
       type: ProfileType.rawSub,
       displayName: subscriptionProfileName(
-        typed: _nameController.text,
+        // Поля имени на входе нет: имя приходит из разобранного конфига, а
+        // переименовать профиль можно на экране подключений, уже видя его.
+        typed: '',
         fromCore: preview.name,
         sourceHost: Uri.tryParse(source)?.host,
         taken: ref
@@ -587,7 +709,7 @@ class _ConnectionImportScreenState
       }
     }
     if (!mounted) return;
-    // Generic-режим: пользователь пришёл сюда с экрана входа или по deeplink
+    // Generic-режим: пользователь пришёл сюда с первого экрана или по deeplink
     // `carambaconnect://import`, возвращать его в список профилей незачем —
     // ведём на Home, подключаться. Признак — отсутствие сессии панели, а не
     // только флаг режима: по ссылке импорт открывается и до его установки.
@@ -596,27 +718,37 @@ class _ConnectionImportScreenState
       context.go(AppRoute.home);
       return;
     }
-    _close(context);
+    widget.onDone();
+  }
+
+  /// Вставка из буфера. Строка кладётся в поле, а не уносится сразу: человек
+  /// должен видеть, что именно вставилось, — в буфере нередко лежит не то.
+  Future<void> _paste() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim() ?? '';
+    if (!mounted) return;
+    if (text.isEmpty) {
+      showCarambaToast(context, 'В буфере обмена ничего нет');
+      return;
+    }
+    _sourceController.text = text;
+    _onTyped();
   }
 
   Future<void> _scanQr() async {
     final code = await showQrScanSheet(context);
     if (code == null || !mounted) return;
+    final trimmed = code.trim();
     // QR с приглашением панели встречается тут ровно так же часто, как QR с
     // подпиской: оператор печатает оба. Класть приглашение в поле подписки
     // значит гарантировать невнятную ошибку разбора.
-    if (looksLikeConnectLink(code.trim())) {
-      context.go(
-        Uri(
-          path: AppRoute.connect,
-          queryParameters: {'link': code.trim()},
-        ).toString(),
-      );
+    final entry = classifyEntry(trimmed);
+    if (entry.isLink) {
+      context.go(entry.target!);
       return;
     }
-    _sourceController.text = code;
-    _resetPreview();
-    setState(() {});
+    _sourceController.text = trimmed;
+    _onTyped();
   }
 
   /// Читает конфиг из файла. Байты берём сразу (`withData`), чтобы не зависеть
@@ -630,28 +762,17 @@ class _ConnectionImportScreenState
       final text = utf8.decode(bytes, allowMalformed: false).trim();
       if (!mounted) return;
       if (text.isEmpty) {
-        setState(() => _error = 'Файл пустой.');
+        _fail('Файл пустой.');
         return;
       }
       _sourceController.text = text;
-      _resetPreview();
-      setState(() {});
+      _onTyped();
     } on FormatException {
       if (!mounted) return;
-      setState(
-        () => _error = 'Файл не текстовый. Нужен YAML, JSON или список URI.',
-      );
+      _fail('Файл не текстовый. Нужен YAML, JSON или список URI.');
     } catch (_) {
       if (!mounted) return;
-      setState(() => _error = 'Не удалось прочитать файл.');
-    }
-  }
-
-  void _close(BuildContext context) {
-    if (context.canPop()) {
-      context.pop();
-    } else {
-      context.go(AppRoute.connections);
+      _fail('Не удалось прочитать файл.');
     }
   }
 }

@@ -28,9 +28,11 @@ import 'package:caramba_client/state/core_error.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/vpn/vpn_service.dart';
 
-/// Таймаут одного замера. 6 с — верхняя граница, за которой узел всё равно
-/// непригоден для интерактивного трафика.
-const Duration kProbeTimeout = Duration(seconds: 6);
+/// Таймаут одного замера. 4 с, а не 6: по живому замеру боевого флота рабочий
+/// узел отвечает за 150-540 мс, и лишние две секунды платит не узел, а человек,
+/// который ждёт весь проход. За четырьмя секундами узел всё равно непригоден
+/// для интерактивного трафика.
+const Duration kProbeTimeout = Duration(seconds: 4);
 
 /// Меряет задержки узлов [profile]. Бросает ошибку ядра как есть — вызывающий
 /// показывает её текст через `coreErrorText`.
@@ -103,10 +105,17 @@ Future<void> _sendPanelSeam(
 }
 
 /// Узел с наименьшей задержкой среди ответивших. `null`, если не ответил никто.
+///
+/// Отбор идёт по [ProbeResult.usable], а не только по числу: узел, отвергнувший
+/// ключ подписки, теперь приходит с задержкой -1, но проверка вердикта здесь
+/// всё равно стоит — она защищает от ядра, которое когда-нибудь пришлёт число
+/// вместе с провалом. Это не «лучшая комбинация» (её считает
+/// `domain/autopilot/auto_pick.dart` с учётом формы и загрузки), а просто
+/// быстрейший — тем и остаётся.
 ProbeResult? bestOf(List<ProbeResult> results) {
   ProbeResult? best;
   for (final r in results) {
-    if (r.timedOut) continue;
+    if (!r.usable) continue;
     if (best == null || r.latencyMs < best.latencyMs) best = r;
   }
   return best;
@@ -208,3 +217,18 @@ final clientLatencyProvider = Provider<Map<String, int>>((ref) {
 final clientLatencyAtProvider = Provider<DateTime?>(
   (ref) => ref.watch(activeConnectionProfileProvider)?.lastProbe?.updatedAt,
 );
+
+/// Вердикты последнего замера: имя прокси -> чем кончилась проверка.
+///
+/// Заведён рядом с [clientLatencyProvider] и по той же причине: экрану нужно
+/// не только число, но и ответ на вопрос «а оно вообще работает». Узла нет в
+/// карте — его не мерили; [ProbeVerdict.unknown] — мерили ядром старше
+/// вердиктов.
+final clientVerdictProvider = Provider<Map<String, ProbeVerdict>>((ref) {
+  final probe = ref.watch(activeConnectionProfileProvider)?.lastProbe;
+  if (probe == null) return const <String, ProbeVerdict>{};
+  return <String, ProbeVerdict>{
+    for (final entry in probe.verdicts.entries)
+      entry.key: ProbeVerdict.fromWire(entry.value),
+  };
+});

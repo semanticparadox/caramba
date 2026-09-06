@@ -88,6 +88,71 @@ class ImportResult {
       ImportResult.fromMap(decodeJsonMap(json));
 }
 
+/// Чем кончилась проверка узла. Ядро отдаёт это строкой в поле `verdict`.
+///
+/// Голого числа задержки не хватало ровно на главный вопрос: «работает ли
+/// узел». Узел с отвергнутым ключом принимает TCP за сотню миллисекунд и
+/// отвергает handshake — и до вердиктов выглядел САМЫМ БЫСТРЫМ в списке,
+/// потому что ядро подменяло провал URL-теста временем TCP.
+enum ProbeVerdict {
+  /// Сквозь узел прошёл настоящий запрос. Единственный вердикт, при котором
+  /// задержке можно верить как задержке узла.
+  ok('ok'),
+
+  /// TLS не сложился (чужой или самоподписанный сертификат). Сторона
+  /// оператора.
+  tlsUntrusted('tls_untrusted'),
+
+  /// Адрес отвечает, узел рвёт соединение: ключ подписки не принят.
+  authRejected('auth_rejected'),
+
+  /// Адрес не отвечает вовсе; до протокола дело не дошло.
+  portClosed('port_closed'),
+
+  /// TCP есть, запрос сквозь узел не уложился в срок. Подпись фильтрации.
+  timeout('timeout'),
+
+  /// Ядро не собрало адаптер из полей прокси. Про узел это не говорит ничего.
+  unsupported('unsupported'),
+
+  /// Сборка без ядра: проверен только адрес, не протокол.
+  tcpOnly('tcp_only'),
+
+  /// До узла проход не дошёл (отмена, потолок волны). Не «мёртв».
+  skipped('skipped'),
+
+  /// Ядро вердикта не прислало: сборка старше этого поля. «Не знаю» — тоже
+  /// ответ, и выдавать его за `ok` нельзя.
+  unknown('');
+
+  final String wire;
+  const ProbeVerdict(this.wire);
+
+  static ProbeVerdict fromWire(String? raw) {
+    for (final v in ProbeVerdict.values) {
+      if (v != ProbeVerdict.unknown && v.wire == raw) return v;
+    }
+    return ProbeVerdict.unknown;
+  }
+
+  /// Через узел точно проходит трафик. Только `ok`.
+  bool get isConfirmedWorking => this == ProbeVerdict.ok;
+
+  /// Узел можно попробовать, но подтверждения нет: адрес жив, а протокол
+  /// проверить было нечем. Выбирать из таких можно — молча выдавать их за
+  /// проверенные нельзя.
+  bool get isUnconfirmed =>
+      this == ProbeVerdict.tcpOnly || this == ProbeVerdict.unknown;
+
+  /// Узел точно не годится.
+  bool get isFailure =>
+      this == ProbeVerdict.tlsUntrusted ||
+      this == ProbeVerdict.authRejected ||
+      this == ProbeVerdict.portClosed ||
+      this == ProbeVerdict.timeout ||
+      this == ProbeVerdict.unsupported;
+}
+
 /// Замер задержки одного узла (`CarambaProbe`).
 class ProbeResult {
   /// Имя прокси (тот же `id`, что у [ImportedServer]).
@@ -98,24 +163,43 @@ class ProbeResult {
   /// ISO-2 код страны или ''.
   final String country;
 
-  /// Задержка в миллисекундах; -1 означает таймаут/недоступность.
+  /// Задержка запроса СКВОЗЬ узел в миллисекундах; -1 означает «настоящего
+  /// запроса не прошло». Почему именно — в [verdict].
   final int latencyMs;
+
+  /// RTT установки TCP-соединения с адресом; -1 — адрес не ответил.
+  /// Справочное число: оно про адрес, а не про узел.
+  final int tcpMs;
+
+  final ProbeVerdict verdict;
+
+  /// Сырой текст ошибки ядра для «Подробностей»; пусто при успехе.
+  final String detail;
 
   const ProbeResult({
     required this.id,
     this.name = '',
     this.country = '',
     required this.latencyMs,
+    this.tcpMs = -1,
+    this.verdict = ProbeVerdict.unknown,
+    this.detail = '',
   });
 
-  /// true, если ядро не смогло достучаться до узла за отведённое время.
+  /// true, если задержки сквозь узел нет.
   bool get timedOut => latencyMs < 0;
+
+  /// Узел годится для подключения: подтверждён либо не опровергнут.
+  bool get usable => latencyMs >= 0 && !verdict.isFailure;
 
   factory ProbeResult.fromMap(Map<Object?, Object?> map) => ProbeResult(
     id: _str(map['id']),
     name: _str(map['name']),
     country: _str(map['country']),
     latencyMs: (map['latencyMs'] as num?)?.toInt() ?? -1,
+    tcpMs: (map['tcpMs'] as num?)?.toInt() ?? -1,
+    verdict: ProbeVerdict.fromWire(_str(map['verdict'])),
+    detail: _str(map['detail']),
   );
 
   /// Разбор ответа `{"servers":[{...,"latencyMs":42}]}`.

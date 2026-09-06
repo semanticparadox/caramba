@@ -53,6 +53,7 @@ CorePolicy corePolicyFrom(CoreConfig config, List<Relay> relays) {
     ipv6: config.ipv6,
     fakeIp: config.fakeIp,
     killSwitch: config.killSwitch,
+    adblock: config.blockAds,
     dns: _dns(config.dns),
     split: _split(config),
   );
@@ -108,24 +109,33 @@ CorePolicyDns? _dns(int index) {
 }
 
 /// Раздельное туннелирование. Режим ядра: `off` | `bypass` (выбранные мимо
-/// туннеля) | `allow` (через туннель только выбранные). Домены уходят всегда,
-/// когда режим не `off` — список приложений на desktop пока демонстрационный,
-/// а домены работают везде.
+/// туннеля) | `allow` (через туннель только выбранные).
+///
+/// ПУСТОЙ allow-список не отправляется как `allow`. В ядре `allow` означает
+/// «в туннель идёт только перечисленное, остальное мимо», поэтому режим без
+/// единой цели увёл бы ВЕСЬ трафик мимо туннеля — то есть выключил бы VPN,
+/// оставив его включённым на вид. Такой выбор уезжает как `off`.
 CorePolicySplit _split(CoreConfig config) {
-  final mode = switch (config.splitMode) {
-    SplitMode.off => 'off',
-    SplitMode.onlySelected => 'allow',
-    SplitMode.bypassSelected => 'bypass',
-  };
-  if (config.splitMode == SplitMode.off) {
-    return const CorePolicySplit();
-  }
   final apps = config.splitApps.toList()..sort();
-  return CorePolicySplit(
-    mode: mode,
-    apps: apps,
-    bypassDomains: config.bypassDomainList,
-  );
+  switch (config.splitMode) {
+    case SplitMode.off:
+      return const CorePolicySplit();
+    case SplitMode.bypassSelected:
+      return CorePolicySplit(
+        mode: 'bypass',
+        apps: apps,
+        bypassDomains: config.bypassDomainList,
+      );
+    case SplitMode.onlySelected:
+      if (!config.allowSitesActive) return const CorePolicySplit();
+      return CorePolicySplit(
+        mode: 'allow',
+        apps: apps,
+        bypassDomains: config.bypassDomainList,
+        allowDomains: config.allowDomainList,
+        allowSites: config.allowSites.toList()..sort(),
+      );
+  }
 }
 
 // --------------------------------------------------------------- CSM/1
@@ -202,6 +212,7 @@ CoreConfig coreConfigFromPolicy(
   if (policy.killSwitch != null) {
     next = next.copyWith(killSwitch: policy.killSwitch);
   }
+  if (policy.adblock != null) next = next.copyWith(blockAds: policy.adblock);
 
   final dns = policy.dns;
   if (dns != null) {
@@ -225,9 +236,9 @@ CoreConfig coreConfigFromPolicy(
       'bypass' => SplitMode.bypassSelected,
       _ => SplitMode.off,
     };
-    // Список приложений НЕ приходит с провода и не может прийти: INV-15.
-    // Локальный список остаётся тем, что выбрал пользователь на этом
-    // устройстве.
+    // Списки НЕ приходят с провода и не могут прийти: INV-15. Приложения,
+    // домены и наборы сайтов остаются теми, что выбрал пользователь на этом
+    // устройстве; с провода приходит только режим.
     next = next.copyWith(splitMode: mode);
   }
 
@@ -289,16 +300,42 @@ CorePolicy corePolicyFromCsm(CsmSettings settings, CoreConfig local) {
             nameservers: nameservers ?? const <String>[],
             fallback: fallback ?? const <String>[],
           ),
+    // Блок рекламы ключа в словаре CSM не имеет (как и списки: INV-15) —
+    // это локальное решение устройства, и оно прикрепляется к каждой
+    // собираемой политике из [local]. Не прикрепить его значило бы, что любая
+    // операторская запись молча выключает пользователю блок рекламы.
+    adblock: local.blockAds,
     split: splitMode == null
         ? null
-        : CorePolicySplit(
-            mode: splitMode,
-            apps: splitMode == 'off'
-                ? const <String>[]
-                : (local.splitApps.toList()..sort()),
-            bypassDomains: splitMode == 'off'
-                ? const <String>[]
-                : local.bypassDomainList,
-          ),
+        : _splitFromCsm(splitMode, local),
   );
+}
+
+/// Split из операторского режима и ЛОКАЛЬНЫХ списков.
+///
+/// Пустой allow-список понижается до `off` по той же причине, что и в
+/// [_split]: оператор, приславший `allow` устройству без единой цели, иначе
+/// увёл бы весь его трафик мимо туннеля.
+CorePolicySplit _splitFromCsm(String splitMode, CoreConfig local) {
+  switch (splitMode) {
+    case 'bypass':
+      return CorePolicySplit(
+        mode: 'bypass',
+        apps: local.splitApps.toList()..sort(),
+        bypassDomains: local.bypassDomainList,
+      );
+    case 'allow':
+      final domains = local.allowDomainList;
+      final sites = local.allowSites.toList()..sort();
+      if (domains.isEmpty && sites.isEmpty) return const CorePolicySplit();
+      return CorePolicySplit(
+        mode: 'allow',
+        apps: local.splitApps.toList()..sort(),
+        bypassDomains: local.bypassDomainList,
+        allowDomains: domains,
+        allowSites: sites,
+      );
+    default:
+      return CorePolicySplit(mode: splitMode);
+  }
 }

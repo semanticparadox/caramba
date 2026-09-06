@@ -178,6 +178,53 @@ const Map<String, int> kLegacyRouteIndexByCoreId = <String, int>{
   'global': 8,
 };
 
+/// Готовый набор доменов сервиса для списка «через VPN только эти сайты».
+///
+/// Это тег GEOSITE, а не домен: правило `GEOSITE,telegram,CARAMBA` покрывает
+/// весь набор адресов сервиса, который сам по себе меняется чаще, чем выходят
+/// сборки.
+class SiteTag {
+  /// Тег базы GeoSite.dat, он же значение на проводе (`split.allowSites`).
+  final String tag;
+
+  /// Как его называть человеку.
+  final String name;
+
+  const SiteTag(this.tag, this.name);
+}
+
+/// Закрытый словарь тегов, которые принимает ядро.
+///
+/// Зеркало `allowedSiteTags` из libs/caramba-core/api/policy_json.go, и
+/// зеркало намеренное: ядро отвергает незнакомый тег целиком, потому что
+/// mihomo на такой тег молча не сопоставит ни одного правила, и строка
+/// выглядела бы включённой, ничего не включая. Порядок здесь — порядок показа,
+/// а не порядок ядра; состав обязан совпадать, и это фиксирует тест.
+///
+/// Все теги взяты из встроенных пресетов ядра (`presets.go`), то есть уже
+/// работают на живом флоте. Добавлять сюда тег «по названию сервиса» нельзя:
+/// пока его нет в GeoSite.dat, это ровно та галочка, которая ничего не делает.
+const List<SiteTag> kAllowSiteTags = <SiteTag>[
+  SiteTag('telegram', 'Telegram'),
+  SiteTag('youtube', 'YouTube'),
+  SiteTag('instagram', 'Instagram'),
+  SiteTag('twitter', 'X (Twitter)'),
+  SiteTag('facebook', 'Facebook'),
+  SiteTag('discord', 'Discord'),
+  SiteTag('openai', 'ChatGPT и OpenAI'),
+  SiteTag('netflix', 'Netflix'),
+  SiteTag('spotify', 'Spotify'),
+  SiteTag('disney', 'Disney+'),
+];
+
+/// Человеческое имя тега; сам тег — если он ядру знаком, а нам нет.
+String siteTagName(String tag) {
+  for (final t in kAllowSiteTags) {
+    if (t.tag == tag) return t.name;
+  }
+  return tag;
+}
+
 /// Пресет по идентификатору ядра; `null` — такого в реестре нет.
 CoreRoutePreset? coreRoutePresetById(String id) {
   for (final p in kCoreRoutePresets) {

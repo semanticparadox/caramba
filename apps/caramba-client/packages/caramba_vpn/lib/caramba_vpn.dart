@@ -23,7 +23,7 @@ import 'package:flutter/services.dart';
 
 export 'package:caramba_vpn/src/contract.dart';
 export 'package:caramba_vpn/src/core_models.dart'
-    show ImportResult, ImportedServer, ProbeResult;
+    show ImportResult, ImportedServer, ProbeResult, ProbeVerdict;
 export 'package:caramba_vpn/src/core_policy.dart';
 export 'package:caramba_vpn/src/csm_device.dart'
     show CsmAgreement, CsmDeviceKey, csmDeviceSignatureFromJson;

@@ -20,10 +20,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:caramba_vpn/caramba_vpn.dart' show ProbeResult, ProbeVerdict;
+
 import 'package:caramba_client/data/connection_profiles_store.dart';
 import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/relay.dart';
 import 'package:caramba_client/data/models/server.dart';
+import 'package:caramba_client/features/protocol/inbound_latency.dart';
 import 'package:caramba_client/features/protocol/protocol_screen.dart';
 import 'package:caramba_client/features/servers/relay_screen.dart';
 import 'package:caramba_client/features/servers/servers_screen.dart';
@@ -50,18 +53,19 @@ Map<String, dynamic> _inbound(
   String? proxyName,
   bool available = true,
   String? reason,
-}) => <String, dynamic>{
-  'id': id,
-  'tag': tag,
-  'protocol': protocol,
-  'network': network,
-  'security': security,
-  'port': 443,
-  'label': label,
-  'proxy_name': proxyName,
-  'available': available,
-  'unavailable_reason': reason,
-};
+}) =>
+    <String, dynamic>{
+      'id': id,
+      'tag': tag,
+      'protocol': protocol,
+      'network': network,
+      'security': security,
+      'port': 443,
+      'label': label,
+      'proxy_name': proxyName,
+      'available': available,
+      'unavailable_reason': reason,
+    };
 
 final _germany = Server.fromJson(<String, dynamic>{
   'id': 1,
@@ -216,6 +220,37 @@ final _panelRelays = Relay.fromCountries(<Relay>[
   }),
 ]);
 
+/// Ядро, которое на `probe` отвечает числами и вердиктами, а не молчанием.
+///
+/// [FakeVpnCore] возвращает пустой список — это состояние «ядру нечего
+/// сказать», и в нём экран задержек не покажет по праву. Чтобы проверить сами
+/// числа, нужен ответ; имена в нём — те же `proxy_name`, что панель объявляет
+/// побайтово совпадающими с телом конфига, иначе мост «строка → замер» был бы
+/// проверен на выдуманном ключе.
+///
+/// Вердикт в фикстуре обязателен, а не удобен: с тех пор как ядро перестало
+/// подменять провал URL-теста временем TCP, число и вердикт — одна запись, и
+/// замер без вердикта означает «сборка старше этого поля», то есть отдельный
+/// проверяемый случай, а не «всё хорошо».
+class _ProbingCore extends FakeVpnCore {
+  final Map<String, (int, ProbeVerdict)> results;
+  final Map<String, int> tcpMs;
+
+  _ProbingCore(this.results, {this.tcpMs = const <String, int>{}});
+
+  @override
+  Future<List<ProbeResult>> probe({Duration timeout = Duration.zero}) async => [
+        for (final e in results.entries)
+          ProbeResult(
+            id: e.key,
+            name: e.key,
+            latencyMs: e.value.$1,
+            tcpMs: tcpMs[e.key] ?? -1,
+            verdict: e.value.$2,
+          ),
+      ];
+}
+
 class _Store implements ConnectionProfilesStore {
   List<ConnectionProfile> profiles;
   String? activeId;
@@ -260,21 +295,23 @@ Widget _app(
   ConnectionProfile? profile,
   FakeVpnCore? core,
   int? relayIndex,
-}) => ProviderScope(
-  overrides: [
-    vpnConnectionProvider.overrideWithValue(core ?? FakeVpnCore()),
-    connectionProfilesStoreProvider.overrideWithValue(
-      _Store(<ConnectionProfile>[profile ?? _panelProfile()], 'cp_panel'),
-    ),
-    serversProvider.overrideWith((ref) async => servers),
-    apiRelaysProvider.overrideWith((ref) async => _panelRelays),
-    if (relayIndex != null)
-      coreConfigProvider.overrideWith(
-        (ref) => CoreConfigNotifier()..hydrate(CoreConfig(relay: relayIndex)),
-      ),
-  ],
-  child: MaterialApp(theme: AppTheme.dark(), home: screen),
-);
+}) =>
+    ProviderScope(
+      overrides: [
+        vpnConnectionProvider.overrideWithValue(core ?? FakeVpnCore()),
+        connectionProfilesStoreProvider.overrideWithValue(
+          _Store(<ConnectionProfile>[profile ?? _panelProfile()], 'cp_panel'),
+        ),
+        serversProvider.overrideWith((ref) async => servers),
+        apiRelaysProvider.overrideWith((ref) async => _panelRelays),
+        if (relayIndex != null)
+          coreConfigProvider.overrideWith(
+            (ref) =>
+                CoreConfigNotifier()..hydrate(CoreConfig(relay: relayIndex)),
+          ),
+      ],
+      child: MaterialApp(theme: AppTheme.dark(), home: screen),
+    );
 
 /// Высокое окно: списки строятся ленивым сливером, и строка, не попавшая в
 /// вьюпорт, не попадает и в дерево элементов.
@@ -501,7 +538,8 @@ void main() {
     // `VLESS`) — и, считая соседей по индексу опции, объявлял Reality
     // единственным в своём семействе. Ровно это и есть «пикер, который врёт»:
     // строка обещала точность, которой в ядре нет.
-    testWidgets('строка Reality признаёт, что ядро не отличает её от vless '
+    testWidgets(
+        'строка Reality признаёт, что ядро не отличает её от vless '
         'на TLS', (tester) async {
       _useTallView(tester);
       await tester.pumpWidget(
@@ -561,7 +599,8 @@ void main() {
       expect(_cardOf(tester, 'Hysteria2 · udp · tls').subtitle, isNull);
     });
 
-    testWidgets('молчащий источник не отменяет схлопывания: оно в ядре, а не '
+    testWidgets(
+        'молчащий источник не отменяет схлопывания: оно в ядре, а не '
         'во флоте', (tester) async {
       // Узел 9 — панель не прочитала его инбаунды, и экран печатает список
       // ЗАПРОСОВ ядра. Две строки этого списка, `VLESS · Reality` и `VLESS`,
@@ -591,6 +630,263 @@ void main() {
           reason: 'строка «$title» приписала себе чужое схлопывание',
         );
       }
+    });
+  });
+
+  group('экран «Тип подключения»: имя и пинг каждого инбаунда', () {
+    testWidgets('экран называется типом подключения, а не протоколом', (
+      tester,
+    ) async {
+      // «Протокол» врал дважды: строк в списке больше, чем протоколов
+      // (`vless/tcp/reality` и `vless/ws/tls` — один протокол, две строки), и
+      // слово звучало как выбор технологии, а не входа на конкретную машину.
+      _useTallView(tester);
+      await tester.pumpWidget(
+        _app(
+          const ProtocolScreen(),
+          servers: <Server>[_germany],
+          profile: _panelProfile(nodeId: 1, country: 'DE'),
+          core: _ProbingCore(const <String, (int, ProbeVerdict)>{}),
+        ),
+      );
+      await _settle(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Тип подключения'), findsOneWidget);
+      expect(find.text('Протокол'), findsNothing);
+      // Слово владельца («тип конфига») сказано ровно один раз — в подзаголовке.
+      expect(find.textContaining('типом конфига'), findsOneWidget);
+    });
+
+    testWidgets('у каждого инбаунда своё число, и оно померено устройством', (
+      tester,
+    ) async {
+      // Владелец: «когда пользователь заходил в этот набор тоже показывался
+      // пинг этих инбаундов». Панель тут бесполезна: у неё одно
+      // `latency_ms: 40` на всю немецкую машину, и все семь входов получили бы
+      // одно и то же число. Числа ниже — разные, потому что мерил их клиент.
+      _useTallView(tester);
+      await tester.pumpWidget(
+        _app(
+          const ProtocolScreen(),
+          servers: <Server>[_germany],
+          profile: _panelProfile(nodeId: 1, country: 'DE'),
+          core: _ProbingCore(
+            const <String, (int, ProbeVerdict)>{
+              'DE Stealth': (118, ProbeVerdict.ok),
+              'DE Secure': (205, ProbeVerdict.ok),
+              'DE WebSocket': (340, ProbeVerdict.ok),
+              'DE Stream': (291, ProbeVerdict.ok),
+              'DE Speed': (96, ProbeVerdict.ok),
+              'DE TUIC': (101, ProbeVerdict.ok),
+              // Адрес отвечает, ключ не принят: до вердиктов эта строка
+              // показывала бы 118 мс и стояла бы первой в списке.
+              'DE Shadow': (-1, ProbeVerdict.authRejected),
+            },
+            tcpMs: const <String, int>{'DE Shadow': 118},
+          ),
+        ),
+      );
+      await _settle(tester);
+      await tester.pumpAndSettle();
+
+      // Число на строке — и подпись «ваш пинг» у каждого: операторского числа
+      // у инбаунда не существует в принципе.
+      expect(find.text('118 мс'), findsOneWidget);
+      expect(find.text('96 мс'), findsOneWidget);
+      expect(find.text('340 мс'), findsOneWidget);
+      expect(find.text('ваш пинг'), findsWidgets);
+      expect(find.text('от оператора'), findsNothing);
+      // Панельное число машины (40 мс) не подменяет собой замер входа.
+      expect(find.text('40 мс'), findsNothing);
+      // Вход, отвергнувший ключ, числа не получает вовсе — вместо него стоит
+      // причина. Именно он до вердиктов и показывался самым быстрым в списке.
+      expect(find.text('-1 мс'), findsNothing);
+      expect(
+        _cardOf(tester, 'Shadowsocks · tcp · none').subtitle,
+        contains('вход не принял ключ подписки'),
+      );
+      // И заодно называет, что адрес при этом жив: это отличает «оператор
+      // сломал узел» от «сеть режет протокол».
+      expect(
+        _cardOf(tester, 'Shadowsocks · tcp · none').subtitle,
+        contains('118 мс'),
+      );
+    });
+
+    testWidgets('число, добытое настоящим запросом, оговорок не получает', (
+      tester,
+    ) async {
+      // Вердикт `ok` означает, что сквозь вход прошёл HTTP-запрос. Дописать к
+      // такому числу «а может, это просто TCP» значило бы обесценить его
+      // ровно так же, как молчание обесценивало проверку раньше.
+      _useTallView(tester);
+      await tester.pumpWidget(
+        _app(
+          const ProtocolScreen(),
+          servers: <Server>[_germany],
+          profile: _panelProfile(nodeId: 1, country: 'DE'),
+          core: _ProbingCore(const <String, (int, ProbeVerdict)>{
+            'DE Stealth': (118, ProbeVerdict.ok),
+          }),
+        ),
+      );
+      await _settle(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text(kProbeMeaningNote), findsOneWidget);
+      expect(find.text(kProbeTcpOnlyNote), findsNothing);
+    });
+
+    testWidgets('«проверен только адрес» не выдаётся за «вход принял ключ»', (
+      tester,
+    ) async {
+      // Сборка без ядра (probe_default.go) меряет TCP и говорит об этом
+      // вердиктом `tcp_only`. Число выглядит как задержка входа, а отвечает на
+      // вопрос слабее — и узел с отозванным ключом отвечает на TCP так же
+      // бодро, как рабочий. Оговорка обязана появиться на экране, а не в логах.
+      _useTallView(tester);
+      await tester.pumpWidget(
+        _app(
+          const ProtocolScreen(),
+          servers: <Server>[_germany],
+          profile: _panelProfile(nodeId: 1, country: 'DE'),
+          core: _ProbingCore(const <String, (int, ProbeVerdict)>{
+            'DE Stealth': (118, ProbeVerdict.tcpOnly),
+          }),
+        ),
+      );
+      await _settle(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text(kProbeTcpOnlyNote), findsOneWidget);
+      expect(
+        _cardOf(tester, 'VLESS · tcp · reality').subtitle,
+        contains('Проверен только адрес'),
+      );
+    });
+
+    testWidgets('инбаунд без имени прокси числа не получает вовсе', (
+      tester,
+    ) async {
+      // `naive` на узле 1: генератор Clash его не выпускает, имени в теле
+      // конфига нет, ядро его не назовёт никогда. Прочерк в колонке обещал бы,
+      // что число появится.
+      _useTallView(tester);
+      await tester.pumpWidget(
+        _app(
+          const ProtocolScreen(),
+          servers: <Server>[_germany],
+          profile: _panelProfile(nodeId: 1, country: 'DE'),
+          core: _ProbingCore(const <String, (int, ProbeVerdict)>{
+            'DE Stealth': (118, ProbeVerdict.ok),
+          }),
+        ),
+      );
+      await _settle(tester);
+      await tester.pumpAndSettle();
+
+      expect(_cardOf(tester, 'NaiveProxy · tcp · tls').trailing, isNull);
+      expect(_cardOf(tester, 'VLESS · tcp · reality').trailing, isNotNull);
+    });
+
+    testWidgets('замер прошёл, а чисел нет — это НЕ «не мерили»', (
+      tester,
+    ) async {
+      // Ядро вернуло пустой список (так выглядел панельный путь без шва).
+      // Отметка «Ваш замер: только что» рядом с пустой колонкой обещала бы,
+      // что числа где-то есть; пустая колонка молча читается как «быстро».
+      // Оба ответа неверны, и экран обязан назвать третий.
+      _useTallView(tester);
+      await tester.pumpWidget(
+        _app(
+          const ProtocolScreen(),
+          servers: <Server>[_germany],
+          profile: _panelProfile(nodeId: 1, country: 'DE'),
+          core: _ProbingCore(const <String, (int, ProbeVerdict)>{}),
+        ),
+      );
+      await _settle(tester);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('но ядро не назвало ни одного входа'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Ваш замер:'), findsNothing);
+      // Причина рядом, а не в логах: замер вернул ноль узлов.
+      expect(
+        find.textContaining('Ядро не вернуло ни одного узла'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets(
+        'порядок строк подсказывает выбор, а не повторяет порядок '
+        'оператора', (tester) async {
+      // Пока чисел не было, список шёл в порядке инбаундов у узла — то есть в
+      // порядке, в котором оператор их завёл. С числами это стало вредным:
+      // вход, отвергнувший ключ, стоял бы первым просто потому, что он старше.
+      _useTallView(tester);
+      await tester.pumpWidget(
+        _app(
+          const ProtocolScreen(),
+          servers: <Server>[_germany],
+          profile: _panelProfile(nodeId: 1, country: 'DE'),
+          core: _ProbingCore(
+            const <String, (int, ProbeVerdict)>{
+              'DE Stealth': (118, ProbeVerdict.ok),
+              'DE Speed': (96, ProbeVerdict.ok),
+              'DE Shadow': (-1, ProbeVerdict.authRejected),
+            },
+            tcpMs: const <String, int>{'DE Shadow': 118},
+          ),
+        ),
+      );
+      await _settle(tester);
+      await tester.pumpAndSettle();
+
+      double y(String title) => tester.getTopLeft(find.text(title)).dy;
+
+      // Быстрый подтверждённый выше медленного подтверждённого.
+      expect(y('Hysteria2 · udp · tls'), lessThan(y('VLESS · tcp · reality')));
+      // Неизмеренные ниже измеренных, но выше отвергнувшего ключ:
+      // неизвестность — не приговор.
+      expect(y('VLESS · tcp · reality'), lessThan(y('TUIC · udp · tls')));
+      expect(y('TUIC · udp · tls'), lessThan(y('Shadowsocks · tcp · none')));
+      // Строка, которую выбрать нечем, — в самом конце.
+      expect(
+        y('Shadowsocks · tcp · none'),
+        lessThan(y('NaiveProxy · tcp · tls')),
+      );
+    });
+
+    testWidgets('«Авто» без туннеля обещает выбор, а не называет его', (
+      tester,
+    ) async {
+      // Ядро молчит — и выводить выбор из списка («наверное, Reality — он
+      // быстрее») нельзя: это догадка тем же шрифтом, что и факт. Бейджа
+      // «умный» на строке больше нет: похвала выбору — это не сам выбор.
+      _useTallView(tester);
+      await tester.pumpWidget(
+        _app(
+          const ProtocolScreen(),
+          servers: <Server>[_germany],
+          profile: _panelProfile(nodeId: 1, country: 'DE'),
+          core: _ProbingCore(const <String, (int, ProbeVerdict)>{
+            'DE Stealth': (118, ProbeVerdict.ok),
+          }),
+        ),
+      );
+      await _settle(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Авто'), findsOneWidget);
+      expect(find.text('УМНЫЙ'), findsNothing);
+      expect(
+        _cardOf(tester, 'Авто').subtitle,
+        contains('Выберется при подключении'),
+      );
     });
   });
 
@@ -804,8 +1100,7 @@ void main() {
           ),
           servers: <Server>[_germany],
           core: FakeVpnCore()
-            ..routeReportJson =
-                '{"known":true,"tunnel_up":true,"source":"preset",'
+            ..routeReportJson = '{"known":true,"tunnel_up":true,"source":"preset",'
                 '"preset":{"preset_id":"adblock",'
                 '"preset_name":"Только блок рекламы","emoji":"",'
                 '"rules":2,"dropped_rules":0,'

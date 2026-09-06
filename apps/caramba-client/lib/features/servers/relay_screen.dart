@@ -5,12 +5,15 @@ import 'package:go_router/go_router.dart';
 import 'package:caramba_client/data/models/csm_settings.dart';
 import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/relay.dart';
+import 'package:caramba_client/data/models/sub_plan.dart';
 import 'package:caramba_client/domain/offering/availability.dart';
 import 'package:caramba_client/domain/offering/offering.dart';
 import 'package:caramba_client/domain/offering/offering_providers.dart';
 import 'package:caramba_client/features/csm/csm_labels.dart';
 import 'package:caramba_client/features/settings/csm_settings_bridge.dart';
 import 'package:caramba_client/state/core_config_state.dart';
+import 'package:caramba_client/state/account_state.dart';
+import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/csm_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
@@ -111,6 +114,15 @@ class RelayScreen extends ConsumerWidget {
     // Приведение общее с проводом, а не кламп: см. [effectiveRelayIndex].
     final selected = effectiveRelayIndex(cfg.relay, relays);
     final can = chaining.availability;
+    // Вход, который назвал оператор по активной подписке (`relay_country`).
+    //
+    // Спрашиваем ТОЛЬКО при живой сессии панели: `/app/subscriptions` — её
+    // эндпоинт, и в generic-режиме (своя подписка, панели нет) запрос ушёл бы
+    // в 401. Ровно так же ветвится Home, и по той же причине.
+    final hasPanel = ref.watch(authProvider).stage == AuthStage.authenticated;
+    final operatorRelay = hasPanel
+        ? _operatorRelayCountry(ref.watch(subscriptionsProvider).valueOrNull)
+        : null;
 
     return Scaffold(
       backgroundColor: c.bgCanvas,
@@ -159,8 +171,16 @@ class RelayScreen extends ConsumerWidget {
             for (var i = 0; i < relays.length; i++)
               if (relays[i].isOff || relays[i].isAuto)
                 _RelayRow(
-                  title: relays[i].name,
-                  desc: relays[i].desc,
+                  // «Авто» обязано называть, ЧТО оно выбрало. Единственный
+                  // источник этого — сам оператор: вход выбирает генератор его
+                  // конфига, а не приложение, и никакого «наверное» здесь быть
+                  // не может.
+                  title: (relays[i].isAuto && operatorRelay != null)
+                      ? 'Авто · через $operatorRelay'
+                      : relays[i].name,
+                  desc: relays[i].isAuto
+                      ? _autoDesc(operatorRelay)
+                      : relays[i].desc,
                   code: null,
                   auto: relays[i].isAuto,
                   availability: kRelayControlAlwaysTrue,
@@ -283,6 +303,26 @@ class RelayScreen extends ConsumerWidget {
     return rows;
   }
 
+  /// Подпись строки «Авто». Молчание оператора это НЕ «идём напрямую»:
+  /// приложение о цепочке не знает ничего, и обещать её отсутствие — та же
+  /// выдумка, что и обещать её наличие.
+  String _autoDesc(String? operatorRelay) {
+    if (operatorRelay == null) {
+      return 'Вход выбирает оператор. По этой подписке он его не назвал.';
+    }
+    return 'Вход выбирает оператор. По этой подписке он назвал '
+        '$operatorRelay.';
+  }
+
+  /// Страна входа активной подписки; `null` — оператор её не называет.
+  static String? _operatorRelayCountry(List<SubPlan>? subs) {
+    if (subs == null || subs.isEmpty) return null;
+    final active = subs.where((s) => s.isActive);
+    final plan = active.isNotEmpty ? active.first : subs.first;
+    final cc = (plan.relayCountry ?? '').trim().toUpperCase();
+    return cc.isEmpty ? null : cc;
+  }
+
   int? _writeIndexOf(List<Relay> relays, String countryCode) {
     if (countryCode.isEmpty) return null;
     for (var i = 0; i < relays.length; i++) {
@@ -367,12 +407,11 @@ class _RelayRow extends StatelessWidget {
                   : (desc.isEmpty ? null : desc)),
         selected: selected,
         // Плашка одна: строка узкая, и вторая уводит заголовок за край.
-        titleBadges: [
-          if (availability.isUnknown)
-            const Tag('не проверено')
-          else if (auto)
-            const Tag('умный', ok: true),
-        ],
+        //
+        // ЗДЕСЬ БЫЛА ПЛАШКА «умный» у строки «Авто». Она не сообщала ничего:
+        // ни что выбрано, ни кем. Вместо неё выбор оператора стоит теперь в
+        // заголовке и подписи строки — там, где его читают.
+        titleBadges: [if (availability.isUnknown) const Tag('не проверено')],
         onTap: onTap,
       ),
     );

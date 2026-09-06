@@ -21,7 +21,10 @@ import 'package:caramba_client/widgets/ui.dart';
 /// аккаунтом панели ([ProfileType.panelAccount]). Тап по карточке делает
 /// профиль активным и открывает лист действий: главное — «Подключить»
 /// (профиль сразу ведёт туннель), рядом остальные операции над профилем.
-/// Кнопка «Импорт» ведёт на [AppRoute.connectionImport].
+/// Кнопка «Добавить подключение» ведёт на [AppRoute.connectionImport] —
+/// экран с одним полем, который принимает и подписку, и конфиг, и ссылку
+/// `caramba://`. Называть его «импортом подписки» значило бы занизить: человек
+/// с приглашением в руках прошёл бы мимо.
 class ConnectionsScreen extends ConsumerWidget {
   const ConnectionsScreen({super.key});
 
@@ -51,8 +54,8 @@ class ConnectionsScreen extends ConsumerWidget {
               trailing: IconBtn(Lucide.x, onTap: () => _close(context)),
             ),
             Text(
-              'Профили подключения. Активный ведёт туннель. Импортируйте '
-              'подписку или используйте аккаунт панели.',
+              'Профили подключения. Активный ведёт туннель. Добавить можно '
+              'ссылкой на подписку, конфигом или ссылкой caramba://.',
               style: AppType.bodyMd.copyWith(color: c.textMed),
             ),
             const SizedBox(height: AppSpace.s4),
@@ -64,7 +67,7 @@ class ConnectionsScreen extends ConsumerWidget {
               ),
               const SizedBox(height: AppSpace.s2),
               GhostButton(
-                label: 'Импорт подписки',
+                label: 'Добавить подключение',
                 icon: Lucide.plus,
                 onPressed: () => context.go(AppRoute.connectionImport),
               ),
@@ -72,7 +75,7 @@ class ConnectionsScreen extends ConsumerWidget {
               FilledButton.icon(
                 onPressed: () => context.go(AppRoute.connectionImport),
                 icon: LucideIcon(Lucide.plus, color: c.textOnAccent, size: 18),
-                label: const Text('Импорт подписки'),
+                label: const Text('Добавить подключение'),
               ),
             const SizedBox(height: AppSpace.s5),
             if (state.loading)
@@ -371,7 +374,7 @@ class _EmptyConnections extends StatelessWidget {
           ),
           const SizedBox(height: AppSpace.s1),
           Text(
-            'Импортируйте подписку, чтобы подключиться.',
+            'Вставьте ссылку на подписку или конфиг, чтобы подключиться.',
             textAlign: TextAlign.center,
             style: AppType.bodySm.copyWith(color: c.textLow),
           ),

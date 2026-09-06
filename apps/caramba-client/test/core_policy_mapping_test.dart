@@ -10,6 +10,7 @@ import 'package:caramba_client/data/models/relay.dart';
 import 'package:caramba_client/data/models/split_app.dart';
 import 'package:caramba_client/state/core_config_state.dart';
 import 'package:caramba_client/state/core_policy_mapping.dart';
+import 'package:caramba_client/vpn/core_policy.dart';
 
 /// Входы ровно в той форме, в какой их отдаёт панель: `GET /app/relays`
 /// плюс два псевдо-варианта, которые дописывает клиент. Раньше здесь стоял
@@ -104,6 +105,7 @@ void main() {
         const CoreConfig(
           splitMode: SplitMode.onlySelected,
           splitApps: {'com.b', 'com.a'},
+          allowDomains: 'youtube.com',
           bypassDomains: 'example.com, bank.ru\nmail.local\n\n',
         ),
         _panelRelays,
@@ -123,6 +125,62 @@ void main() {
         _panelRelays,
       );
       expect(bypass.split?.mode, 'bypass');
+    });
+
+    // ПУСТОЙ allow-список не имеет права уехать как `allow`.
+    //
+    // В ядре `allow` означает «в туннель идёт только перечисленное, остальное
+    // мимо». Режим без единой цели уводит мимо туннеля ВЕСЬ трафик, то есть
+    // выключает VPN, оставляя его включённым на вид. Ровно это и происходило,
+    // пока список состоял из демонстрационных «приложений»: их идентификаторы
+    // не совпадают ни с одним реальным процессом, и каждое такое подключение
+    // было пустым.
+    test('allow без единой цели уезжает как off', () {
+      final policy = corePolicyFrom(
+        const CoreConfig(
+          splitMode: SplitMode.onlySelected,
+          splitApps: {'org.telegram'},
+        ),
+        _panelRelays,
+      );
+      expect(policy.split?.mode, 'off');
+      expect(policy.split?.allowDomains, isEmpty);
+      expect(policy.split?.allowSites, isEmpty);
+    });
+
+    test('свои сайты и готовые наборы уезжают детерминированно', () {
+      final policy = corePolicyFrom(
+        const CoreConfig(
+          splitMode: SplitMode.onlySelected,
+          allowDomains: 'b.example\na.example, ',
+          allowSites: {'youtube', 'telegram'},
+        ),
+        _panelRelays,
+      );
+      expect(policy.split?.mode, 'allow');
+      expect(policy.split?.allowDomains, ['b.example', 'a.example']);
+      expect(policy.split?.allowSites, ['telegram', 'youtube']);
+    });
+
+    test('блок рекламы уезжает отдельным полем, а не пресетом', () {
+      expect(
+        corePolicyFrom(const CoreConfig(blockAds: true), _panelRelays).adblock,
+        isTrue,
+      );
+      expect(
+        corePolicyFrom(const CoreConfig(), _panelRelays).adblock,
+        isFalse,
+      );
+    });
+
+    // Обратный ход: значение оператора возвращается в пикер.
+    test('adblock с провода возвращается в состояние', () {
+      final next = coreConfigFromPolicy(
+        const CoreConfig(),
+        const CorePolicy(adblock: true),
+        relays: _panelRelays,
+      );
+      expect(next.blockAds, isTrue);
     });
 
     test('в режиме off приложения и домены не отправляются', () {

@@ -338,6 +338,25 @@ class MethodChannelVpnConnection<S extends Object> implements VpnConnection<S> {
   }
 
   @override
+  Future<VpnStatus<S>> refreshStatus() async {
+    final Map<Object?, Object?>? map;
+    try {
+      map = await _method.invokeMapMethod<Object?, Object?>('status');
+    } on PlatformException {
+      // Платформа не ответила. Это НЕ доказательство разрыва, и объявлять
+      // туннель мёртвым по молчанию значило бы менять одну неправду на другую.
+      return _last;
+    } on MissingPluginException {
+      // Сборка без нативной стороны (тест, десктоп без плагина).
+      return _last;
+    }
+    if (map == null) return _last;
+    _last = VpnStatus<S>.fromMap(map, server: _target);
+    _statusCtrl.add(_last);
+    return _last;
+  }
+
+  @override
   Future<void> dispose() async {
     await _statusSub?.cancel();
     await _statusCtrl.close();

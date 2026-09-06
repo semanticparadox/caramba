@@ -465,6 +465,17 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
           onPressed: _finish,
           child: const Text('Понятно, продолжить'),
         ),
+        // Единственный кадр, где у человека уже есть сессия панели, но с
+        // подпиской что-то не так, — и единственный, где «посмотреть тарифы»
+        // отвечает ровно на его вопрос. Каталог тянется отдельным запросом
+        // этой же сессией: класть его в одноразовую offline-ссылку нельзя,
+        // цены меняются, а выданная ссылка — нет.
+        const SizedBox(height: AppSpace.s2),
+        GhostButton(
+          label: 'Посмотреть тарифы',
+          icon: Lucide.creditCard,
+          onPressed: _openPlans,
+        ),
       ] else ...[
         const SizedBox(height: AppSpace.s5),
         const InlineLoading(top: AppSpace.s4),
@@ -512,6 +523,13 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   void _finish() {
     ref.read(connectProvider.notifier).finish();
     context.go(AppRoute.home);
+  }
+
+  /// Витрина тарифов вместо главной: поток подключения закрывается так же
+  /// (`finish`), иначе экран остался бы в стеке и вернулся бы по «назад».
+  void _openPlans() {
+    ref.read(connectProvider.notifier).finish();
+    context.go(AppRoute.plans);
   }
 
   void _close() {

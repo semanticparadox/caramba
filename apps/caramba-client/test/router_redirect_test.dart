@@ -27,6 +27,29 @@ String? redirect({
 );
 
 void main() {
+  group('витрина тарифов', () {
+    test('гостя с /plans не выбрасывает: экран объясняет сам', () {
+      // В generic-режиме панели нет, и `/plans` покажет «панель не подключена»
+      // с предложением её подключить. Редирект на /login вместо этого объяснил
+      // бы не то: аккаунт тут ни при чём.
+      expect(
+        redirect(
+          stage: AuthStage.unauthenticated,
+          location: AppRoute.plans,
+          guest: true,
+        ),
+        isNull,
+      );
+    });
+
+    test('без подписки и без сессии /plans всё же уводит на вход', () {
+      expect(
+        redirect(stage: AuthStage.unauthenticated, location: AppRoute.plans),
+        AppRoute.login,
+      );
+    });
+  });
+
   group('generic-режим (своя подписка, аккаунта панели нет)', () {
     test('со сплеша ведёт сразу на Home, не дожидаясь auth-пробы', () {
       expect(
@@ -264,6 +287,13 @@ void main() {
     test('внутри приложения не трогаем', () {
       expect(
         redirect(stage: AuthStage.authenticated, location: AppRoute.servers),
+        isNull,
+      );
+      // Тарифы — тоже «внутри»: человек, нажавший «Купить», обязан попасть на
+      // витрину, а не на форму входа. Отсутствие объяснения на этом шаге хуже
+      // любого отказа: деньги он собирался платить прямо сейчас.
+      expect(
+        redirect(stage: AuthStage.authenticated, location: AppRoute.plans),
         isNull,
       );
       // Импорт остаётся доступен и с аккаунтом: мульти-профиль разрешает

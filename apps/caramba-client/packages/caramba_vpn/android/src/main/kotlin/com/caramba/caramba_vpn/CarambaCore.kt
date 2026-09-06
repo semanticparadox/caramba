@@ -387,7 +387,15 @@ internal class CarambaCore private constructor(
         client.down()
     }
 
-    /** Status snapshot in the channel-contract shape. */
+    /**
+     * Status snapshot in the channel-contract shape.
+     *
+     * Разбираются ВСЕ поля statusJSON, включая ABI v2 (activeProxy/mode/
+     * mixedPort). Раньше брались только первые три, и остальные исчезали здесь
+     * — единственное место на пути от Go до экрана, где они терялись.
+     * Отсутствие поля даёт null/0, а не исключение: старое ядро их не шлёт, и
+     * это не повод считать статус нечитаемым.
+     */
     fun status(): CarambaStatusSnapshot {
         val json = client.statusJSON()
         val o = JSONObject(json)
@@ -396,6 +404,9 @@ internal class CarambaCore private constructor(
             stage = o.optString("stage", CarambaStage.CONNECTING),
             detail = detail,
             connectedSinceMs = o.optLong("connectedSinceMs", 0L),
+            activeProxy = o.optString("activeProxy", "").ifEmpty { null },
+            mode = o.optString("mode", "").ifEmpty { null },
+            mixedPort = o.optInt("mixedPort", 0),
         )
     }
 

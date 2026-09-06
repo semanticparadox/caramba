@@ -82,6 +82,9 @@ class _ConnectedCore with FakeCsmDevice implements VpnConnection {
 
   @override
   Future<void> disconnect() async {}
+  /// Правду о стадии фейк знает сам: платформы за ним нет.
+  @override
+  Future<VpnStatus> refreshStatus() async => currentStatus;
 
   @override
   Future<void> dispose() async {}

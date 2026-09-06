@@ -345,6 +345,127 @@ func adsProvider() RuleProvider {
 	}
 }
 
+// AdBlockRuleSet — имя списка рекламы наружу пакета.
+//
+// Нужно ровно там, где решается судьба списка ДО сборки пресета:
+// api.ruleSetNames обязан заказать этот список каталогу, иначе проверенный
+// файл до сборки не доедет и переключатель «блок рекламы» окажется включённым
+// без источника — то есть галочкой, за которой ничего нет.
+const AdBlockRuleSet = adsRuleSet
+
+// AdBlockGeositeTag — запасная встроенная категория, наружу пакета.
+const AdBlockGeositeTag = adsGeositeTag
+
+// isAdBlockRule — правило принадлежит блоку рекламы (в любой из двух форм).
+func isAdBlockRule(r Rule) bool {
+	if r.Action != ActionReject {
+		return false
+	}
+	return (r.Type == MatchRuleSet && r.Value == adsRuleSet) ||
+		(r.Type == MatchGeosite && r.Value == adsGeositeTag)
+}
+
+// isPrivateGeoIP — правило «локальная сеть мимо туннеля».
+func isPrivateGeoIP(r Rule) bool {
+	return r.Type == MatchGeoIP && r.Value == "private" && r.Action == ActionDirect
+}
+
+// WithAdBlock возвращает копию пресета, которая дополнительно режет рекламу и
+// трекеры.
+//
+// Идемпотентна: пресету, у которого блок рекламы уже свой (cn-smart, adblock),
+// она ничего не добавляет — иначе одно и то же правило попало бы в конфиг
+// дважды, а провайдер объявился бы вторым именем.
+//
+// Правила ставятся сразу ПОСЛЕ ведущего «локальная сеть напрямую», то есть
+// ровно туда, где их держит leadIn(true) у пресетов со встроенным блоком.
+// Результат для пресета, построенного через leadIn(false), совпадает с
+// leadIn(true) правило в правило — это и проверяет тест.
+//
+// Обе формы правила добавляются вместе (список с зеркала + запасной GEOSITE
+// через FallbackFor), поэтому BuildWithReport сам выберет наблюдаемую, когда
+// список доступен, и подстрахуется тегом, когда нет. Именно из-за этого
+// переключатель может честно сказать, работает он или нет.
+func WithAdBlock(p Preset) Preset {
+	for _, r := range p.Rules {
+		if isAdBlockRule(r) {
+			return p
+		}
+	}
+
+	at := 0
+	for at < len(p.Rules) && isPrivateGeoIP(p.Rules[at]) {
+		at++
+	}
+	rules := make([]Rule, 0, len(p.Rules)+2)
+	rules = append(rules, p.Rules[:at]...)
+	rules = append(rules,
+		ruleset(adsRuleSet, ActionReject),
+		geositeFallback(adsGeositeTag, adsRuleSet, ActionReject),
+	)
+	rules = append(rules, p.Rules[at:]...)
+
+	providers := make([]RuleProvider, 0, len(p.Providers)+1)
+	providers = append(providers, p.Providers...)
+	declared := false
+	for _, rp := range providers {
+		if rp.Name == adsRuleSet {
+			declared = true
+			break
+		}
+	}
+	if !declared {
+		providers = append(providers, adsProvider())
+	}
+
+	p.Rules = rules
+	p.Providers = providers
+	return p
+}
+
+// AdBlockOnlyPreset — пресет из одного блока рекламы с заданным финалом.
+//
+// Идентификатор намеренно тот же, что у встроенного `adblock`: приложение
+// сверяет применённый пресет со своим зеркалом реестра, и выдуманный id
+// означал бы «пресет ядру этой сборки неизвестен» — то есть отказ подтвердить
+// как раз то, что мы подтверждаем.
+//
+// Финал передаётся, а не берётся из реестра, потому что случаев два и они
+// противоположны: пресета нет вовсе (весь трафик в туннель, ActionProxy) и
+// пресет отменён сайтовым allow-списком (финал всё равно подменит allow-список).
+// Зашить сюда DIRECT реестра значило бы молча выключить туннель первому.
+func AdBlockOnlyPreset(final Action) Preset {
+	p, ok := PresetByID("adblock")
+	if !ok {
+		// Реестр без `adblock` — это расхождение сборки, а не состояние, в
+		// котором можно тихо выдумать пресет.
+		return Preset{}
+	}
+	p.FinalAction = final
+	return p
+}
+
+// AdBlockOnly оставляет от собранной конфигурации только блок рекламы и
+// «локальная сеть напрямую», выбрасывая правила и списки режима страны.
+//
+// FinalAction не переносится намеренно: единственный вызывающий — сайтовый
+// allow-список, который назначает финал сам. Унаследовать DIRECT страны здесь
+// значило бы получить финал, о котором никто не просил.
+func AdBlockOnly(c Config) Config {
+	out := Config{ProxyGroup: c.ProxyGroup}
+	for _, r := range c.Rules {
+		if isPrivateGeoIP(r) || isAdBlockRule(r) {
+			out.Rules = append(out.Rules, r)
+		}
+	}
+	for _, rp := range c.Providers {
+		if rp.Name == adsRuleSet {
+			out.Providers = append(out.Providers, rp)
+		}
+	}
+	return out
+}
+
 // irDirectRuleSet — имя списка ИРАНСКИХ доменов на зеркале оператора.
 //
 // Список НЕ «заблокировано в Иране», а ровно наоборот: это иранские сервисы,

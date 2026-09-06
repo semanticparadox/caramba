@@ -314,6 +314,17 @@ class ConnectionProfilesNotifier
   Future<void> setProbe(String id, ProbeSnapshot probe) =>
       _update(id, (p) => p.copyWith(lastProbe: probe));
 
+  /// Сохраняет выбор автоподбора. `null` — «выбора больше нет».
+  ///
+  /// Отдельно от [setSelectedServer] намеренно: пин отвечает на вопрос «куда
+  /// подключаться», а эта запись — «кто так решил и по каким числам». Без
+  /// второго строка «Авто» не может отличить свой выбор от ручного, и именно
+  /// это владелец и увидел как «непонятно, что выбрал авто режим».
+  Future<void> setAutoPick(String id, AutoPickRecord? pick) => _update(
+    id,
+    (p) => p.copyWith(autoPick: pick, clearAutoPick: pick == null),
+  );
+
   /// Проставляет профилю панели его собственные креды, чтобы `configure`
   /// уходило на ЕГО инстанс, а не на тенант-1 (`kApiBaseUrl`). Вызывается
   /// после успешного энроллмент-входа.

@@ -9,8 +9,11 @@
 ///   подключения;
 /// * `ImportedServer` — `id`, `name`, `type`, `server`, `port`, `country`
 ///   (`id` — имя прокси, оно же `serverId` для `connectRaw`);
-/// * `ProbeResult` — `id`, `name`, `country`, `latencyMs` (-1 = таймаут).
+/// * `ProbeResult` — `id`, `name`, `country`, `latencyMs` (-1 = сквозь узел не
+///   прошло настоящего запроса), `tcpMs`, `verdict`, `detail`;
+/// * `ProbeVerdict` — ЧЕМ кончилась проверка. Читать надо его, а не число:
+///   задержка бывает у узла, который отверг ключ подписки.
 library;
 
 export 'package:caramba_vpn/caramba_vpn.dart'
-    show ImportResult, ImportedServer, ProbeResult;
+    show ImportResult, ImportedServer, ProbeResult, ProbeVerdict;

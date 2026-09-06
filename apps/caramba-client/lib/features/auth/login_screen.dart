@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/brand.dart';
+import 'package:caramba_client/features/connections/connection_import_screen.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/branding_state.dart';
@@ -17,10 +18,26 @@ import 'package:caramba_client/theme/typography.dart';
 import 'package:caramba_client/widgets/lucide.dart';
 import 'package:caramba_client/widgets/ui.dart';
 
-/// Вход по коду из Telegram-бота (демо §LOGIN).
+/// Первый экран приложения: одно поле, чтобы подключиться.
 ///
-/// 6 mono-боксов под цифры, кнопка «Открыть бота», inline-ошибка под полем,
-/// primary «Войти». На успех роутер сам уводит на autotune/home (auth gate).
+/// ЧТО ЗДЕСЬ БЫЛО. Три раздела на одном экране — «Подписка», «Панель Caramba»,
+/// «Код из бота» — и человек, у которого в руках одна строка, обязан был сперва
+/// решить, к какому из трёх она относится. Решить это он не может: строку ему
+/// прислал оператор, и по её виду разделы не различаются никак. Дальше шёл
+/// второй экран с именем профиля и выбором формата из пяти. До первого узла
+/// набиралось четыре-пять решений, из которых человек не мог принять ни одного.
+///
+/// ЧТО СТАЛО. Одно поле и одна кнопка ([ConnectionEntryForm]). Куда нести
+/// строку, приложение определяет само — той же развилкой, которой оно всегда
+/// разбирало диплинки. Редкое (файл, код приглашения, вход кодом из бота) живёт
+/// под «Ещё»: оно не удалено, потому что исчезнувшая функция неотличима от
+/// несуществующей, но и не стоит на дороге у главного пути.
+///
+/// БОТ. Дефолтного username здесь больше нет. Публичная сборка ни к какому
+/// оператору не привязана, и вписанный в код чужой бот — это выдуманный адрес,
+/// который приложение выдавало бы за адрес оператора. Ссылка берётся из
+/// брендинга подключённой панели; брендированная сборка может задать её через
+/// dart-define. Ничего нет — раздела нет, и это сказано словами.
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -29,20 +46,98 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  static const _len = 6;
+  /// Username бота ТЕКУЩЕЙ панели, без @. Дефолт ПУСТ намеренно (см. шапку
+  /// класса). Переопределяется через `--dart-define=CARAMBA_BOT_USERNAME=...`
+  /// в брендированной сборке оператора.
+  static const _botUsername = String.fromEnvironment('CARAMBA_BOT_USERNAME');
 
-  /// Username бота без @. Переопределяется через
-  /// `--dart-define=CARAMBA_BOT_USERNAME=...` под конкретный деплой.
-  /// Username бота ТЕКУЩЕЙ панели. Дефолт пуст: у публичной сборки бота нет,
-  /// он появляется вместе с подключённой панелью. Брендированная сборка
-  /// оператора может задать его через dart-define.
-  static const _botUsername = String.fromEnvironment(
-    'CARAMBA_BOT_USERNAME',
-    defaultValue: 'exa_robot',
-  );
+  /// Ссылка на бота панели: сначала то, что отдала сама панель в брендинге,
+  /// затем dart-define брендированной сборки. Ничего нет — пусто.
+  String get _botLink {
+    final fromPanel = ref.read(activeBrandingProvider).botUrl.trim();
+    if (fromPanel.isNotEmpty) return fromPanel;
+    return _botUsername.isEmpty ? '' : 'https://t.me/$_botUsername';
+  }
+
+  /// Generic-режим: аккаунт панели не нужен. Флаг ставим ДО сохранения профиля,
+  /// чтобы редирект роутера уже считал пользователя допущенным в шелл и не
+  /// отбросил его обратно на /login в момент, когда подключаться уже есть чем.
+  Future<void> _enableGuest() async {
+    ref.read(guestModeProvider.notifier).enable();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+
+    // Панель подключена только если её выбрал пользователь. Публичная сборка
+    // ни к какому оператору не привязана, поэтому вход по коду из бота и сам
+    // бот появляются лишь вместе с панелью.
+    final profile = ref.watch(activeConnectionProfileProvider);
+    final panelUrl = (profile?.panelUrl ?? '').trim();
+    final hasPanel = panelUrl.isNotEmpty || kApiBaseUrl.trim().isNotEmpty;
+
+    return Scaffold(
+      backgroundColor: c.bgCanvas,
+      body: SafeArea(
+        bottom: false,
+        child: ConnectionEntryForm(
+          onBeforeSave: _enableGuest,
+          onDone: () => context.go(AppRoute.home),
+          head: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(kBrandName, style: AppType.titleMd.copyWith(color: c.textHi)),
+              const SizedBox(height: AppSpace.s5),
+              Text(
+                'Подключение',
+                style: AppType.headline.copyWith(color: c.textHi),
+              ),
+              const SizedBox(height: AppSpace.s3),
+            ],
+          ),
+          extras: [
+            // Ручной код приглашения. Основной путь у приглашения — ссылка
+            // `caramba://`, которая вставляется в то же поле выше и вводить не
+            // требует ничего; ручной ввод остался для случая, когда код
+            // продиктовали голосом.
+            GhostButton(
+              label: 'У меня код приглашения',
+              icon: Lucide.userPlus,
+              onPressed: () => context.go(AppRoute.enroll),
+            ),
+            // Вход в аккаунт панели кодом из бота. Показывается только когда
+            // панель уже подключена: без панели ни бота, ни кодов не существует.
+            if (hasPanel) _BotCodeSection(botLink: _botLink),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Вход по 6-значному коду из Telegram-бота панели.
+///
+/// Свёрнут по умолчанию: это самый редкий из входов — им пользуется тот, у кого
+/// аккаунт на панели уже есть и кто зачем-то переустановил приложение. Раскрытым
+/// он занимал треть первого экрана и создавал впечатление, что код обязателен.
+class _BotCodeSection extends ConsumerStatefulWidget {
+  /// Ссылка на бота панели. Пустая — кнопки «Открыть бота» нет: кнопка,
+  /// ведущая в никуда, хуже её отсутствия.
+  final String botLink;
+
+  const _BotCodeSection({required this.botLink});
+
+  @override
+  ConsumerState<_BotCodeSection> createState() => _BotCodeSectionState();
+}
+
+class _BotCodeSectionState extends ConsumerState<_BotCodeSection> {
+  static const _len = 6;
 
   final _controllers = List.generate(_len, (_) => TextEditingController());
   final _focus = List.generate(_len, (_) => FocusNode());
+  bool _open = false;
   String? _localError;
 
   @override
@@ -57,14 +152,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   String get _code => _controllers.map((c) => c.text).join();
-
-  /// Generic-режим: аккаунт панели не нужен. Флаг ставим ДО перехода, чтобы
-  /// редирект роутера уже считал пользователя допущенным в шелл и не отбросил
-  /// экран импорта обратно на /login.
-  void _startGuestImport() {
-    ref.read(guestModeProvider.notifier).enable();
-    context.go(AppRoute.connectionImport);
-  }
 
   void _onChanged(int i, String v) {
     if (_localError != null) setState(() => _localError = null);
@@ -106,16 +193,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   /// Открывает бота в Telegram: сперва нативное приложение (`tg://`),
   /// иначе web-fallback (`https://t.me/...`). `start=login` подсказывает боту
   /// сразу выдать код для входа.
-  /// Ссылка на бота панели: сначала то, что отдала сама панель в брендинге,
-  /// затем dart-define брендированной сборки. Ничего нет - раздела нет.
-  String get _botLink {
-    final fromPanel = ref.read(activeBrandingProvider).botUrl.trim();
-    if (fromPanel.isNotEmpty) return fromPanel;
-    return _botUsername.isEmpty ? '' : 'https://t.me/$_botUsername';
-  }
-
   Future<void> _openBot() async {
-    final link = _botLink;
+    final link = widget.botLink;
     if (link.isEmpty) return;
     final handle = link.split('/').last.split('?').first;
     final tgApp = Uri.parse('tg://resolve?domain=$handle&start=login');
@@ -152,148 +231,74 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final busy = auth.isBusy;
     final error = _localError ?? auth.error;
 
-    // Панель подключена только если её выбрал пользователь. Публичная сборка
-    // ни к какому оператору не привязана, поэтому вход по коду из бота и сам
-    // бот появляются лишь вместе с панелью.
-    final profile = ref.watch(activeConnectionProfileProvider);
-    final panelUrl = (profile?.panelUrl ?? '').trim();
-    final hasPanel = panelUrl.isNotEmpty || kApiBaseUrl.trim().isNotEmpty;
-    final botLink = _botLink;
-    final panelName = (profile?.displayName ?? '').trim();
-
-    return Scaffold(
-      backgroundColor: c.bgCanvas,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpace.s5,
-            AppSpace.s6,
-            AppSpace.s5,
-            AppSpace.s6,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        GhostButton(
+          label: 'Войти кодом из бота',
+          icon: Lucide.key,
+          onPressed: () => setState(() => _open = !_open),
+        ),
+        if (_open) ...[
+          const SizedBox(height: AppSpace.s3),
+          if (widget.botLink.isNotEmpty) ...[
+            Text(
+              'Код для входа выдаёт бот панели. Он действует 5 минут и '
+              'подходит один раз.',
+              style: AppType.bodySm.copyWith(color: c.textMed),
+            ),
+            const SizedBox(height: AppSpace.s2),
+            GhostButton(
+              label: 'Открыть бота',
+              icon: Lucide.send,
+              onPressed: busy ? null : _openBot,
+            ),
+          ] else
+            Text(
+              'Код выдаёт бот оператора. Его адрес эта панель не публикует — '
+              'возьмите код там, где оформляли подписку.',
+              style: AppType.bodySm.copyWith(color: c.textMed),
+            ),
+          const SizedBox(height: AppSpace.s3),
+          Row(
+            children: [
+              for (var i = 0; i < _len; i++) ...[
+                if (i > 0) const SizedBox(width: AppSpace.s2),
+                Expanded(child: _codeBox(i, error != null)),
+              ],
+            ],
           ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+          if (error != null) ...[
+            const SizedBox(height: AppSpace.s2),
+            Row(
               children: [
-                Text(
-                  kBrandName,
-                  style: AppType.titleMd.copyWith(color: c.textHi),
-                ),
-                const SizedBox(height: AppSpace.s6),
-                Text(
-                  hasPanel ? 'Вход' : 'Подключение',
-                  style: AppType.headline.copyWith(color: c.textHi),
-                ),
-                const SizedBox(height: AppSpace.s3),
-                Text(
-                  hasPanel
-                      ? 'Подписка или вход в панель${panelName.isEmpty ? '' : ' $panelName'}.'
-                      : 'Вставьте ссылку на подписку или подключите панель по '
-                            'приглашению. Аккаунт для подписки не нужен.',
-                  style: AppType.bodyMd.copyWith(color: c.textMed),
-                ),
-                const SizedBox(height: AppSpace.s6),
-                const SectionTitle(
-                  'Подписка',
-                  padding: EdgeInsets.only(bottom: AppSpace.s3),
-                ),
-                Text(
-                  'Ссылка подписки, конфиг sing-box или clash, QR или файл.',
-                  style: AppType.bodySm.copyWith(color: c.textMed),
-                ),
-                const SizedBox(height: AppSpace.s3),
-                FilledButton.icon(
-                  onPressed: busy ? null : _startGuestImport,
-                  icon: LucideIcon(Lucide.globe, size: 18, color: c.textOnAccent),
-                  label: const Text('Добавить подписку'),
-                ),
-                const SizedBox(height: AppSpace.s6),
-                const SectionTitle(
-                  'Панель Caramba',
-                  padding: EdgeInsets.only(bottom: AppSpace.s3),
-                ),
-                Text(
-                  'Оператор дал код приглашения или ссылку? Подключите панель, '
-                  'и серверы, тариф и настройки будут управляться из приложения.',
-                  style: AppType.bodySm.copyWith(color: c.textMed),
-                ),
-                const SizedBox(height: AppSpace.s3),
-                GhostButton(
-                  label: 'Подключить по коду',
-                  icon: Lucide.userPlus,
-                  onPressed: busy ? null : () => context.go(AppRoute.enroll),
-                ),
-                if (hasPanel) ...[
-                  const SizedBox(height: AppSpace.s6),
-                  if (botLink.isNotEmpty) ...[
-                    Text(
-                      'Код для входа выдаёт бот панели.',
-                      style: AppType.bodySm.copyWith(color: c.textMed),
-                    ),
-                    const SizedBox(height: AppSpace.s3),
-                    GhostButton(
-                      label: 'Открыть бота',
-                      icon: Lucide.send,
-                      onPressed: busy ? null : _openBot,
-                    ),
-                    const SizedBox(height: AppSpace.s5),
-                  ],
-                  const SectionTitle(
-                    'Код из бота',
-                    padding: EdgeInsets.only(bottom: AppSpace.s3),
+                LucideIcon(Lucide.alert, color: c.danger, size: 16),
+                const SizedBox(width: AppSpace.s2),
+                Flexible(
+                  child: Text(
+                    error,
+                    style: AppType.bodySm.copyWith(color: c.danger),
                   ),
-                Row(
-                  children: [
-                    for (var i = 0; i < _len; i++) ...[
-                      if (i > 0) const SizedBox(width: AppSpace.s2),
-                      Expanded(child: _codeBox(i, error != null)),
-                    ],
-                  ],
                 ),
-                const SizedBox(height: AppSpace.s3),
-                SizedBox(
-                  height: 20,
-                  child: error == null
-                      ? null
-                      : Row(
-                          children: [
-                            LucideIcon(Lucide.alert, color: c.danger, size: 16),
-                            const SizedBox(width: AppSpace.s2),
-                            Flexible(
-                              child: Text(
-                                error,
-                                style: AppType.bodySm.copyWith(color: c.danger),
-                              ),
-                            ),
-                          ],
-                        ),
-                ),
-                const SizedBox(height: AppSpace.s2),
-                FilledButton(
-                  onPressed: busy ? null : _verify,
-                  child: busy
-                      ? SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation(c.textOnAccent),
-                          ),
-                        )
-                      : const Text('Войти'),
-                ),
-                  const SizedBox(height: AppSpace.s4),
-                  Text(
-                    'Код действует 5 минут и подходит один раз.',
-                    style: AppType.bodySm.copyWith(color: c.textMed),
-                  ),
-                ],
               ],
             ),
+          ],
+          const SizedBox(height: AppSpace.s3),
+          FilledButton(
+            onPressed: busy ? null : _verify,
+            child: busy
+                ? SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation(c.textOnAccent),
+                    ),
+                  )
+                : const Text('Войти'),
           ),
-        ),
-      ),
+        ],
+      ],
     );
   }
 

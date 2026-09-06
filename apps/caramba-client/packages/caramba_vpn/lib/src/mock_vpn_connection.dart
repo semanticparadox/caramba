@@ -465,6 +465,11 @@ class MockVpnConnection<S extends Object> implements VpnConnection<S> {
     _emit(VpnStatus<S>(stage: VpnStage.disconnected, server: _last.server));
   }
 
+  /// У мока нет платформы, которую можно переспросить: он САМ и есть источник
+  /// состояния, и его собственный снимок всегда актуален.
+  @override
+  Future<VpnStatus<S>> refreshStatus() async => _last;
+
   void _startTraffic() {
     _stopTraffic();
     _trafficTimer = Timer.periodic(const Duration(seconds: 1), (_) {

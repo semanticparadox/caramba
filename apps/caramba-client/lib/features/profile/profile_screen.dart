@@ -149,14 +149,15 @@ class ProfileScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: AppSpace.s2),
+              // Раньше эта кнопка звала openExternal со ссылкой из брендинга —
+              // и у оператора, который бота не опубликовал, отдавала пустую
+              // строку: нажатие показывало «Ссылка недоступна» и всё. Теперь
+              // она ведёт на витрину тарифов, а решение «оплатить здесь или
+              // уйти в Telegram» принимается там, где для него есть данные.
               GhostButton(
                 label: 'Купить или продлить',
                 icon: Lucide.creditCard,
-                onPressed: () =>
-                    openExternal(
-                      context,
-                      _plansLink(ref) ,
-                    ),
+                onPressed: () => context.push(AppRoute.plans),
               ),
 
               // ---- Устройства
@@ -595,13 +596,4 @@ double _dailyFraction(AccessState access) {
   final limit = access.limitBytes;
   if (limit <= 0) return 0;
   return (access.usedBytes / limit).clamp(0.0, 1.0);
-}
-
-/// Ссылка «тарифы»: её даёт подключённая панель в брендинге. Хардкод бота
-/// одного оператора здесь недопустим: приложение не принадлежит ни одному.
-String _plansLink(WidgetRef ref) {
-  final bot = ref.read(activeBrandingProvider).botUrl.trim();
-  if (bot.isNotEmpty) return '$bot?start=plans';
-  final support = ref.read(activeBrandingProvider).supportUrl.trim();
-  return support;
 }

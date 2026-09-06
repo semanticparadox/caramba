@@ -12,7 +12,7 @@ import 'package:caramba_vpn/caramba_vpn.dart' as vpn;
 import 'package:caramba_client/data/models/server.dart';
 
 export 'package:caramba_vpn/caramba_vpn.dart'
-    show TrafficStats, TunnelMode, VpnStage;
+    show TrafficStats, TunnelMode, TunnelWitness, VpnFailureReason, VpnStage;
 
 /// Снимок состояния VPN-соединения, который эмитит нативное ядро (mihomo через
 /// gomobile / libcaramba_core) и потребляет UI/`vpnProvider`.

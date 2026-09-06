@@ -902,7 +902,7 @@ void main() {
 
       expect(find.text('Оператор поменял ваши настройки'), findsOneWidget);
       expect(find.text('Kill-switch'), findsOneWidget);
-      expect(find.text('Протокол'), findsOneWidget);
+      expect(find.text('Тип подключения'), findsOneWidget);
       expect(find.text('AmneziaWG'), findsOneWidget);
       expect(find.text('Shadowsocks'), findsOneWidget);
     });

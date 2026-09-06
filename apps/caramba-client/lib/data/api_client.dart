@@ -8,6 +8,7 @@ import 'package:caramba_client/data/models/enrollment.dart';
 import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/notification.dart';
 import 'package:caramba_client/data/models/partner.dart';
+import 'package:caramba_client/data/models/plan_catalog.dart';
 import 'package:caramba_client/data/models/relay.dart';
 import 'package:caramba_client/data/models/ticket.dart';
 import 'package:caramba_client/data/models/server.dart';
@@ -486,33 +487,89 @@ class ApiClient {
     }
   }
 
-  /// POST /purchase — чек-аут плана. Контракт: `app_billing.rs::purchase`
-  /// (`{ duration_id, provider? }` -> `{ pay_url, session_id, amount, currency,
-  /// fulfilled }`). [durationId] — это `plan_durations.id`.
+  // ------------------------------------------------------------------
+  // Тарифы и оплата (`/app/plans`, `/app/payment-methods`, `/app/purchase`)
+  // ------------------------------------------------------------------
+
+  /// GET /plans — витрина тарифов оператора с покупаемыми сроками.
   ///
-  /// Возвращает `pay_url` для открытия во внешнем браузере; для оплаты с баланса
-  /// панель отдаёт `"SUCCESS"` + `fulfilled=true` — тогда возвращаем `null`
-  /// (открывать нечего, подписка уже активирована). Текущий путь покупки в UI —
-  /// deeplink в бота (ProfileScreen); этот метод оставлен под in-app pay_url.
-  Future<String?> purchase(int durationId, {String? provider}) async {
+  /// Ответ — конверт (`{currency, in_app_purchase, pay, plans}`), а не голый
+  /// список: вместе с тарифами приходят валюта, флаг «оплата в приложении
+  /// включена лицензией» и адреса оплаты. [PlanCatalog.fromJson] терпит и голый
+  /// массив — см. комментарий там.
+  ///
+  /// 404 НЕ проглатывается пустым каталогом: панель старее этого маршрута —
+  /// это другое состояние, чем «у оператора нет тарифов», и экран обязан
+  /// сказать разное. Отличать их вызывающий будет по `statusCode`.
+  Future<PlanCatalog> getPlans() async {
+    final res = await _dio.get<dynamic>('/plans');
+    _ensureOk(res);
+    return PlanCatalog.fromJson(res.data);
+  }
+
+  /// GET /payment-methods — способы оплаты для конкретного срока или заказа.
+  ///
+  /// Ровно то, что мини-апп показывает в своём листе оплаты (`provider_names()`
+  /// + `provider_enable_setting()` + цена провайдера), плюс поле `checkout`:
+  /// какие способы проходят через `POST /purchase`, а какие живут только в
+  /// Telegram.
+  Future<List<PaymentMethod>> getPaymentMethods({
+    int? durationId,
+    int? orderId,
+  }) async {
+    final res = await _dio.get<dynamic>(
+      '/payment-methods',
+      queryParameters: <String, dynamic>{
+        if (durationId != null) 'duration_id': durationId,
+        if (orderId != null) 'order_id': orderId,
+      },
+    );
+    _ensureOk(res);
+    return PaymentMethod.listFrom(res.data);
+  }
+
+  /// POST /purchase — чек-аут плана. Контракт: `app_billing.rs::purchase`
+  /// (`{ duration_id | order_id, provider? }` -> `{ pay_url, pay_url_kind,
+  /// session_id, amount, amount_decimal, currency, provider, fulfilled }`).
+  /// [durationId] — это `plan_durations.id`.
+  ///
+  /// Возвращается ВЕСЬ ответ, а не одна ссылка. Прежняя сигнатура (`String?`)
+  /// теряла три вещи, каждая из которых нужна экрану: `pay_url_kind` (иначе
+  /// относительный путь `manual` уехал бы в launchUrl как есть), `session_id`
+  /// (иначе после возврата из браузера не у чего спросить, оплатили ли) и
+  /// `fulfilled` (списание с баланса надо отличать от «ссылки не дали»).
+  ///
+  /// 403 здесь — штатный ответ, а не сбой: `end_user_billing` гейтит оплату из
+  /// приложения по лицензии оператора, и через Telegram она при этом работает.
+  /// Ловится вызывающим по `statusCode == 403`.
+  Future<PurchaseCheckout> purchase({
+    int? durationId,
+    int? orderId,
+    String? provider,
+  }) async {
+    assert(
+      durationId != null || orderId != null,
+      'purchase: нужен duration_id или order_id',
+    );
     final res = await _dio.post<dynamic>(
       '/purchase',
-      data: {
-        'duration_id': durationId,
+      data: <String, dynamic>{
+        if (durationId != null) 'duration_id': durationId,
+        if (orderId != null) 'order_id': orderId,
         if (provider != null && provider.isNotEmpty) 'provider': provider,
       },
     );
-    if ((res.statusCode ?? 0) >= 400) {
-      throw ApiException(_messageOf(res), statusCode: res.statusCode);
-    }
-    final data = res.data;
-    if (data is Map) {
-      final m = data.cast<String, dynamic>();
-      if (m['fulfilled'] == true) return null;
-      final url = m['pay_url'];
-      if (url is String && url.isNotEmpty && url != 'SUCCESS') return url;
-    }
-    return null;
+    return PurchaseCheckout.fromJson(_okMap(res));
+  }
+
+  /// GET /purchase/{session_id} — состояние платёжной сессии.
+  ///
+  /// Нужен после возврата из внешнего браузера: приложение не получает никакого
+  /// сигнала об оплате, а вебхук провайдера приходит на панель. Единственный
+  /// честный способ показать «Оплачено» — спросить.
+  Future<PurchaseStatus> getPurchaseStatus(String sessionId) async {
+    final res = await _dio.get<dynamic>('/purchase/$sessionId');
+    return PurchaseStatus.fromJson(_okMap(res));
   }
 
   // ------------------------------------------------------------------

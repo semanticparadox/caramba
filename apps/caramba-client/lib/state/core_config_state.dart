@@ -82,9 +82,22 @@ class CoreConfig {
   final Set<String> splitApps; // выбранные id приложений
 
   /// Домены мимо туннеля, как их ввёл пользователь (запятые/переводы строк).
-  /// Сырой текст храним намеренно: список приложений на desktop пока демо, а
-  /// домены работают на всех платформах и должны переживать редактирование.
+  /// Сырой текст храним намеренно: он должен переживать редактирование,
+  /// включая промежуточные состояния вроде висящей запятой.
   final String bypassDomains;
+
+  /// Домены, которые в режиме «только выбранные» идут ЧЕРЕЗ туннель. Тот же
+  /// сырой текст и по той же причине.
+  final String allowDomains;
+
+  /// Готовые наборы сайтов того же списка (теги GEOSITE из [kAllowSiteTags]).
+  final Set<String> allowSites;
+
+  /// Блок рекламы и трекеров поверх выбранного режима страны.
+  ///
+  /// Локальное поле устройства: ключа в словаре CSM у него нет, оператор его
+  /// не задаёт и не видит. Уходит только в политику ядра.
+  final bool blockAds;
 
   /// Умолчание [route] — [kGlobalRouteIndex], а НЕ 0.
   ///
@@ -109,13 +122,37 @@ class CoreConfig {
     this.splitMode = SplitMode.off,
     this.splitApps = const {},
     this.bypassDomains = '',
+    this.allowDomains = '',
+    this.allowSites = const {},
+    this.blockAds = false,
   });
 
   int get splitCount => splitMode == SplitMode.off ? 0 : splitApps.length;
 
+  /// Сколько сайтов перечислено в активном списке. Ноль при выключенном
+  /// режиме: список, который никуда не уходит, ничего не значит.
+  int get siteRuleCount => switch (splitMode) {
+    SplitMode.off => 0,
+    SplitMode.onlySelected => allowDomainList.length + allowSites.length,
+    SplitMode.bypassSelected => bypassDomainList.length,
+  };
+
+  /// Режим «через VPN только эти сайты» действительно включён — то есть в нём
+  /// есть хотя бы одна цель. Пустой список в этом режиме увёл бы ВЕСЬ трафик
+  /// мимо туннеля, поэтому он не считается включённым нигде: ни в подписи,
+  /// ни в политике ядра.
+  bool get allowSitesActive =>
+      splitMode == SplitMode.onlySelected &&
+      (allowDomainList.isNotEmpty || allowSites.isNotEmpty);
+
   /// Домены из [bypassDomains], разобранные по запятым/переводам строк.
   /// Пустые куски и пробелы отбрасываются.
-  List<String> get bypassDomainList => bypassDomains
+  List<String> get bypassDomainList => _domains(bypassDomains);
+
+  /// То же для [allowDomains].
+  List<String> get allowDomainList => _domains(allowDomains);
+
+  static List<String> _domains(String raw) => raw
       .split(RegExp(r'[,\n\r;]+'))
       .map((e) => e.trim())
       .where((e) => e.isNotEmpty)
@@ -136,6 +173,9 @@ class CoreConfig {
     SplitMode? splitMode,
     Set<String>? splitApps,
     String? bypassDomains,
+    String? allowDomains,
+    Set<String>? allowSites,
+    bool? blockAds,
   }) => CoreConfig(
     protocol: protocol ?? this.protocol,
     route: route ?? this.route,
@@ -151,6 +191,9 @@ class CoreConfig {
     splitMode: splitMode ?? this.splitMode,
     splitApps: splitApps ?? this.splitApps,
     bypassDomains: bypassDomains ?? this.bypassDomains,
+    allowDomains: allowDomains ?? this.allowDomains,
+    allowSites: allowSites ?? this.allowSites,
+    blockAds: blockAds ?? this.blockAds,
   );
 
   Map<String, dynamic> toJson() => {
@@ -168,6 +211,9 @@ class CoreConfig {
     'split_mode': splitMode.name,
     'split_apps': splitApps.toList(growable: false),
     'bypass_domains': bypassDomains,
+    'allow_domains': allowDomains,
+    'allow_sites': allowSites.toList(growable: false)..sort(),
+    'block_ads': blockAds,
   };
 
   /// Читает сохранённый снимок. Каждое поле независимо падает на дефолт, так
@@ -217,6 +263,18 @@ class CoreConfig {
       bypassDomains: json['bypass_domains'] is String
           ? json['bypass_domains'] as String
           : d.bypassDomains,
+      allowDomains: json['allow_domains'] is String
+          ? json['allow_domains'] as String
+          : d.allowDomains,
+      // Теги, которых эта сборка не знает, отбрасываются: ядро отвергло бы
+      // патч целиком, и одна незнакомая строка из чужой версии выключила бы
+      // весь список сайтов.
+      allowSites: <String>{
+        ...?(json['allow_sites'] as List?)?.whereType<String>().where(
+          (t) => kAllowSiteTags.any((s) => s.tag == t),
+        ),
+      },
+      blockAds: _bool(json['block_ads'], d.blockAds),
     );
   }
 
@@ -294,6 +352,20 @@ class CoreConfigNotifier extends StateNotifier<CoreConfig> {
 
   void setBypassDomains(String v) => state = state.copyWith(bypassDomains: v);
 
+  void setAllowDomains(String v) => state = state.copyWith(allowDomains: v);
+
+  void setBlockAds(bool v) => state = state.copyWith(blockAds: v);
+
+  /// Переключает готовый набор сайтов. Незнакомый ядру тег не принимается:
+  /// ядро отвергает такой патч целиком, и молча положить его в состояние
+  /// значило бы выключить весь список при следующем подъёме.
+  void toggleAllowSite(String tag) {
+    if (!kAllowSiteTags.any((s) => s.tag == tag)) return;
+    final next = {...state.allowSites};
+    if (!next.add(tag)) next.remove(tag);
+    state = state.copyWith(allowSites: next);
+  }
+
   void toggleSplitApp(String id) {
     final next = {...state.splitApps};
     if (!next.add(id)) next.remove(id);
@@ -335,6 +407,3 @@ final relaysProvider = Provider<List<Relay>>((ref) {
   return ref.watch(apiRelaysProvider).valueOrNull ?? Relay.defaults;
 });
 
-/// Установленные приложения для split-tunnel (демо/desktop; на мобильных
-/// заменится платформенным каналом перечисления приложений).
-final installedAppsProvider = Provider<List<SplitApp>>((ref) => SplitApp.demo);

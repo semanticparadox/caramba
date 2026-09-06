@@ -140,4 +140,125 @@ void main() {
       expect(snapshot.updatedMs, 1700000000000);
     });
   });
+
+  group('снимок замера несёт вердикты, а не только числа', () {
+    test('вердикты и TCP доезжают до снимка', () {
+      const results = <ProbeResult>[
+        ProbeResult(
+          id: 'DE Stealth',
+          latencyMs: -1,
+          tcpMs: 118,
+          verdict: ProbeVerdict.authRejected,
+        ),
+        ProbeResult(id: 'CA Speed', latencyMs: 179, verdict: ProbeVerdict.ok),
+      ];
+      final snap = ProbeSnapshot.fromResults(results);
+
+      expect(snap.verdictOf('DE Stealth'), ProbeVerdict.authRejected);
+      expect(snap.tcpMs['DE Stealth'], 118);
+      expect(snap.workingCount, 1);
+    });
+
+    // РЕГРЕССИЯ, которую этот тест и стережёт: запись, сделанная сборкой до
+    // вердиктов, обязана читаться как «не знаю». Прочитать её как «ok» значило
+    // бы вернуть ровно ту ложь, ради которой вердикты и заведены, — только
+    // через хранилище.
+    test('старая запись без вердиктов читается как «не знаю»', () {
+      final snap = ProbeSnapshot.fromJson(<String, dynamic>{
+        'latency_ms': <String, dynamic>{'DE Stealth': 118},
+        'updated_ms': 1700000000000,
+      });
+      expect(snap, isNotNull);
+      expect(snap!.latencyMs['DE Stealth'], 118);
+      expect(snap.verdictOf('DE Stealth'), ProbeVerdict.unknown);
+      expect(snap.workingCount, 0);
+    });
+
+    test('незнакомый вердикт из будущей сборки не роняет разбор', () {
+      final snap = ProbeSnapshot.fromJson(<String, dynamic>{
+        'latency_ms': <String, dynamic>{'X': 10},
+        'verdicts': <String, dynamic>{'X': 'quantum_tunnel_collapsed'},
+        'updated_ms': 1,
+      });
+      expect(snap!.verdictOf('X'), ProbeVerdict.unknown);
+    });
+
+    test('снимок переживает круг через JSON', () {
+      final snap = ProbeSnapshot.fromResults(const <ProbeResult>[
+        ProbeResult(
+          id: 'CA Speed',
+          latencyMs: 179,
+          tcpMs: 150,
+          verdict: ProbeVerdict.ok,
+        ),
+      ]);
+      final back = ProbeSnapshot.fromJson(snap.toJson())!;
+      expect(back.verdictOf('CA Speed'), ProbeVerdict.ok);
+      expect(back.tcpMs['CA Speed'], 150);
+    });
+  });
+
+  group('выбор автоподбора переживает перезапуск', () {
+    test('запись ходит через JSON без потерь', () {
+      const pick = AutoPickRecord(
+        proxyName: 'CA Speed',
+        exitKey: '2',
+        countryCode: 'CA',
+        machineTitle: 'Canada',
+        protocolLabel: 'vless · tcp · reality',
+        latencyMs: 179,
+        confirmed: true,
+        checked: 13,
+        working: 4,
+        total: 13,
+        updatedMs: 1700000000000,
+        serversUpdatedMs: 42,
+        reasonCode: 'best_score',
+      );
+      final back = AutoPickRecord.fromJson(pick.toJson())!;
+      expect(back.proxyName, 'CA Speed');
+      expect(back.confirmed, isTrue);
+      expect(back.working, 4);
+      expect(back.serversUpdatedMs, 42);
+      expect(back.shortLabel, 'Canada');
+    });
+
+    test('запись без имени прокси читается как «подбора не было»', () {
+      // Закрепить такой выбор нечем: имя прокси — единственный ключ, который
+      // понимают и ядро, и предложение.
+      expect(
+        AutoPickRecord.fromJson(<String, dynamic>{'latency_ms': 10}),
+        isNull,
+      );
+      expect(AutoPickRecord.fromJson(null), isNull);
+    });
+
+    test('профиль без auto_pick грузится, поле остаётся пустым', () {
+      final p = ConnectionProfile.fromJson(<String, dynamic>{
+        'id': 'cp_1',
+        'type': 'rawSub',
+        'display_name': 'Резерв',
+        'source': 'x',
+      });
+      expect(p.autoPick, isNull);
+      expect(p.verdictOf('anything'), ProbeVerdict.unknown);
+    });
+
+    test('сброс выбора — явный флаг, а не отсутствие аргумента', () {
+      const pick = AutoPickRecord(
+        proxyName: 'CA Speed',
+        latencyMs: 179,
+        updatedMs: 1,
+      );
+      const base = ConnectionProfile(
+        id: 'cp_1',
+        type: ProfileType.rawSub,
+        displayName: 'x',
+        source: 'x',
+        autoPick: pick,
+      );
+      expect(base.copyWith().autoPick?.proxyName, 'CA Speed');
+      expect(base.copyWith(clearAutoPick: true).autoPick, isNull);
+    });
+  });
 }

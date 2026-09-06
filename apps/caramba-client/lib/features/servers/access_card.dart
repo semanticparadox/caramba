@@ -7,6 +7,7 @@ import 'package:caramba_client/data/models/subscription.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/branding_state.dart';
 import 'package:caramba_client/state/core_error.dart';
+import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/state/exit_inventory_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
@@ -87,7 +88,20 @@ class AccessCard extends ConsumerWidget {
             ],
           ],
           const SizedBox(height: AppSpace.s4),
-          if (pay != null)
+          // Куда ведёт «Оплатить», решает наличие ПАНЕЛИ, а не наличие ссылки.
+          // Панель есть — ведём на витрину тарифов: там видно, что именно
+          // покупается, сколько это стоит и чем платить, и там же честно
+          // говорится, если оплата в приложении у оператора выключена. Панели
+          // нет (своя подписка, generic-режим) — витрины не существует, и
+          // единственное осмысленное действие это внешняя ссылка, если
+          // оператор её опубликовал.
+          if (ref.watch(apiClientProvider).hasPanel)
+            GhostButton(
+              label: state.selfHealing ? 'Оплатить и не ждать' : 'Оплатить',
+              icon: Lucide.creditCard,
+              onPressed: () => context.push(AppRoute.plans),
+            )
+          else if (pay != null)
             GhostButton(
               label: state.selfHealing ? 'Оплатить и не ждать' : 'Оплатить',
               icon: Lucide.creditCard,

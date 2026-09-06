@@ -15,10 +15,12 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:caramba_client/features/settings/enhancements_summary.dart';
 import 'package:caramba_client/features/settings/route_report.dart';
 import 'package:caramba_client/state/vpn_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
+import 'package:caramba_client/theme/typography.dart';
 import 'package:caramba_client/widgets/lucide.dart';
 import 'package:caramba_client/widgets/ui.dart';
 
@@ -49,8 +51,7 @@ class AppliedRouteCard extends ConsumerWidget {
             const InlineBanner(
               tone: BannerTone.warning,
               glyph: Lucide.alert,
-              text:
-                  'Ядро этой сборки не отчитывается о применённом маршруте. '
+              text: 'Ядро этой сборки не отчитывается о применённом маршруте. '
                   'Что именно оно применило, проверить нечем.',
             )
           else if (!report.known)
@@ -59,8 +60,8 @@ class AppliedRouteCard extends ConsumerWidget {
               glyph: Lucide.alert,
               text: report.reason == 'not_raised'
                   ? 'Ядро ещё не отчиталось о поднятом туннеле. Пока это '
-                        'состояние держится, о применённых правилах ничего не '
-                        'известно.'
+                      'состояние держится, о применённых правилах ничего не '
+                      'известно.'
                   : 'Ядро не сообщило, какой маршрут применён.',
             )
           else ...[
@@ -77,7 +78,10 @@ class AppliedRouteCard extends ConsumerWidget {
     return <Widget>[
       CRow(
         icon: Lucide.route,
-        label: 'Маршрут',
+        // То же имя, что у настройки везде: пикер режима, раздел «Улучшения»
+        // и `csmSettingTitle(CsmSettingKey.preset)` зовут её «Режим для
+        // страны», и эта строка не вправе называть ту же величину иначе.
+        label: 'Режим для страны',
         value: switch (r.source) {
           AppliedRouteSource.preset => preset == null
               ? 'пресет без имени'
@@ -102,12 +106,19 @@ class AppliedRouteCard extends ConsumerWidget {
           mono: true,
           valueColor: context.c.warning,
         ),
-      CRow(
+      _WrapRow(
         icon: Lucide.lock,
         label: 'Блок рекламы',
-        value: _capabilityValue(r.blocksAds, r),
+        // Источник СИЛЬНЕЕ признака пресета.
+        //
+        // С появлением переключателя блок рекламы приходит поверх любого
+        // пресета, а `blocksAds` реестра отвечает на другой вопрос — режет ли
+        // рекламу САМ пресет. Оставить здесь признак значило бы писать «этот
+        // пресет его не включает» на том же экране, где переключатель говорит
+        // «работает». Названный источник закрывает вопрос обоим.
+        value: _adsValue(r),
       ),
-      CRow(
+      _WrapRow(
         icon: Lucide.zap,
         label: 'Стриминг через VPN',
         value: _capabilityValue(r.routesStreaming, r),
@@ -130,6 +141,19 @@ class AppliedRouteCard extends ConsumerWidget {
           value: 'снят; показан последний применённый',
         ),
     ];
+  }
+
+  /// Значение строки блока рекламы: сперва по названному источнику списка,
+  /// и только если его нет — по признаку пресета.
+  String _adsValue(AppliedRoute r) {
+    final ads = adsSourceOf(r);
+    if (ads == null) return _capabilityValue(r.blocksAds, r);
+    return switch (ads.state) {
+      RuleSourceState.file => 'включён, правил ${ads.keptRules}',
+      RuleSourceState.mirror => 'включён, список с зеркала',
+      RuleSourceState.dropped => 'включён, но список не доехал',
+      RuleSourceState.unknown => 'включён, состояние списка неизвестно',
+    };
   }
 
   /// Значение строки возможности. Три исхода, а не два: пресет её включает,
@@ -195,5 +219,59 @@ class AppliedRouteCard extends ConsumerWidget {
     }
 
     return out;
+  }
+}
+
+/// Строка карточки со свободной высотой: значение переносится на вторую
+/// строку под подписью вместо того, чтобы обрезаться многоточием.
+///
+/// [CRow] кладёт подпись и значение в одну строку и режет значение
+/// [TextOverflow.ellipsis] — но обрезка у dart:ui включается уже тем, что
+/// `overflow` задан, ДАЖЕ без `maxLines`: движок молча подставляет
+/// `maxLines: 1`, когда есть `ellipsis` и явного предела нет. На узком экране
+/// это резало «этот пресет его не включает» до «этот пресет его не …» —
+/// ровно на границе слова, где теряется отрицание. [CRow] общий для всего
+/// приложения и здесь не трогается: у этих двух строк ответ пресета может
+/// быть длинным сам по себе, и им нужна не более широкая колонка (её и так
+/// делят пополам с подписью), а разрешение перенестись.
+class _WrapRow extends StatelessWidget {
+  final String icon;
+  final String label;
+  final String value;
+
+  const _WrapRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Container(
+      constraints: const BoxConstraints(minHeight: 54),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpace.s4,
+        vertical: AppSpace.s3,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LucideIcon(icon, color: c.textMed, size: 20),
+          const SizedBox(width: AppSpace.s3 + 2),
+          Expanded(
+            child: Text(label, style: AppType.bodyMd.copyWith(color: c.textHi)),
+          ),
+          const SizedBox(width: AppSpace.s3),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: AppType.bodyMd.copyWith(color: c.textMed),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

@@ -1,52 +1,41 @@
-import 'package:caramba_client/widgets/lucide.dart';
+/// Режим правил по сайтам для раздельного туннелирования.
+///
+/// Файл называется split_app.dart по историческим причинам: здесь жил ещё и
+/// класс `SplitApp` со списком «установленных приложений». Список был
+/// демонстрационным на ВСЕХ платформах (перечислять приложения приложению
+/// нечем), его идентификаторы не совпадали ни с одним реальным процессом, и
+/// каждый его тумблер был переключателем, который ничего не переключает.
+/// Он удалён вместе с провайдером `installedAppsProvider`, а не спрятан за
+/// флагом: мёртвая фикция в сборке рано или поздно снова окажется на экране.
+/// Честная реализация «правил по приложениям» на Android — это
+/// `VpnService.Builder.addAllowedApplication`, и она отдельная работа.
+library;
 
 /// Режим раздельного туннелирования (caramba-core `Policy.Split`):
-/// off = всё через VPN; onlySelected = через VPN только выбранные приложения
-/// (`AllowProcesses`); bypassSelected = выбранные мимо VPN (`BypassProcesses`).
+/// off = правил по сайтам нет; onlySelected = через VPN только перечисленное
+/// (`AllowDomains`/`AllowSites`); bypassSelected = перечисленное мимо VPN
+/// (`BypassDomains`).
+///
+/// Названия говорят про САЙТЫ, а не про приложения, потому что приложениями
+/// этот режим здесь и не управляет: перечислить установленные программы
+/// приложению нечем (платформенного канала нет), и показывать под этими же
+/// словами демонстрационный список значило бы обещать несуществующее.
 enum SplitMode { off, onlySelected, bypassSelected }
 
 extension SplitModeX on SplitMode {
   String get title => switch (this) {
     SplitMode.off => 'Выключено',
-    SplitMode.onlySelected => 'Только выбранные',
-    SplitMode.bypassSelected => 'Кроме выбранных',
+    SplitMode.onlySelected => 'Только выбранные сайты',
+    SplitMode.bypassSelected => 'Кроме выбранных сайтов',
   };
 
   String get desc => switch (this) {
-    SplitMode.off => 'Весь трафик идёт через VPN.',
+    SplitMode.off => 'Действует общий режим для страны, списков нет.',
     SplitMode.onlySelected =>
-      'Через VPN идут только отмеченные приложения, остальное напрямую.',
+      'Через VPN идут только сайты из списка, всё остальное — напрямую. '
+          'Режим для страны при этом не применяется.',
     SplitMode.bypassSelected =>
-      'Отмеченные приложения идут напрямую, остальное через VPN.',
+      'Сайты из списка всегда идут напрямую, всё остальное — по режиму '
+          'для страны.',
   };
-}
-
-/// Приложение в списке split-tunnel. `id` = package/bundle id или путь процесса
-/// (caramba-core сопоставляет с `BypassProcesses`/`AllowProcesses`).
-class SplitApp {
-  final String id;
-  final String name;
-  final String icon; // Lucide glyph (плейсхолдер пакетной иконки)
-
-  const SplitApp({required this.id, required this.name, required this.icon});
-
-  factory SplitApp.fromJson(Map<String, dynamic> json) => SplitApp(
-    id: (json['id'] as String?) ?? (json['package'] as String?) ?? '',
-    name: (json['name'] as String?) ?? 'App',
-    icon: Lucide.appWindow,
-  );
-
-  /// Демо-список установленных приложений (desktop/dev).
-  static const demo = <SplitApp>[
-    SplitApp(id: 'org.telegram', name: 'Telegram', icon: Lucide.send),
-    SplitApp(id: 'com.google.chrome', name: 'Chrome', icon: Lucide.globe),
-    SplitApp(id: 'com.netflix', name: 'Netflix', icon: Lucide.zap),
-    SplitApp(id: 'com.spotify', name: 'Spotify', icon: Lucide.appWindow),
-    SplitApp(id: 'ru.sberbank', name: 'СберБанк', icon: Lucide.creditCard),
-    SplitApp(id: 'ru.gosuslugi', name: 'Госуслуги', icon: Lucide.shield),
-    SplitApp(id: 'com.youtube', name: 'YouTube', icon: Lucide.appWindow),
-    SplitApp(id: 'com.whatsapp', name: 'WhatsApp', icon: Lucide.phone),
-    SplitApp(id: 'com.discord', name: 'Discord', icon: Lucide.users),
-    SplitApp(id: 'ru.yandex.maps', name: 'Яндекс Карты', icon: Lucide.route),
-  ];
 }

@@ -32,17 +32,20 @@ class _FakeCore with FakeCsmDevice implements VpnConnection {
 
   final TrafficStats _traffic;
 
-  _FakeCore({required VpnStage stage, required TrafficStats traffic})
-    : _traffic = traffic,
-      currentStatus = VpnStatus(
-        stage: stage,
-        connectedSince: stage == VpnStage.connected
-            ? DateTime.now().subtract(const Duration(minutes: 3, seconds: 5))
-            : null,
-        mode: TunnelMode.proxy,
-        mixedPort: 7890,
-        activeProxy: stage == VpnStage.connected ? 'Amsterdam #2' : null,
-      );
+  _FakeCore({
+    required VpnStage stage,
+    required TrafficStats traffic,
+    String activeProxy = 'Amsterdam #2',
+  }) : _traffic = traffic,
+       currentStatus = VpnStatus(
+         stage: stage,
+         connectedSince: stage == VpnStage.connected
+             ? DateTime.now().subtract(const Duration(minutes: 3, seconds: 5))
+             : null,
+         mode: TunnelMode.proxy,
+         mixedPort: 7890,
+         activeProxy: stage == VpnStage.connected ? activeProxy : null,
+       );
 
   @override
   Stream<VpnStatus> get status => Stream<VpnStatus>.value(currentStatus);
@@ -79,6 +82,10 @@ class _FakeCore with FakeCsmDevice implements VpnConnection {
 
   @override
   Future<void> disconnect() async {}
+
+  /// Правду о стадии фейк знает сам: платформы за ним нет.
+  @override
+  Future<VpnStatus> refreshStatus() async => currentStatus;
 
   @override
   Future<void> dispose() async {}
@@ -200,12 +207,13 @@ Widget _guestHome({
     upTotal: 3 * 1024 * 1024,
   ),
   ConnectionProfile? profile,
+  String activeProxy = 'Amsterdam #2',
 }) {
   final p = profile ?? _profile;
   return ProviderScope(
     overrides: [
       vpnConnectionProvider.overrideWithValue(
-        _FakeCore(stage: stage, traffic: traffic),
+        _FakeCore(stage: stage, traffic: traffic, activeProxy: activeProxy),
       ),
       connectionProfilesStoreProvider.overrideWithValue(
         _FakeProfilesStore(<ConnectionProfile>[p], p.id),
@@ -243,8 +251,13 @@ void main() {
     expect(find.text('УЗЛОВ: 2'), findsOneWidget);
 
     // Сервер: закреплённый узел плюс тот, на который встал селектор ядра.
+    // Имена стоят РАЗДЕЛЬНО, а не склеены через «·»: CRow режет значение
+    // многоточием с конца, и склейка двух живых имён давала на устройстве
+    // «🇨🇦 Stream via 🇷🇺 ·…» — обрубок без единого целого имени.
     expect(find.text('Сервер'), findsOneWidget);
-    expect(find.text('Amsterdam #1 · Amsterdam #2'), findsOneWidget);
+    expect(find.text('Amsterdam #1'), findsOneWidget);
+    expect(find.text('Amsterdam #2'), findsOneWidget);
+    expect(find.text('Amsterdam #1 · Amsterdam #2'), findsNothing);
 
     // Локальный инбаунд подписан под дайлом: в proxy-режиме его надо прописать
     // руками, значит его надо видеть.
@@ -319,6 +332,58 @@ void main() {
       findsNothing,
       reason: 'пять прокси это не пять узлов',
     );
+
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  // Замер с устройства: строка «Сервер» показывала «🇨🇦 Stream via 🇷🇺» прямо
+  // над строкой «Relay (вход): Выкл». Имя обещало вход, которого на этом пути
+  // нет вовсе (`detour` теряется при переводе sing-box → clash в ядре), и
+  // обещание попадало на ПЕРВЫЙ экран.
+  testWidgets('строка «Сервер» говорит проводом, а не обещанием в имени', (
+    tester,
+  ) async {
+    _usePhoneView(tester);
+    // Узлы живой подписки `sub 34`: один и тот же провод под двумя именами.
+    const live = <ImportedServer>[
+      ImportedServer(
+        id: '🇨🇦 Stream via 🇷🇺',
+        name: '🇨🇦 Stream via 🇷🇺',
+        type: 'vless',
+        server: '158.69.213.88',
+        port: 10400,
+        country: 'CA',
+      ),
+      ImportedServer(
+        id: '🇨🇦 Stream',
+        name: '🇨🇦 Stream',
+        type: 'vless',
+        server: '158.69.213.88',
+        port: 10400,
+        country: 'CA',
+      ),
+    ];
+    await tester.pumpWidget(
+      _guestHome(
+        profile: _profile.copyWith(
+          servers: live,
+          selectedServerId: '🇨🇦 Stream via 🇷🇺',
+        ),
+        activeProxy: '🇨🇦 Stream via 🇷🇺',
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+
+    // В строке — то, что НА ПРОВОДЕ.
+    expect(find.text('🇨🇦 Stream'), findsWidgets);
+    // Обещания на первом экране больше нет...
+    expect(find.text('🇨🇦 Stream via 🇷🇺'), findsNothing);
+    expect(find.textContaining('via 🇷🇺'), findsNothing);
+    // ...но переименование не молчаливое: расхождение названо тут же, в строке.
+    expect(find.text('ВХОД ТОЛЬКО В ИМЕНИ'), findsOneWidget);
 
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());

@@ -221,8 +221,8 @@ String csmHardwareTierTitle(CsmHardwareTier tier) => switch (tier) {
 /// Настройка по-русски. Имена совпадают с подписями на экранах настроек, чтобы
 /// карточка «Оставить или Вернуть» называла ту же строку, что видит человек.
 String csmSettingTitle(CsmSettingKey key) => switch (key) {
-  CsmSettingKey.protocol => 'Протокол',
-  CsmSettingKey.preset => 'Маршрутизация',
+  CsmSettingKey.protocol => 'Тип подключения',
+  CsmSettingKey.preset => 'Режим для страны',
   CsmSettingKey.relay => 'Relay (вход)',
   CsmSettingKey.stack => 'Сетевой стек (TUN)',
   CsmSettingKey.mtu => 'MTU',
@@ -231,7 +231,7 @@ String csmSettingTitle(CsmSettingKey key) => switch (key) {
   CsmSettingKey.killSwitch => 'Kill-switch',
   CsmSettingKey.dnsNameservers => 'DNS-резолверы',
   CsmSettingKey.dnsFallback => 'Запасные резолверы',
-  CsmSettingKey.splitMode => 'Раздельное туннелирование',
+  CsmSettingKey.splitMode => 'Правила по сайтам',
 };
 
 /// Происхождение значения (02-SPEC.md 7.6). Карточка обязана его называть.

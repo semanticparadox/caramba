@@ -298,6 +298,17 @@ class FfiVpnConnection<S extends Object> implements VpnConnection<S> {
     _emit(VpnStatus<S>(stage: VpnStage.disconnected, server: _last.server));
   }
 
+  /// Ядро живёт В ЭТОМ ЖЕ процессе, поэтому «переспросить платформу» здесь —
+  /// это прочитать статус у ядра прямо сейчас, тем же путём, что и опрос.
+  /// Ядра нет вовсе (туннель не поднимали) — честное «отключено».
+  @override
+  Future<VpnStatus<S>> refreshStatus() async {
+    final lib = _lib;
+    if (lib == null || _handle == 0) return _last;
+    _tick(lib);
+    return _last;
+  }
+
   // --- generic-режим ---------------------------------------------------------
 
   @override

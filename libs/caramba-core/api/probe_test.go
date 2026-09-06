@@ -51,9 +51,11 @@ func closedPort(t *testing.T) int {
 // закрытый порт.
 //
 // Тип узлов намеренно неизвестен ядру ("probe-fixture"): под -tags mihomo
-// adapter.ParseProxy на нём падает, и замер честно деградирует до TCP-пробы —
-// той же, что в сборке без ядра. Так тест меряет реальные задержки и ведёт себя
-// одинаково в обеих сборках, не выходя в интернет за URL-тестом.
+// adapter.ParseProxy на нём падает. РАНЬШЕ замер в этом случае деградировал до
+// TCP-пробы и выдавал её число за задержку узла; теперь он отвечает вердиктом
+// unsupported с latencyMs = -1, а TCP остаётся справочным tcpMs. Поэтому
+// утверждения ниже держатся за tcpMs и вердикт, а не за latencyMs: только они
+// означают одно и то же в обеих сборках, и именно это и есть суть правки.
 func probeFixture(alive1, alive2, dead int) string {
 	return fmt.Sprintf(`
 proxies:
@@ -103,24 +105,54 @@ func TestProbeMeasuresLoadedConfig(t *testing.T) {
 	if first.Type != "probe-fixture" || first.Server != "127.0.0.1" || first.Port != a1 {
 		t.Fatalf("поля узла: %+v", first)
 	}
-	if first.LatencyMs < 1 {
-		t.Fatalf("живой узел должен дать задержку >= 1мс, получено %d", first.LatencyMs)
-	}
+	assertAliveAddress(t, first)
 
 	second := rep.Servers[1]
 	if second.Country != "DE" {
 		t.Fatalf("страна из двухбуквенного токена не распознана: %+v", second)
 	}
-	if second.LatencyMs < 1 {
-		t.Fatalf("живой узел должен дать задержку >= 1мс, получено %d", second.LatencyMs)
-	}
+	assertAliveAddress(t, second)
 
 	third := rep.Servers[2]
 	if third.LatencyMs != -1 {
 		t.Fatalf("закрытый порт должен дать -1, получено %d", third.LatencyMs)
 	}
+	if third.TcpMs != -1 {
+		t.Fatalf("закрытый порт не даёт TCP-числа, получено %d", third.TcpMs)
+	}
+	if third.Verdict != ProbeVerdictPortClosed {
+		t.Fatalf("закрытый порт должен назваться %q, получено %q", ProbeVerdictPortClosed, third.Verdict)
+	}
 	if third.Country != "" {
 		t.Fatalf("страна не должна выводиться из %q: %q", third.ID, third.Country)
+	}
+}
+
+// assertAliveAddress: живой адрес обязан дать TCP-число и вердикт, который в
+// ЭТОЙ сборке означает «адрес отвечает, а протокол проверить нечем».
+//
+// Ключевое, что здесь проверяется: latencyMs НИКОГДА не берётся из TCP в
+// сборке с ядром. Именно этот фолбэк и делал узел с отвергнутым ключом самым
+// быстрым в списке.
+func assertAliveAddress(t *testing.T, s ProbeServer) {
+	t.Helper()
+	if s.TcpMs < 1 {
+		t.Fatalf("живой адрес должен дать tcpMs >= 1, получено %+v", s)
+	}
+	switch s.Verdict {
+	case ProbeVerdictTCPOnly:
+		// Сборка без ядра: иного измерения не существует, число настоящее.
+		if s.LatencyMs != s.TcpMs {
+			t.Fatalf("в сборке без ядра latencyMs это и есть tcpMs: %+v", s)
+		}
+	case ProbeVerdictUnsupported:
+		// Сборка с ядром: адаптер не собрался, и выдавать TCP за задержку
+		// сквозь узел запрещено.
+		if s.LatencyMs != -1 {
+			t.Fatalf("вердикт %q обязан оставить latencyMs = -1: %+v", s.Verdict, s)
+		}
+	default:
+		t.Fatalf("неожиданный вердикт для фикстуры неизвестного типа: %+v", s)
 	}
 }
 
@@ -157,7 +189,7 @@ func TestProbeJSONShape(t *testing.T) {
 	if len(decoded.Servers) != 3 {
 		t.Fatalf("узлов %d: %s", len(decoded.Servers), out)
 	}
-	for _, key := range []string{"id", "name", "type", "server", "port", "country", "latencyMs"} {
+	for _, key := range []string{"id", "name", "type", "server", "port", "country", "latencyMs", "tcpMs", "verdict"} {
 		if _, ok := decoded.Servers[0][key]; !ok {
 			t.Fatalf("в отчёте нет поля %q: %s", key, out)
 		}
@@ -180,6 +212,12 @@ func TestProbeRespectsCanceledContext(t *testing.T) {
 	for _, s := range rep.Servers {
 		if s.LatencyMs != -1 {
 			t.Fatalf("при отменённом контексте ожидались -1, получено %+v", s)
+		}
+		// «Не проверяли» и «проверили, не ответил» — разные ответы, и до
+		// вердиктов они были неотличимы. Автоподбор на этом объявлял бы флот
+		// мёртвым всякий раз, когда экран закрыли до конца прохода.
+		if s.Verdict != ProbeVerdictSkipped {
+			t.Fatalf("недомеренный узел должен называться %q, получено %+v", ProbeVerdictSkipped, s)
 		}
 	}
 }
@@ -287,9 +325,7 @@ func TestProbePrefersLoadedConfigOverPanel(t *testing.T) {
 	if len(rep.Servers) != 3 {
 		t.Fatalf("узлов %d, ожидалось 3: %+v", len(rep.Servers), rep.Servers)
 	}
-	if rep.Servers[0].LatencyMs < 1 {
-		t.Fatalf("живой узел должен дать задержку >= 1мс: %+v", rep.Servers[0])
-	}
+	assertAliveAddress(t, rep.Servers[0])
 }
 
 // Панель настроена, но вход не выполнен — по-прежнему пустой список без ошибки:

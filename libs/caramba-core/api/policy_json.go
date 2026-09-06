@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/semanticparadox/caramba/libs/caramba-core/profile"
@@ -24,7 +25,11 @@ type policyPatch struct {
 	IPv6       *bool   `json:"ipv6"`
 	FakeIP     *bool   `json:"fakeIp"`
 	KillSwitch *bool   `json:"killSwitch"`
-	DNS        *struct {
+	// Adblock — блок рекламы и трекеров ПОВЕРХ выбранного пресета.
+	// Отдельно от preset намеренно: до него «резать рекламу» означало сменить
+	// режим страны, и в интерфейсе это была не галочка, а выбор из списка.
+	Adblock *bool `json:"adblock"`
+	DNS     *struct {
 		Nameservers []string `json:"nameservers"`
 		Fallback    []string `json:"fallback"`
 	} `json:"dns"`
@@ -32,7 +37,42 @@ type policyPatch struct {
 		Mode          *string  `json:"mode"`
 		Apps          []string `json:"apps"`
 		BypassDomains []string `json:"bypassDomains"`
+		AllowDomains  []string `json:"allowDomains"`
+		AllowSites    []string `json:"allowSites"`
 	} `json:"split"`
+}
+
+// allowedSiteTags — закрытый словарь тегов GEOSITE, которые приложение может
+// назвать в split.allowSites.
+//
+// Словарь закрыт, а не «любой тег»: незнакомый базе GeoSite.dat тег не даёт ни
+// ошибки, ни правила — mihomo молча его не сопоставит, и человек, добавивший
+// «vk», получил бы выключенную строку, выглядящую включённой. Здесь перечислены
+// ровно те теги, которыми уже пользуются встроенные пресеты, то есть
+// проверенные на живом флоте.
+var allowedSiteTags = map[string]struct{}{
+	"telegram":  {},
+	"youtube":   {},
+	"instagram": {},
+	"twitter":   {},
+	"facebook":  {},
+	"discord":   {},
+	"openai":    {},
+	"netflix":   {},
+	"spotify":   {},
+	"disney":    {},
+}
+
+// AllowedSiteTags возвращает словарь тегов сайтов в стабильном порядке.
+// Зеркало на стороне приложения фиксируется тестом Dart; расхождение обязано
+// проявиться отказом ядра, а не молчаливо не сработавшим правилом.
+func AllowedSiteTags() []string {
+	out := make([]string, 0, len(allowedSiteTags))
+	for tag := range allowedSiteTags {
+		out = append(out, tag)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // SetPolicyJSON применяет политику приложения, переданную одной JSON-строкой
@@ -70,6 +110,7 @@ func (c *Core) SetPolicyJSON(jsonStr string) error {
 	// Работаем с копией: любая ошибка валидации оставит текущую политику целой.
 	p := c.policy
 	relay := c.relayCountry
+	presetID := c.presetID
 
 	if patch.Protocol != nil {
 		canonical, ok := profile.CanonicalProtocol(*patch.Protocol)
@@ -84,6 +125,7 @@ func (c *Core) SetPolicyJSON(jsonStr string) error {
 		if id == "" {
 			// Пустой пресет — возврат к базовым правилам без страновой логики.
 			p.Routing = nil
+			presetID = ""
 		} else {
 			preset, ok := routing.PresetByID(id)
 			if !ok {
@@ -94,6 +136,16 @@ func (c *Core) SetPolicyJSON(jsonStr string) error {
 				return fmt.Errorf("api: поле preset %q: %w", id, err)
 			}
 			p.Routing = &cfg
+			// Идентификатор запоминается наравне с правилами.
+			//
+			// Без этого путь приложения (единственный его канал — setPolicy)
+			// оставлял presetID пустым, и всё, что стоит на нём, работало
+			// вхолостую: routingForBuild не пересобирал пресет под каталог,
+			// ruleSetNames не заказывал его списки, а отчёт о применённом
+			// маршруте называл источником «правила оператора» и не мог
+			// подтвердить ни блок рекламы, ни стриминг. Ровно то «непонятно,
+			// работает или нет», против которого отчёт и заводился.
+			presetID = id
 		}
 	}
 
@@ -146,6 +198,10 @@ func (c *Core) SetPolicyJSON(jsonStr string) error {
 		p.KillSwitch = *patch.KillSwitch
 	}
 
+	if patch.Adblock != nil {
+		p.BlockAds = *patch.Adblock
+	}
+
 	if patch.DNS != nil {
 		if patch.DNS.Nameservers != nil {
 			p.DNS.Nameservers = cleanList(patch.DNS.Nameservers)
@@ -169,14 +225,25 @@ func (c *Core) SetPolicyJSON(jsonStr string) error {
 				mode = "off"
 			}
 		}
+		allowDomains := cleanList(patch.Split.AllowDomains)
+		allowSites := cleanList(patch.Split.AllowSites)
+		for _, tag := range allowSites {
+			if _, ok := allowedSiteTags[tag]; !ok {
+				return fmt.Errorf("api: недопустимое значение поля split.allowSites: %q (ожидается один из %v)", tag, AllowedSiteTags())
+			}
+		}
 		apps := cleanList(patch.Split.Apps)
 		switch mode {
 		case "off":
-			// Списки приложений сбрасываются: режим выключен.
+			// Списки сбрасываются: режим выключен. Сайтовый allow-список тоже —
+			// иначе «выключено» продолжало бы уводить весь остальной трафик
+			// мимо туннеля, и выключатель ничего бы не выключал.
 		case "bypass":
 			split.BypassProcesses = apps
 		case "allow":
 			split.AllowProcesses = apps
+			split.AllowDomains = allowDomains
+			split.AllowSites = allowSites
 		default:
 			return fmt.Errorf("api: недопустимое значение поля split.mode: %q (ожидается off|bypass|allow)", mode)
 		}
@@ -185,6 +252,7 @@ func (c *Core) SetPolicyJSON(jsonStr string) error {
 
 	c.policy = p
 	c.relayCountry = relay
+	c.presetID = presetID
 	return nil
 }
 

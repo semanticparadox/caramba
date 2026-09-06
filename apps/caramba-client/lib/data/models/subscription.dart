@@ -209,7 +209,18 @@ class AccessPay {
   /// Запасная https-ссылка на чат бота.
   final String botUrl;
 
-  const AccessPay({this.url = '', this.botUrl = ''});
+  /// Нативная ссылка на мини-апп (`tg://resolve?domain=…&appname=…&startapp=plans`).
+  ///
+  /// Панель собирает её отдельно от https-формы именно для приложения: она
+  /// открывает УЖЕ УСТАНОВЛЕННЫЙ Telegram, не прогоняя человека через браузер и
+  /// экран «открыть в приложении». Схема у неё не https, поэтому пропускать её
+  /// через общий [openExternal] нельзя (его allowlist — https и mailto, и
+  /// расширять этот список ради одной кнопки значило бы ослабить проверку для
+  /// всех ссылок приложения). Пусто — у оператора не настроен мини-апп, и тогда
+  /// открывается [url]/[botUrl].
+  final String nativeUrl;
+
+  const AccessPay({this.url = '', this.botUrl = '', this.nativeUrl = ''});
 
   /// Лучшая доступная ссылка или `null` — оператор не опубликовал ни одной.
   /// `null` здесь обязателен: выдумать чужой @bot вместо пустоты нельзя.
@@ -220,6 +231,16 @@ class AccessPay {
     return b.isEmpty ? null : b;
   }
 
+  /// Нативная ссылка или `null`. Отдельно от [link], потому что вызывающий
+  /// обязан их различать: первую открывает Telegram, вторую — браузер.
+  String? get native {
+    final n = nativeUrl.trim();
+    return n.isEmpty ? null : n;
+  }
+
+  /// Оператор не опубликовал ни одного адреса оплаты.
+  bool get isEmpty => link == null && native == null;
+
   factory AccessPay.fromJson(Map<String, dynamic> json) => AccessPay(
     url:
         (json['miniapp_url'] as String?) ??
@@ -227,6 +248,7 @@ class AccessPay {
         (json['bot_url'] as String?) ??
         '',
     botUrl: (json['bot_url'] as String?) ?? '',
+    nativeUrl: (json['miniapp_native'] as String?) ?? '',
   );
 }
 

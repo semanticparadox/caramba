@@ -88,6 +88,11 @@ void main() {
         'csmAnswerCatalogChange': () => c.csmAnswerCatalogChange(accept: true),
         'csmSelectProfile': () => c.csmSelectProfile('profile'),
         'disconnect': () => c.disconnect(),
+        // Уходит в канал под именем `status`: у ядра спрашивают снимок, а не
+        // «обнови». Мост, который про него не знает, вернул бы
+        // notImplemented — и приложение осталось бы с тем, что помнит, ровно в
+        // тот момент, когда помнит оно неправду.
+        'refreshStatus': () => c.refreshStatus(),
         // dispose ничего в канал не шлёт, но входит в контракт: без него список
         // упражнений не был бы полным, а именно полнота здесь и проверяется.
         'dispose': () => c.dispose(),

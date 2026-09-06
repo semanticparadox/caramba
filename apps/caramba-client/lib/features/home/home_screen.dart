@@ -12,12 +12,17 @@ import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/protocol.dart';
 import 'package:caramba_client/data/models/relay.dart';
 import 'package:caramba_client/data/models/server.dart';
+import 'package:caramba_client/data/models/sub_plan.dart';
 import 'package:caramba_client/data/models/subscription.dart' show AccessState;
+import 'package:caramba_client/domain/autopilot/auto_pick.dart'
+    show namingOfProxy;
+import 'package:caramba_client/domain/autopilot/autopilot_state.dart';
 import 'package:caramba_client/domain/offering/availability.dart';
 import 'package:caramba_client/domain/offering/offering_providers.dart';
 import 'package:caramba_client/features/csm/config_age_card.dart';
 import 'package:caramba_client/features/csm/keep_or_revert_card.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
+import 'package:caramba_client/features/protocol/protocol_truth.dart';
 import 'package:caramba_client/features/servers/access_card.dart';
 import 'package:caramba_client/features/servers/relay_screen.dart'
     show effectiveRelayIndex;
@@ -117,11 +122,25 @@ String panelDialSubtitle({
 /// первый ответ на любую поломку.
 String dialErrorLabel({String? detail, AccessState? access}) {
   if (access != null && access.isBlocked) return access.shortReason;
+  final named = clientFailureText(detail);
+  if (named != null) return named;
   final failure = describeText(detail, access: access);
   if (failure?.access != null) return failure!.text.split('.').first;
   if (failure != null && !failure.retryable) return failure.text;
   return 'Не удалось подключиться. Проверьте сеть и нажмите снова';
 }
+
+/// Текст для двух отказов, которые называет САМ КЛИЕНТ, а не ядро.
+///
+/// Оба про одно: приложение поймало разрыв между тем, что ядро о себе говорит,
+/// и тем, что видно снаружи. Такой отказ обязан читаться иначе, чем «сеть
+/// подвела», — иначе человек будет чинить сеть. `null` — причина не наша,
+/// разбирать её общему переводчику ошибок.
+String? clientFailureText(String? detail) => switch (detail?.trim()) {
+  VpnFailureReason.noVpnTransport => 'Система не видит VPN-подключения',
+  VpnFailureReason.tunNotServiced => 'Туннель поднялся без адаптера и опущен',
+  _ => null,
+};
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -130,7 +149,8 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with WidgetsBindingObserver {
   final ValueNotifier<int> _tick = ValueNotifier<int>(0);
   Timer? _ticker;
 
@@ -146,7 +166,36 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   AtmosphereAnchor _anchor = AtmosphereAnchor.unmeasured;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Экран, который говорит «Защищено», обязан спросить об этом платформу, а
+    // не поверить кадру, доставшемуся ему по наследству. Первый вопрос — сразу
+    // после первого кадра: на холодном старте нативный кэш мог пережить и
+    // туннель, и весь прошлый запуск приложения.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _verifyStage());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Второй момент расхождения: пока приложение было в фоне, туннель мог
+    // упасть, а сообщить об этом было некому — движка Flutter в этот момент
+    // могло не быть вовсе.
+    if (state == AppLifecycleState.resumed) _verifyStage();
+  }
+
+  /// Спросить правду о стадии туннеля. Ошибку глотаем намеренно: молчание
+  /// платформы — не доказательство разрыва, и рисовать по нему «Отключено»
+  /// значило бы заменить одну неправду другой.
+  void _verifyStage() {
+    if (!mounted) return;
+    unawaited(ref.read(vpnProvider.notifier).refreshStage());
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
     _tick.dispose();
     _scroll.dispose();
@@ -310,6 +359,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       // выбрано». См. [effectiveRelayIndex].
       final relayIdx = effectiveRelayIndex(cfg.relay, relays);
       final relay = relayIdx < 0 ? null : relays[relayIdx];
+      // Вход, который назвал оператор по активной подписке. Другого источника
+      // для «Авто» нет: решение принимает генератор конфига, не приложение.
+      final relayFromOperator = _operatorRelayCountry(
+        ref.watch(subscriptionsProvider).valueOrNull,
+      );
       // План для чипа: активная подписка из /app/subscriptions, иначе /me,
       // иначе активная подписка из /app/subscription, иначе Free.
       final subsList = ref.watch(subscriptionsProvider).valueOrNull;
@@ -346,6 +400,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         traffic: traffic,
         server: server,
         relay: relay,
+        relayFromOperator: relayFromOperator,
         cfg: cfg,
         protocols: protocols,
         modes: modes,
@@ -524,6 +579,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     required TrafficStats traffic,
     required Server? server,
     required Relay? relay,
+    required String? relayFromOperator,
     required CoreConfig cfg,
     required List<ProtocolOption> protocols,
     required List<RoutingMode> modes,
@@ -573,26 +629,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
             onTap: () => context.go(AppRoute.servers),
           ),
-          _relayRow(relay: relay),
-          CRow(
-            icon: protocols[cfg.protocol].icon,
-            label: 'Протокол',
-            value: protocols[cfg.protocol].name,
-            chevron: true,
-            onTap: () => context.go(AppRoute.protocol),
-          ),
-          CRow(
-            icon: Lucide.route,
-            // Не «Маршрут»: владелец открыл эту строку в поисках выбора входа
-            // и увидел название страны. Правила и страна входа — разные вещи,
-            // и строка обязана называть свою.
-            label: 'Маршрут (правила)',
+          _relayRow(relay: relay, autoRelayCountry: relayFromOperator),
+          _protocolRow(cfg: cfg, protocols: protocols),
+          // Строка открывает `_pickRoute()` — тот же лист выбора режима
+          // страны, что и «Набор правил» внутри «Улучшения» → «Режим для
+          // страны» (см. showRoutePicker). Это НЕ переход на саму вкладку
+          // «Улучшения» (там ещё блок рекламы и список сайтов), поэтому имя
+          // строки обязано называть именно то, что откроется по тапу —
+          // «Режим для страны», как заголовок того же листа, — а не имя
+          // вкладки, куда лист вложен. Полный путь к «Улучшения» остаётся
+          // строкой в Настройках; здесь — прямой ярлык к одной его части,
+          // и он полезен сам по себе, но только под правильным именем.
+          // Значение — не [CRow] (см. [_RouteModeRow] за обрезку).
+          _RouteModeRow(
             value: modes[cfg.route].name,
-            chevron: true,
             onTap: () => _pickRoute(),
           ),
+          _autopilotRow(),
         ],
       ),
+      ..._protocolTruthBanner(),
+      ..._autopilotBanner(),
       if (!ref
           .watch(capabilitiesProvider)
           .relayChaining
@@ -681,12 +738,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Число берётся из того же слоя предложения, что и там: одна группа —
     // одна машина.
     final machines = ref.watch(offeringProvider).exits.length;
-    final base = node ?? 'Авто';
+    // Строка «Сервер» — ПЕРВЫЙ экран, и обещание входа попадало на него
+    // целиком: имя `🇨🇦 Stream via 🇷🇺` стояло прямо над строкой «Relay (вход):
+    // Выкл». Цепочки на этом пути нет (`detour` теряется при переводе
+    // sing-box → clash), так что имя обещало то, чего строка под ним честно не
+    // делает. Здесь, как в списке автоподбора, говорим тем, что НА ПРОВОДЕ.
+    final facts = ref.watch(fleetFactsProvider);
+    final pinned = (node == null || node.isEmpty)
+        ? null
+        : namingOfProxy(node, facts);
+    final live = (connected && proxy != null && proxy.isNotEmpty)
+        ? namingOfProxy(proxy, facts)
+        : null;
+    final base = pinned?.title ?? 'Авто';
     // «Плюс активный узел ядра»: селектор мог встать не на закреплённый узел
-    // (авто-выбор), и тогда важно показать оба.
-    final serverValue = (connected && proxy != null && proxy.isNotEmpty)
-        ? (proxy == base ? base : '$base · $proxy')
-        : base;
+    // (авто-выбор), и тогда важно показать оба. Второе имя едет ТРЕЙЛИНГОМ, а
+    // не второй половиной значения через «·»: CRow режет значение
+    // многоточием с конца, и склейка двух имён давала «🇨🇦 Stream via 🇷🇺 ·…» —
+    // обрубок, в котором не осталось целым ни одно из двух имён. Своя рамка
+    // на каждое имя — та же форма, что в панельной ветке выше.
+    final liveTitle = (live != null && live.title != base) ? live.title : null;
+    // Имя оператора со строки не теряется молча: расхождение названо тут же
+    // тегом, а само имя целиком лежит на экране серверов, куда строка и ведёт.
+    final promisesEntry = (live ?? pinned)?.overPromises ?? false;
     // Цепочка через вход на сыром конфиге не собирается. Строку всё равно
     // показываем: спрятанная, она неотличима от «такой настройки не бывает», и
     // пользователь ищет её в обновлении приложения. Причина берётся из
@@ -717,7 +791,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           CRow(
             icon: Lucide.globe,
             label: 'Сервер',
-            value: serverValue,
+            value: base,
+            // Расхождение важнее повтора второго имени: когда имя обещает
+            // вход, которого нет, это и есть главное, что строка обязана
+            // сказать про свой узел.
+            trailing: promisesEntry
+                ? const Padding(
+                    padding: EdgeInsets.only(right: AppSpace.s2),
+                    child: Tag('вход только в имени'),
+                  )
+                : liveTitle == null
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(right: AppSpace.s2),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 132),
+                      child: Text(
+                        liveTitle,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.right,
+                        style: AppType.bodySm.copyWith(
+                          color: context.c.textLow,
+                        ),
+                      ),
+                    ),
+                  ),
             chevron: true,
             onTap: () => context.go(AppRoute.servers),
           ),
@@ -727,22 +825,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             relay:
                 Relay.defaults[effectiveRelayIndex(cfg.relay, Relay.defaults)],
           ),
-          CRow(
-            icon: protocols[cfg.protocol].icon,
-            label: 'Протокол',
-            value: protocols[cfg.protocol].name,
-            chevron: true,
-            onTap: () => context.go(AppRoute.protocol),
-          ),
-          CRow(
-            icon: Lucide.route,
-            label: 'Маршрут (правила)',
+          _protocolRow(cfg: cfg, protocols: protocols),
+          // Та же строка, что и в панельной ветке выше, и то же
+          // рассуждение: тап открывает лист «Режим для страны»
+          // (showRoutePicker), а не вкладку «Улучшения» целиком — значит и
+          // называться строка обязана по листу, который откроет, а не по
+          // вкладке, где этот лист лишь один из трёх разделов.
+          _RouteModeRow(
             value: modes[cfg.route].name,
-            chevron: true,
             onTap: () => _pickRoute(),
           ),
+          _autopilotRow(),
         ],
       ),
+      ..._protocolTruthBanner(),
+      ..._autopilotBanner(),
       if (!chaining.isAvailable) ...[
         const SizedBox(height: AppSpace.s3),
         // Причина относится к ЦЕПОЧКЕ, а не к строке входа: сама строка живая
@@ -835,6 +932,132 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return id;
   }
 
+  /// Страна входа, которую называет ОПЕРАТОР по активной подписке.
+  ///
+  /// Берётся из активной подписки, а не из первой в списке: у человека может
+  /// быть несколько, и вход неактивной к текущему туннелю отношения не имеет.
+  /// `null` — оператор его не назвал.
+  static String? _operatorRelayCountry(List<SubPlan>? subs) {
+    if (subs == null || subs.isEmpty) return null;
+    final active = subs.where((s) => s.isActive);
+    final plan = active.isNotEmpty ? active.first : subs.first;
+    final cc = (plan.relayCountry ?? '').trim();
+    return cc.isEmpty ? null : cc;
+  }
+
+  /// Строка ТИПА ПОДКЛЮЧЕНИЯ (бывший «Протокол»).
+  ///
+  /// Имя сменилось не ради красоты. Список за этой строкой — инбаунды
+  /// выбранной машины, то есть «чем сервер принимает соединение»; строк там
+  /// больше, чем протоколов (vless/tcp/reality и vless/ws/tls — разные), а
+  /// слово «протокол» обещало выбор технологии.
+  ///
+  /// В режиме «Авто» строка обязана назвать, ЧТО авто выбрал: пустое «Авто» —
+  /// это контрол, который не сообщает о своей работе. Источник только живой:
+  /// узел, на котором стоит ядро, либо прошлый замер. Догадок нет.
+  ///
+  /// И то же правило — для ЗАКРЕПЛЁННОГО типа. Ядро закрепляет семейство, но
+  /// когда ни один его узел не поднялся, селектор молча уходит на другой прокси
+  /// (см. [protocolTruthOf]); строка при этом печатала закреплённое имя над
+  /// туннелем другого протокола. Здесь она называет то, что на проводе.
+  Widget _protocolRow({
+    required CoreConfig cfg,
+    required List<ProtocolOption> protocols,
+  }) {
+    final option = (cfg.protocol >= 0 && cfg.protocol < protocols.length)
+        ? protocols[cfg.protocol]
+        : null;
+    final truth = ref.watch(protocolTruthProvider);
+    return CRow(
+      icon: truth.glyph ?? option?.icon ?? Lucide.layers,
+      label: 'Тип подключения',
+      value: truth.value,
+      // Цвет тут не сообщение, а метка «эта строка не в том состоянии, в
+      // которое её ставили»: сообщение целиком несут слово «вместо» в значении
+      // и баннер под группой.
+      valueColor: truth.diverged ? context.c.warning : null,
+      chevron: true,
+      onTap: () => context.go(AppRoute.protocol),
+    );
+  }
+
+  /// Объяснение подмены типа — под группой, рядом со строкой.
+  ///
+  /// Отдельной строкой, а не подписью: места под подпись у [CRow] нет, и
+  /// подмену страны в строке «Сервер» объясняют ровно так же.
+  List<Widget> _protocolTruthBanner() {
+    final truth = ref.watch(protocolTruthProvider);
+    if (!truth.diverged) return const <Widget>[];
+    return <Widget>[
+      const SizedBox(height: AppSpace.s3),
+      InlineBanner(
+        tone: BannerTone.warning,
+        glyph: Lucide.layers,
+        text: truth.note,
+      ),
+    ];
+  }
+
+  /// Строка автоподбора — вход в режим, которого владелец не нашёл.
+  ///
+  /// Значение отвечает на единственный вопрос, ради которого на неё смотрят:
+  /// подбирали ли вообще и в силе ли ещё тот подбор.
+  Widget _autopilotRow() {
+    final pick = ref.watch(autoPickRecordProvider);
+    final stale = ref.watch(autoStaleProvider);
+    final String value;
+    if (pick == null) {
+      value = 'Не запускали';
+    } else if (stale == AutoStaleReason.tunnelDisagrees ||
+        stale == AutoStaleReason.pinDisagrees) {
+      // Замер тут как раз свежий — не в силе сам ВЫБОР: трафик идёт (или
+      // пойдёт) мимо него. Назвать это «устарел» значило бы отправить человека
+      // перезамерять там, где перезамер ничего не меняет.
+      value = 'Не в силе';
+    } else if (stale != AutoStaleReason.none) {
+      value = 'Устарел';
+    } else {
+      value = '${pick.shortLabel} · ${pick.latencyMs} мс';
+    }
+    return CRow(
+      icon: Lucide.gauge,
+      label: 'Автоподбор',
+      value: value,
+      chevron: true,
+      // Экран живёт в ветке настроек, и своего маршрута у Home для него нет.
+      // Заводить второй путь к тому же экрану значило бы править роутер,
+      // который сейчас держат три исполнителя.
+      onTap: () => context.go('${AppRoute.settings}/autotune'),
+    );
+  }
+
+  /// Что именно выбрал автоподбор и что с этим выбором сейчас.
+  ///
+  /// Текст собирает [autopilotBannerText], и подпись он берёт у ДЕРЖАТЕЛЯ
+  /// ([autoHolderProvider]), а не у строки «Сервер». Раньше здесь стояла
+  /// `autoServerLabelProvider.subtitle` — подпись контрола, которая при живом
+  /// туннеле описывает активный узел, — и фраза про канадский выбор
+  /// заканчивалась словами «Сейчас в туннеле» над немецким выходом.
+  List<Widget> _autopilotBanner() {
+    final pick = ref.watch(autoPickRecordProvider);
+    if (pick == null) return const <Widget>[];
+    final stale = ref.watch(autoStaleProvider);
+    return <Widget>[
+      const SizedBox(height: AppSpace.s3),
+      InlineBanner(
+        tone: stale == AutoStaleReason.none
+            ? BannerTone.info
+            : BannerTone.warning,
+        glyph: Lucide.gauge,
+        text: autopilotBannerText(
+          pick: pick,
+          stale: stale,
+          holder: ref.watch(autoHolderProvider),
+        ),
+      ),
+    ];
+  }
+
   /// Строка входа, одинаковая в обеих ветках Home.
   ///
   /// Строка называет ЗНАЧЕНИЕ, которое сейчас в силе, и всегда ведёт на экран
@@ -847,16 +1070,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   /// Приглушение осталось ровно для одного случая: в силе настоящий вход
   /// оператора, а собрать цепочку источник не может — значит записанное
   /// значение не исполняется, и молчать об этом нельзя.
-  Widget _relayRow({required Relay? relay}) {
+  /// [autoRelayCountry] — вход, который назвал ОПЕРАТОР по этой подписке
+  /// (`/subscriptions[].relay_country`). Это единственный честный источник для
+  /// «Авто»: приложение вход не выбирает и знать его иначе не может. Пусто —
+  /// оператор его не называет, и строка остаётся просто «Авто»; выдумывать
+  /// «напрямую» нельзя — молчание источника это не «нет входа».
+  Widget _relayRow({required Relay? relay, String? autoRelayCountry}) {
     final a = ref.watch(capabilitiesProvider).relayChaining.availability;
     final ignored =
         a.isUnavailable && relay != null && !relay.isOff && !relay.isAuto;
+    final cc = (autoRelayCountry ?? '').trim().toUpperCase();
+    final value = (relay != null && relay.isAuto && cc.isNotEmpty)
+        ? 'Авто · через $cc'
+        : (relay?.name ?? '·');
     return Opacity(
       opacity: ignored ? 0.45 : 1,
       child: CRow(
         icon: Lucide.waypoints,
         label: 'Relay (вход)',
-        value: relay?.name ?? '·',
+        value: value,
         chevron: true,
         onTap: () => context.go(AppRoute.relay),
       ),
@@ -867,6 +1099,60 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   /// открывала список БЕЗ карты недоступного, то есть предлагала маршруты,
   /// которых оператор не предлагает.
   Future<void> _pickRoute() => showRoutePicker(context, ref);
+}
+
+/// Строка «Режим для страны» на Home: подпись и значение на СВОИХ строках.
+///
+/// [CRow] кладёт подпись и значение в одну строку и режет значение
+/// [TextOverflow.ellipsis] без явного `maxLines` — dart:ui подставляет
+/// `maxLines: 1` самим фактом `overflow`. Имена вроде «Россия (полный
+/// обход)» на строке с полноразмерной подписью («Режим для страны» длиннее
+/// бывшей «Улучшения») этим резались на узком экране. [CRow] общий для
+/// всего приложения и здесь не трогается (тот же фикс уже стоит в
+/// [AppliedRouteCard._WrapRow] и в настройках, см.
+/// `_EnhancementsSummaryRow` в settings_screen.dart) — значению нужна не
+/// более широкая колонка, а разрешение перенестись.
+class _RouteModeRow extends StatelessWidget {
+  final String value;
+  final VoidCallback? onTap;
+
+  const _RouteModeRow({required this.value, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 54),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpace.s4,
+          vertical: AppSpace.s3,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                LucideIcon(Lucide.route, color: c.textMed, size: 20),
+                const SizedBox(width: AppSpace.s3 + 2),
+                Expanded(
+                  child: Text(
+                    'Режим для страны',
+                    style: AppType.bodyMd.copyWith(color: c.textHi),
+                  ),
+                ),
+                const SizedBox(width: AppSpace.s2),
+                LucideIcon(Lucide.chevronRight, color: c.textLow, size: 18),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text(value, style: AppType.bodySm.copyWith(color: c.textMed)),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// The plane the config and stats cards sit on. The chart never deviates more

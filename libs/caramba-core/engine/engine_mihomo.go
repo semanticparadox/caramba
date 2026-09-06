@@ -107,8 +107,24 @@ func (e *mihomoEngine) Start(configPath string) error {
 func (e *mihomoEngine) Stop() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	// Shutdown закрывает inbound-listeners (включая TUN) и сбрасывает провайдеры.
-	executor.Shutdown()
+	// Гасим ядро ТОЛЬКО если поднимали его мы.
+	//
+	// executor.Shutdown() глобален на весь процесс: mihomo в приложении один,
+	// сколько бы Engine-объектов рядом ни жило. А объектов несколько — под
+	// туннель, под профиль CSM, под служебные операции. Пока проверки не было,
+	// закрытие СЛУЖЕБНОГО ядра (оно происходит, когда приложение уходит с
+	// экрана) валило чужой живой туннель: в логе «Mihomo shutting down», tun
+	// исчезал, а движок, который его поднимал, оставался в состоянии
+	// StateConnected и продолжал отвечать «подключено». Наружу это выглядело
+	// как «Защищено» с идущим таймером поверх мёртвой сети — снято на
+	// устройстве дважды.
+	//
+	// Своё состояние сбрасываем в любом случае: остановка того, что не
+	// запускалось, обязана быть тихой и успешной.
+	if e.state == StateConnected || e.state == StateStarting {
+		// Shutdown закрывает inbound-listeners (включая TUN) и сбрасывает провайдеры.
+		executor.Shutdown()
+	}
 	e.state = StateStopped
 	e.detail = ""
 	e.connectedSince = time.Time{}

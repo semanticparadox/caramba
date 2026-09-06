@@ -125,7 +125,10 @@ class CarambaVpnPlugin :
             override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                 statusSink = events
                 // Replay last known status so a fresh subscriber renders now.
-                events?.success(CarambaVpnBus.currentStatus().asMap())
+                // Именно этот повтор и рисовал «Защищено» новому движку Flutter
+                // после перезапуска приложения, поэтому он идёт через ту же
+                // печать свидетеля, что и живые кадры.
+                events?.success(witnessed(CarambaVpnBus.currentStatus()))
             }
 
             override fun onCancel(arguments: Any?) {
@@ -380,7 +383,11 @@ class CarambaVpnPlugin :
             }
 
             "status" -> {
-                result.success(CarambaVpnBus.currentStatus().asMap())
+                // Прямой вопрос приложения о подлинной стадии — тот самый,
+                // который Home задаёт при появлении экрана и при возвращении из
+                // фона. Отвечать на него без свидетеля значило бы оставить
+                // самый важный момент сверки на слове ядра о самом себе.
+                result.success(witnessed(CarambaVpnBus.currentStatus()))
             }
 
             else -> result.notImplemented()
@@ -452,6 +459,32 @@ class CarambaVpnPlugin :
         } else {
             appContext.startService(intent)
         }
+    }
+
+    // MARK: Свидетель туннеля
+
+    /**
+     * Кадр статуса с печатью независимого наблюдения.
+     *
+     * Наблюдение снимается ЗДЕСЬ, на выходе в Dart, а не кладётся в снимок:
+     * снимок кэшируется шиной и копируется поллером, и наблюдение, пролежавшее
+     * в нём хоть один такт, было бы такой же памятью о прошлом, как то самое
+     * «Защищено».
+     *
+     * Спрашиваем только про стадии, которые ЧТО-ТО УТВЕРЖДАЮТ о защите.
+     * `connecting`, `disconnected` и `error` ничего не обещают, а перебор сетей
+     * и getifaddrs идут на главном потоке — платить за них там, где ответ ни на
+     * что не влияет, незачем.
+     *
+     * Решение по вето принимает Dart, а не этот метод: одно место, где стадия
+     * переписывается, и оно покрыто тестами приложения. Здесь только факт.
+     */
+    private fun witnessed(snapshot: CarambaStatusSnapshot): Map<String, Any?> {
+        val claimsProtection =
+            snapshot.stage == CarambaStage.CONNECTED ||
+                snapshot.stage == CarambaStage.RECONNECTING
+        if (!claimsProtection) return snapshot.asMap()
+        return snapshot.asMap(CarambaTunnelWitness.verdict(appContext).wire)
     }
 
     // MARK: Generic mode helpers (ABI v2)
@@ -755,7 +788,7 @@ class CarambaVpnPlugin :
     // EXPOSED_PARAMETER_TYPE). The bus already posts to the main looper.
     private val busListener = object : CarambaVpnBus.Listener {
         override fun onStatus(snapshot: CarambaStatusSnapshot) {
-            statusSink?.success(snapshot.asMap())
+            statusSink?.success(witnessed(snapshot))
         }
 
         override fun onTraffic(snapshot: CarambaTrafficSnapshot) {

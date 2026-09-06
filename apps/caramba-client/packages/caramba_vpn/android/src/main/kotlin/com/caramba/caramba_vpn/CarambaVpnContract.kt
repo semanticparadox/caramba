@@ -110,16 +110,54 @@ internal object CarambaVpnKeys {
 }
 
 // A status snapshot in the exact shape of the com.caramba/vpn/status map.
+//
+// Три последних поля (ABI v2) СЮДА НЕ ДОЕЗЖАЛИ, и это стоило Android всей
+// сверки «что показано» с «к чему подключились». Go отдаёт activeProxy, mode и
+// mixedPort в statusJSON с самого ABI v2, FFI-путь (macOS) разбирает весь этот
+// JSON целиком — а Android-мост пересобирал снимок руками из трёх полей и
+// остальные молча ронял. На Dart-стороне `activeProxyProvider` из-за этого был
+// null ВСЕГДА, и строка «Сейчас в туннеле» не появлялась на Android ни разу:
+// приложение показывало выбранный узел, не имея ни одного способа проверить,
+// тот ли узел держит ядро.
 internal data class CarambaStatusSnapshot(
     val stage: String,
     val detail: String?,
     val connectedSinceMs: Long,
+    // Имя узла, на который ядро указывает селектором CARAMBA. null — ядро поле
+    // не прислало (туннель не поднят либо сборка старее ABI v2).
+    val activeProxy: String? = null,
+    // Способ захвата трафика, О КОТОРОМ ОТЧИТАЛОСЬ ЯДРО ("tun"|"proxy") — не то
+    // же, что выбор пользователя: тот действует лишь со следующего Up.
+    val mode: String? = null,
+    // Порт локального mixed-инбаунда; значим только в proxy-режиме, поэтому 0
+    // означает «поля нет», а не «порт ноль».
+    val mixedPort: Int = 0,
 ) {
-    fun asMap(): Map<String, Any?> {
-        val m = HashMap<String, Any?>(3)
+    /**
+     * Карта канала.
+     *
+     * [witness] — НЕЗАВИСИМОЕ наблюдение системы о том, есть ли сейчас
+     * VPN-транспорт (`present`|`absent`|`unknown`, см. CarambaTunnelWitness).
+     * Оно не входит в снимок как поле, потому что снимок кэшируется шиной и
+     * копируется поллером, а наблюдение обязано быть свежим на момент, когда
+     * кадр уходит в Dart, — иначе вето опиралось бы на память, ровно как то
+     * «Защищено», против которого оно и заведено. Ставит его плагин, у которого
+     * есть Context; значение по умолчанию — «не знаю», и по нему Dart не гасит
+     * ничего.
+     */
+    fun asMap(witness: String = "unknown"): Map<String, Any?> {
+        val m = HashMap<String, Any?>(8)
         m["stage"] = stage
         m["detail"] = detail
         m["connectedSinceMs"] = connectedSinceMs
+        m["activeProxy"] = activeProxy
+        m["mode"] = mode
+        m["tunnelWitness"] = witness
+        // Ключ ставится только когда порт есть: Dart читает его как «адрес
+        // локального прокси», и ноль превратился бы в строку «127.0.0.1:0».
+        if (mixedPort > 0) {
+            m["mixedPort"] = mixedPort
+        }
         return m
     }
 

@@ -29,17 +29,72 @@ internal object CarambaVpnBus {
     @Volatile
     private var listener: Listener? = null
 
+    /**
+     * Жив ли СЕЙЧАС сеанс туннеля в этом процессе.
+     *
+     * Кэш выше переживает и активность, и сам сервис: процесс приложения
+     * остаётся в памяти после того, как человек вышел кнопкой «Назад», а объект
+     * шины — глобальный на процесс. Раньше в нём так и оставался последний
+     * снимок «connected» вместе с моментом подъёма, и следующий запуск получал
+     * его первым же кадром: главный экран показывал «Защищено» и идущий таймер,
+     * при том что tun0 давно не было, значка VPN в статус-баре не было, а
+     * трафик шёл домашним адресом. Утверждение о защите пережило защиту.
+     *
+     * Признак ставит СЕРВИС — единственный, кто знает, поднят ли туннель на
+     * самом деле: [openSession] перед подъёмом, [closeSession] при любой
+     * остановке (включая onDestroy и отзыв разрешения).
+     */
+    @Volatile
+    private var sessionLive: Boolean = false
+
     interface Listener {
         fun onStatus(snapshot: CarambaStatusSnapshot)
         fun onTraffic(snapshot: CarambaTrafficSnapshot)
+    }
+
+    /** Сервис начинает поднимать туннель: с этого момента «connected» законен. */
+    fun openSession() {
+        sessionLive = true
+        // Подъём и разбор меняют ответ свидетеля мгновенно, а его короткий кэш
+        // об этом не знает: секунду после переключения он отдавал бы наблюдение
+        // прошлого состояния.
+        CarambaTunnelWitness.invalidate()
+    }
+
+    /** Сеанс окончен. Всё, что кэш утверждает про подключение, больше не правда. */
+    fun closeSession() {
+        sessionLive = false
+        CarambaTunnelWitness.invalidate()
+    }
+
+    /**
+     * Снимок с поправкой на живость сеанса.
+     *
+     * Стадии `connected`/`reconnecting` — это УТВЕРЖДЕНИЕ, что трафик сейчас
+     * идёт через туннель. Без живого сеанса такого туннеля нет, и утверждение
+     * заменяется на честное «отключено». `connecting` не трогаем: оно ничего не
+     * обещает, а плагин публикует его оптимистично ещё до старта сервиса.
+     */
+    private fun truthful(s: CarambaStatusSnapshot): CarambaStatusSnapshot {
+        if (sessionLive) return s
+        return when (s.stage) {
+            CarambaStage.CONNECTED, CarambaStage.RECONNECTING ->
+                CarambaStatusSnapshot.DISCONNECTED
+            else -> s
+        }
     }
 
     /** The plugin registers its sink-forwarding listener and replays cached state. */
     fun setListener(l: Listener?) {
         listener = l
         if (l != null) {
-            val s = lastStatus
-            val t = lastTraffic
+            // Именно этот повтор и врал новому движку Flutter после перезапуска
+            // приложения, поэтому он идёт через ту же проверку живости.
+            val s = currentStatus()
+            // Счётчики принадлежат сеансу так же, как стадия: показывать
+            // накопленные за прошлый туннель байты рядом со словом «Отключено»
+            // — та же неправда, только тише.
+            val t = if (sessionLive) lastTraffic else CarambaTrafficSnapshot.ZERO
             mainHandler.post {
                 l.onStatus(s)
                 l.onTraffic(t)
@@ -86,13 +141,21 @@ internal object CarambaVpnBus {
     }
 
     /** Last status, for the synchronous MethodChannel `status` call. */
-    fun currentStatus(): CarambaStatusSnapshot = lastStatus
+    fun currentStatus(): CarambaStatusSnapshot = truthful(lastStatus)
 
-    /** Called by the service (any thread). Caches and forwards on the main thread. */
+    /**
+     * Called by the service (any thread). Caches and forwards on the main thread.
+     *
+     * Через ту же проверку: поток опроса читает статус у ядра и публикует его
+     * следом, и между этими двумя шагами сеанс успевает закрыться. Кадр,
+     * опоздавший на закрытие, лёг бы поверх «disconnected» и вернул бы кэш в
+     * состояние «подключено».
+     */
     fun publishStatus(snapshot: CarambaStatusSnapshot) {
-        lastStatus = snapshot
+        val s = truthful(snapshot)
+        lastStatus = s
         val l = listener ?: return
-        mainHandler.post { l.onStatus(snapshot) }
+        mainHandler.post { l.onStatus(s) }
     }
 
     /** Called by the service (any thread). Caches and forwards on the main thread. */

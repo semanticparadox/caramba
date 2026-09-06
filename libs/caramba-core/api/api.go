@@ -1030,7 +1030,7 @@ func (c *Core) Up(ctx context.Context, serverID string) (UpResult, error) {
 	// Разблокировка загрузки, 02-SPEC.md 8.10. Делается ДО обращения к панели:
 	// проверенные geo-базы и списки нужны ядру уже на разборе конфига, а отказ
 	// каталога должен остановить сборку прежде, чем что-то попадёт на диск.
-	plan, err := c.prepareBootstrap(ctx, ruleSetNames(presetID))
+	plan, err := c.prepareBootstrap(ctx, ruleSetNames(presetID, policy.BlockAds))
 	if err != nil {
 		return UpResult{}, err
 	}

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/subscription.dart' show AccessState;
+import 'package:caramba_client/domain/autopilot/autopilot_state.dart';
 import 'package:caramba_client/domain/offering/offering.dart';
 import 'package:caramba_client/domain/offering/offering_providers.dart';
 import 'package:caramba_client/features/servers/access_card.dart';
@@ -23,8 +24,8 @@ import 'package:caramba_client/widgets/ui.dart';
 /// только инбаунды, и восемь входов одной немецкой машины когда-то читались
 /// как восемь серверов. Поэтому строка берётся из [Offering], где машина уже
 /// восстановлена (по одинаковому `server:` в импорте, по `nodes.id` у панели),
-/// а её инбаунды посчитаны и лежат бейджем. Протокол выбирается отдельно, на
-/// главном экране, и дублировать его строками списка незачем.
+/// а её инбаунды посчитаны и лежат бейджем. Тип подключения выбирается
+/// отдельно, на главном экране, и дублировать его строками списка незачем.
 ///
 /// Выбор уходит через [ExitSelectionController], которому нужен [ExitNode]: у
 /// панели это `node_id`, у импорта — имя прокси, которое читает `connectRaw`.
@@ -57,6 +58,7 @@ class ExitNodeList extends ConsumerWidget {
     final exits = fleetSourcesAgree(inventory.source, offering.source)
         ? offering.exits
         : const <ExitOffer>[];
+    final auto = ref.watch(autoServerLabelProvider);
 
     if (inventory.nodes.isEmpty) {
       return const InlineEmpty(message: 'Узлов нет');
@@ -67,9 +69,12 @@ class ExitNodeList extends ConsumerWidget {
       children: [
         ListItemCard(
           leading: const IBox(Lucide.gauge),
-          title: 'Авто',
-          subtitle: _autoSubtitle(inventory),
+          // «Авто» называет свой выбор. Пустое «Авто» — контрол, который не
+          // сообщает, что он сделал; ровно на это владелец и пожаловался.
+          title: auto.value,
+          subtitle: _autoSubtitle(inventory, auto),
           selected: selectedKey == null,
+          titleBadges: [if (auto.isStale) const Tag('устарело')],
           // Замер строки НЕ блокирует: список показан сразу, числа доезжают
           // отдельно, и выбирать во время замера можно.
           onTap: () => onSelect(null),
@@ -123,12 +128,23 @@ class ExitNodeList extends ConsumerWidget {
   /// Подпись «Авто». Закреплённая страна называется здесь, потому что своей
   /// строки у неё больше нет: иначе человек с прежним закреплением увидел бы
   /// список, где не выбрано ничего, и не понял бы, куда подключается.
-  String _autoSubtitle(ExitInventory inventory) {
+  String _autoSubtitle(ExitInventory inventory, AutoLabel auto) {
     final cc = inventory.selectedCountry;
-    if (cc == null || cc.isEmpty) return 'Ядро выберет страну и узел само';
-    final name = inventory.locationOf(cc)?.displayName ?? cc;
-    return 'Ядро выбирает узел само, в пределах страны: $name. '
-        'Нажмите, чтобы снять закрепление.';
+    final pinned = (cc == null || cc.isEmpty)
+        ? null
+        : (inventory.locationOf(cc)?.displayName ?? cc);
+
+    // Что автоподбор УЖЕ выбрал (или что держит ядро прямо сейчас) — важнее
+    // объяснения, как он работает: первое это факт, второе — инструкция.
+    final chosen = auto.hasChoice ? auto.subtitle : null;
+
+    if (pinned == null) {
+      return chosen ?? 'Выберется при подключении';
+    }
+    final tail =
+        'В пределах страны: $pinned. Нажмите, чтобы снять '
+        'закрепление.';
+    return chosen == null ? tail : '$chosen. $tail';
   }
 }
 
