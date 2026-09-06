@@ -389,7 +389,13 @@ fn build_singbox_outbound(
             ob["server"] = json!(endpoint);
             ob["server_port"] = json!(inbound.listen_port);
             ob["uuid"] = json!(user_keys.user_uuid);
-            ob["password"] = json!(user_keys.hy2_password);
+            // НЕ hy2_password: у TUIC идентичность несёт отдельное поле `uuid`,
+            // и узел заводит пользователя с голым uuid без дефисов (см.
+            // `user_tag::node_user_password`). С hy2-паролем узел отвечал
+            // «token mismatch» и вход был мёртв во всех трёх форматах сразу.
+            ob["password"] = json!(crate::services::user_tag::node_user_password(
+                &user_keys.user_uuid
+            ));
             ob["congestion_control"] =
                 json!(si.tuic_congestion_control.as_deref().unwrap_or("bbr"));
             ob["zero_rtt_handshake"] = json!(si.tuic_zero_rtt_handshake.unwrap_or(false));
@@ -407,18 +413,26 @@ fn build_singbox_outbound(
             ob["method"] = json!(parse_ss_method(&inbound.settings));
             ob["password"] = json!(parse_ss_password(&inbound.settings, &user_keys.user_uuid));
         }
+        // naive НЕ выпускается в sing-box-тело, и цена ошибки тут не «один
+        // мёртвый узел», а весь конфиг: naive-исходящий не входит в стоковую
+        // сборку sing-box, и разбор падает целиком —
+        //   $ sing-box check -c <тело подписки 35>
+        //   FATAL initialize outbound[20]: naive outbound is not included in
+        //   this build, rebuild with -tags with_naive_outbound
+        //   (sing-box 1.13.14, узел germany; без двух naive-исходящих те же
+        //   32 оставшихся проходят проверку молча)
+        // То есть два входа, которыми всё равно никто не может пользоваться,
+        // отбирали у клиента ещё и остальные тридцать два. Clash-ветка ниже
+        // опускает naive по своей причине (у mihomo нет такого outbound —
+        // `adapter.ParseProxy` отвечает «unsupport proxy type: naive»), а живой
+        // ссылкой naive остаётся только в URI-теле, где список плоский и
+        // неизвестная схема не роняет соседей.
         "naive" => {
-            ob["type"] = json!("naive");
-            ob["server"] = json!(endpoint);
-            ob["server_port"] = json!(inbound.listen_port);
-            ob["username"] = json!(user_keys.user_uuid);
-            ob["password"] = json!(user_keys.hy2_password);
-            // NaiveProxy TLS only supports: server_name, certificate, certificate_path, ech.
-            // alpn, utls, insecure etc. are NOT supported and cause parse errors.
-            ob["tls"] = json!({
-                "enabled": true,
-                "server_name": si.sni
-            });
+            tracing::debug!(
+                inbound = inbound.id,
+                "naive опущен в sing-box-теле: naive outbound не входит в стоковую сборку sing-box"
+            );
+            return None;
         }
         "amneziawg" => {
             let client_id = user_keys
@@ -880,13 +894,17 @@ pub fn generate_v2ray_config(
                         // but widely supported in Xray/Sing-box via query params if using XHTTP
                         if let Some(pad) = &si.x_padding_bytes {
                             params.push(format!("xPaddingBytes={}", pad));
-                        } else if si.network == "xhttp" || si.network == "httpupgrade" {
+                        } else if si.network == "xhttp" {
                             // Default randomization
                             use rand::Rng;
                             let mut rng = rand::rng();
                             let pad_len = rng.random_range(500..=1200);
                             params.push(format!("xPaddingBytes={}", pad_len));
                         }
+                        // httpupgrade сюда больше не попадает: xPaddingBytes —
+                        // параметр XHTTP, у HTTPUpgrade набивки нет вовсе.
+                        // Разборщику он в лучшем случае ничего не значит, а в
+                        // худшем уводит его в XHTTP-ветку.
 
                         match si.network.as_str() {
                             "ws" => {
@@ -895,7 +913,12 @@ pub fn generate_v2ray_config(
                             "grpc" => params.push(format!("serviceName={}", si.grpc_service)),
                             "httpupgrade" => {
                                 params.push(format!("path={}", urlencoding::encode(&si.ws_path)));
-                                // no mode= for httpupgrade; it is not an xhttp parameter
+                                // host= обязателен: узел ждёт этот заголовок в
+                                // запросе на апгрейд. Без него разборщик берёт
+                                // Host из sni только если сам догадается, а
+                                // догадываются не все.
+                                params.push(format!("host={}", urlencoding::encode(&si.sni)));
+                                // mode= здесь нет: это параметр XHTTP.
                             }
                             "xhttp" | "splithttp" => {
                                 params.push(format!("path={}", urlencoding::encode(&si.ws_path)));
@@ -1058,17 +1081,39 @@ pub fn generate_v2ray_config(
                             label
                         ));
                     }
+                    // Единственное тело, где naive ещё живёт ссылкой: список
+                    // плоский, и схему, которой клиент не знает, он просто
+                    // пропускает (наше ядро её тоже отбрасывает — profile.go).
+                    // В sing-box-теле и в clash-теле naive опущен: там он
+                    // ронял бы конфиг целиком либо не строился вовсе.
+                    //
+                    // Учётка приводится к тому, что РЕАЛЬНО заведено на узле
+                    // (NaiveProxy-16726df0, 85.215.196.151:15400):
+                    // `username: user_-53`, `password: <uuid без дефисов>`.
+                    // Отдавались же uuid с дефисами и hy2-пароль — не совпадало
+                    // ни одно из двух полей.
                     "naive" => {
                         let host = node.frontend_url.as_deref().unwrap_or(&node.address);
-                        links.push(format!(
-                            "naive+https://{}:{}@{}:{}?sni={}#{}",
-                            user_keys.user_uuid,
-                            user_keys.hy2_password,
-                            host,
-                            inbound.listen_port,
-                            si.sni,
-                            label
-                        ));
+                        // Идентичность достаём из hy2-пароля: в UserKeys нет
+                        // users.id, а `{identity}:{uuid}` — тот же источник,
+                        // из которого её берёт узел.
+                        let identity =
+                            crate::services::user_tag::client_identity_from_proxy_password(
+                                &user_keys.hy2_password,
+                            );
+                        // Без идентичности логин собрать не из чего, а ссылка с
+                        // заведомо чужой учёткой хуже отсутствующей.
+                        if let Some(identity) = identity {
+                            links.push(format!(
+                                "naive+https://{}:{}@{}:{}?sni={}#{}",
+                                crate::services::user_tag::user_tag(identity),
+                                crate::services::user_tag::node_user_password(&user_keys.user_uuid),
+                                host,
+                                inbound.listen_port,
+                                si.sni,
+                                label
+                            ));
+                        }
                     }
                     "tuic" => {
                         let host = node.frontend_url.as_deref().unwrap_or(&node.address);
@@ -1080,10 +1125,16 @@ pub fn generate_v2ray_config(
                             ),
                             "alpn=h3".to_string(),
                         ];
+                        // Побочный выигрыш от правильного пароля: hy2-пароль
+                        // содержит двоеточие (`-53:<hex>`), и ссылка выходила
+                        // с ДВУМЯ двоеточиями в userinfo — форма, на которой
+                        // строгие разборщики URI спотыкаются ещё до попытки
+                        // соединения. Пароль узла — чистый hex, двоеточие в
+                        // userinfo снова ровно одно.
                         links.push(format!(
                             "tuic://{}:{}@{}:{}?{}#{}",
                             user_keys.user_uuid,
-                            user_keys.hy2_password,
+                            crate::services::user_tag::node_user_password(&user_keys.user_uuid),
                             host,
                             inbound.listen_port,
                             params.join("&"),
@@ -1134,6 +1185,95 @@ pub fn generate_v2ray_config(
 // Clash YAML Config Generation
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/// Пин сертификата узла для mihomo (`fingerprint`). Пока всегда `None`.
+///
+/// Панели неоткуда взять отпечаток: сертификат генерирует САМ узел
+/// (`caramba-node`, `ensure_self_signed_cert`, rcgen), в heartbeat уезжает
+/// `CertificateStatus { sni, valid, expires_at, error }` — отпечатка там нет,
+/// а колонка `nodes.certificates_status` объявлена в init-миграции и не
+/// пишется ни одной строкой кода (в проде NULL у всех трёх узлов).
+///
+/// Что должно приехать, чтобы функция начала возвращать `Some` (порядок важен):
+///  1. `caramba_shared::api::CertificateStatus` получает
+///     `#[serde(default)] pub sha256: Option<String>` — узел считает
+///     `sha256(cert.Raw)` там же, где сейчас пишет `cert.pem`;
+///  2. панель складывает отпечаток в отдельную колонку `nodes` (миграция),
+///     `NodeInfo` протаскивает его сюда;
+///  3. ЖИЗНЕННЫЙ ЦИКЛ. Узел перевыпускает сертификат при КАЖДОЙ смене набора
+///     `server_name` (`cert_covers_domains` → `ensure_self_signed_cert`), а
+///     ротация SNI — штатная защита от блокировок. mihomo принимает РОВНО ОДИН
+///     отпечаток (`NewFingerprintVerifier`, 32 байта), окна перекрытия нет:
+///     сразу после ротации всякая закешированная подписка со старым пином
+///     ломается наглухо, пока клиент её не перескачает. Поэтому пин требует
+///     либо долгоживущего сертификата, чьи SAN покрывают весь пул SNI, либо
+///     собственного CA на узел (тогда пинится корень, а не лист).
+///
+/// Без пункта 3 пин строго хуже текущего поведения: он превращает деградацию
+/// в отказ именно на том механизме, который существует ради выживания.
+fn node_cert_pin(_node: &NodeInfo) -> Option<&str> {
+    None
+}
+
+/// Кладёт в clash-прокси гарантию доверия к TLS-сертификату узла.
+///
+/// Узлы предъявляют САМОПОДПИСАННЫЙ сертификат (`CN == SNI`, issuer == subject,
+/// проверено на 85.215.196.151 и 158.69.213.88). Без одной из этих двух опций
+/// mihomo валит рукопожатие проверкой цепочки, и прокси мёртв у любого
+/// clash-клиента — у нашего, у Happ, у Hiddify.
+///
+/// `fingerprint` (пин SHA-256 листа) строго сильнее: `ca.GetTLSConfig` ставит
+/// `InsecureSkipVerify = true` И вешает `VerifyConnection`, сверяющий
+/// `sha256(cert.Raw)` — то есть чужой сертификат не пройдёт. `skip-cert-verify`
+/// принимает любой. Ветка с пином не мёртвая: она покрыта тестом и включится,
+/// как только `node_cert_pin` научится возвращать значение.
+///
+/// Reality сюда не попадает: он аутентифицирует сервер по X25519-ключу, TLS-цепочка
+/// в нём вообще не проверяется.
+fn apply_clash_tls_trust(proxy: &mut Value, cert_pin: Option<&str>) {
+    match cert_pin {
+        Some(fp) => {
+            // mihomo терпит двоеточия и сам их вырезает (component/ca/fingerprint.go).
+            proxy["fingerprint"] = json!(fp);
+        }
+        None => {
+            proxy["skip-cert-verify"] = json!(true);
+        }
+    }
+}
+
+/// Записывает HTTPUpgrade-провод в clash-прокси в том виде, в каком его умеет
+/// mihomo: `network: ws` + флаг `v2ray-http-upgrade` + заголовок Host.
+///
+/// Ловушка здесь тихая, и потому дорогая. `network: httpupgrade` mihomo НЕ
+/// отвергает — `adapter.ParseProxy` спокойно строит Vless (проверено на
+/// mihomo v1.19.27), но неизвестное имя сети проваливается в default = голый
+/// TCP+TLS. Запроса на апгрейд сервер не получает, отвечает обычным HTTP-текстом,
+/// и клиент рапортует `unexpected response version` — сообщение, по которому
+/// на транспорт никто не подумает. Живой замер против узлов, `skip-cert-verify`
+/// включён в обоих случаях, чтобы сертификат не мешал:
+///
+/// ```text
+/// DE 13400  network=httpupgrade        URL-тест ПРОВАЛЕН: unexpected response version
+/// DE 13400  ws+v2ray-http-upgrade      URL-тест ПРОШЁЛ: 643 мс
+/// CA 13400  network=httpupgrade        URL-тест ПРОВАЛЕН: unexpected response version
+/// CA 13400  ws+v2ray-http-upgrade      URL-тест ПРОШЁЛ: 163 мс
+/// ```
+///
+/// Наше ядро эту подмену делает у себя (`subscription.normalizeProxyForCore`),
+/// поэтому на своём клиенте дефект не виден вовсе. Happ и Hiddify отдают тело
+/// в mihomo как есть — для них чинить нужно именно здесь.
+///
+/// Host обязателен: узел поднимает httpupgrade-инбаунд с `host:` в transport,
+/// и без заголовка апгрейд отклоняется на стороне sing-box.
+fn apply_clash_http_upgrade(proxy: &mut Value, si: &StreamInfo) {
+    proxy["network"] = json!("ws");
+    proxy["ws-opts"] = json!({
+        "path": si.ws_path,
+        "v2ray-http-upgrade": true,
+        "headers": { "Host": si.sni }
+    });
+}
+
 /// Generate Clash YAML config (multi-protocol)
 pub fn generate_clash_config(
     _sub: &Subscription,
@@ -1155,6 +1295,10 @@ pub fn generate_clash_config(
         if node.is_relay {
             continue;
         }
+
+        // Отпечаток общий на узел: сертификат один на все его plain-TLS порты
+        // (`/etc/sing-box/certs/cert.pem`), SNI перечислены в нём как SAN.
+        let cert_pin = node_cert_pin(node);
 
         if !node.inbounds.is_empty() {
             for inbound in &node.inbounds {
@@ -1221,6 +1365,7 @@ pub fn generate_clash_config(
                         } else if si.security == "tls" {
                             proxy["tls"] = json!(true);
                             proxy["servername"] = json!(si.sni);
+                            apply_clash_tls_trust(&mut proxy, cert_pin);
                         }
                         if si.network == "ws" {
                             proxy["ws-opts"] = json!({
@@ -1234,10 +1379,7 @@ pub fn generate_clash_config(
                             });
                         }
                         if si.network == "httpupgrade" {
-                            proxy["http-upgrade-opts"] = json!({
-                                "path": si.ws_path,
-                                "host": si.sni
-                            });
+                            apply_clash_http_upgrade(&mut proxy, &si);
                         }
                         proxies.push(proxy);
                     }
@@ -1256,6 +1398,7 @@ pub fn generate_clash_config(
                         if si.security == "tls" {
                             proxy["tls"] = json!(true);
                             proxy["servername"] = json!(si.sni);
+                            apply_clash_tls_trust(&mut proxy, cert_pin);
                         }
                         if si.network == "ws" {
                             proxy["ws-opts"] = json!({
@@ -1269,10 +1412,7 @@ pub fn generate_clash_config(
                             });
                         }
                         if si.network == "httpupgrade" {
-                            proxy["http-upgrade-opts"] = json!({
-                                "path": si.ws_path,
-                                "host": si.sni
-                            });
+                            apply_clash_http_upgrade(&mut proxy, &si);
                         }
                         proxies.push(proxy);
                     }
@@ -1292,6 +1432,10 @@ pub fn generate_clash_config(
                                 "short-id": si.short_id
                             });
                             proxy["client-fingerprint"] = json!(si.fingerprint);
+                        } else {
+                            // У mihomo trojan всегда поверх TLS, `security` тут
+                            // различает только Reality и обычный TLS.
+                            apply_clash_tls_trust(&mut proxy, cert_pin);
                         }
                         if si.network == "ws" {
                             proxy["network"] = json!("ws");
@@ -1307,11 +1451,7 @@ pub fn generate_clash_config(
                             });
                         }
                         if si.network == "httpupgrade" {
-                            proxy["network"] = json!("httpupgrade");
-                            proxy["http-upgrade-opts"] = json!({
-                                "path": si.ws_path,
-                                "host": si.sni
-                            });
+                            apply_clash_http_upgrade(&mut proxy, &si);
                         }
                         proxies.push(proxy);
                     }
@@ -1337,8 +1477,8 @@ pub fn generate_clash_config(
                             "port": inbound.listen_port,
                             "password": user_keys.hy2_password,
                             "sni": si.sni,
-                            "skip-cert-verify": true,
                         });
+                        apply_clash_tls_trust(&mut hy2_proxy, cert_pin);
                         if let Some(obfs) = &si.hy2_obfs {
                             hy2_proxy["obfs"] = json!("salamander");
                             hy2_proxy["obfs-password"] = json!(obfs);
@@ -1347,17 +1487,20 @@ pub fn generate_clash_config(
                     }
                     "tuic" => {
                         let endpoint = node.frontend_url.as_deref().unwrap_or(&node.address);
-                        proxies.push(json!({
+                        let mut tuic_proxy = json!({
                             "name": name,
                             "type": "tuic",
                             "server": endpoint,
                             "port": inbound.listen_port,
                             "uuid": user_keys.user_uuid,
-                            "password": user_keys.hy2_password,
+                            // См. `user_tag::node_user_password`: у TUIC пароль
+                            // узла — uuid без дефисов, а не hy2-пароль.
+                            "password": crate::services::user_tag::node_user_password(&user_keys.user_uuid),
                             "congestion-controller": si.tuic_congestion_control.as_deref().unwrap_or("bbr"),
-                            "skip-cert-verify": true,
                             "alpn": ["h3"]
-                        }));
+                        });
+                        apply_clash_tls_trust(&mut tuic_proxy, cert_pin);
+                        proxies.push(tuic_proxy);
                     }
                     "amneziawg" => {
                         let client_id = user_keys
@@ -2197,6 +2340,92 @@ mod clash_group_tests {
         }
     }
 
+    /// Говорит ли этот тип прокси по TLS вообще. У vless/vmess TLS
+    /// опционален (`tls: true`), у trojan/hysteria2/tuic он обязателен по
+    /// устройству протокола, у ss/wireguard TLS нет.
+    fn speaks_tls(proxy: &Value) -> bool {
+        match proxy["type"].as_str().unwrap_or_default() {
+            "vless" | "vmess" => proxy["tls"] == json!(true),
+            "trojan" | "hysteria2" | "tuic" => true,
+            _ => false,
+        }
+    }
+
+    /// Главный инвариант этого раунда: каждый TLS-прокси в теле обязан нести
+    /// гарантию доверия к самоподписанному сертификату узла.
+    ///
+    /// Именно этого не хватало живой подписке: восемь VLESS+TLS из тринадцати
+    /// прокси уезжали с `tls: true` и без `skip-cert-verify`, и mihomo рвал
+    /// рукопожатие на проверке цепочки. Reality исключён осознанно — он
+    /// аутентифицирует сервер X25519-ключом, а не сертификатом.
+    #[test]
+    fn every_tls_proxy_carries_a_trust_guarantee() {
+        let exit = node_one_behind_a_relay();
+        let yaml = generate_clash_config(&sub(), std::slice::from_ref(&exit), &keys(), &[])
+            .expect("генератор выпускает конфиг");
+        let doc: Value = serde_yaml::from_str(&yaml).expect("тело Clash — валидный YAML");
+        let proxies = doc["proxies"].as_array().expect("есть proxies:");
+
+        let mut checked = 0usize;
+        for p in proxies {
+            if !speaks_tls(p) {
+                continue;
+            }
+            let name = p["name"].as_str().unwrap_or("<без имени>");
+            if p.get("reality-opts").is_some() {
+                assert!(
+                    p.get("skip-cert-verify").is_none() && p.get("fingerprint").is_none(),
+                    "«{name}»: Reality не проверяет цепочку, лишняя опция доверия только путает"
+                );
+                continue;
+            }
+            checked += 1;
+
+            let skip = p["skip-cert-verify"] == json!(true);
+            let pinned = p
+                .get("fingerprint")
+                .and_then(|v| v.as_str())
+                .map(|fp| {
+                    let hex: String = fp.chars().filter(|c| *c != ':').collect();
+                    hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit())
+                })
+                .unwrap_or(false);
+            assert!(
+                skip || pinned,
+                "«{name}» ({}) идёт по TLS без пина и без skip-cert-verify — \
+                 mihomo отвергнет самоподписанный сертификат узла:\n{p:#}",
+                p["type"].as_str().unwrap_or("?")
+            );
+        }
+        assert!(
+            checked >= 5,
+            "фикстура должна содержать не-Reality TLS-прокси, иначе тест ничего не проверяет"
+        );
+    }
+
+    /// Ветка пина — не мёртвый код: когда `node_cert_pin` начнёт возвращать
+    /// отпечаток, тело обязано нести `fingerprint`, а НЕ `skip-cert-verify`.
+    /// Формат — тот, что принимает `ca.NewFingerprintVerifier`: hex SHA-256,
+    /// двоеточия допустимы.
+    #[test]
+    fn a_known_fingerprint_pins_instead_of_skipping_verification() {
+        // Реальный отпечаток узла 1 (85.215.196.151, CN=essentialhome.live).
+        const FP: &str = "B34FCC4D69C01F21E0B3BC61B9143D2C34C0755F3AD7F7F9E4C8CEEF956A2F65";
+
+        let mut pinned = json!({ "name": "n", "type": "vless", "tls": true });
+        apply_clash_tls_trust(&mut pinned, Some(FP));
+        assert_eq!(pinned["fingerprint"], json!(FP));
+        assert!(
+            pinned.get("skip-cert-verify").is_none(),
+            "пин и отключённая проверка вместе бессмысленны: {pinned:#}"
+        );
+
+        let mut unpinned = json!({ "name": "n", "type": "vless", "tls": true });
+        apply_clash_tls_trust(&mut unpinned, None);
+        assert_eq!(unpinned["skip-cert-verify"], json!(true));
+        assert!(unpinned.get("fingerprint").is_none());
+    }
+
     /// Обратная сторона того же инварианта: узел, у которого ВСЕ инбаунды
     /// генератору не по зубам, не должен рождать ни пустую группу, ни
     /// висячего участника. Раньше `has_relay` считался по параллельному
@@ -2251,5 +2480,179 @@ mod clash_group_tests {
                 );
             }
         }
+    }
+
+    // ── Регрессии круга «три входа из восьми не могут работать в принципе» ──
+
+    /// Пароль TUIC во ВСЕХ трёх телах обязан совпадать с тем, что
+    /// `orchestration_service` завёл на узле, — это uuid без дефисов, а не
+    /// hy2-пароль. С hy2-паролем узел писал «authentication: token mismatch»
+    /// (TUIC-47a0b813 на 85.215.196.151:16400), а клиент видел мёртвый вход.
+    #[test]
+    fn tuic_password_matches_the_one_the_node_was_provisioned_with() {
+        let keys = keys();
+        let node_side = crate::services::user_tag::node_user_password(&keys.user_uuid);
+        assert_ne!(
+            node_side, keys.hy2_password,
+            "тест бессмысленен, если два формата совпали"
+        );
+        let exit = node_one_behind_a_relay();
+        let nodes = std::slice::from_ref(&exit);
+
+        let yaml = generate_clash_config(&sub(), nodes, &keys, &[]).expect("clash-тело");
+        let doc: Value = serde_yaml::from_str(&yaml).expect("clash — валидный YAML");
+        let tuic = doc["proxies"]
+            .as_array()
+            .expect("есть proxies:")
+            .iter()
+            .find(|p| p["type"] == "tuic")
+            .expect("tuic-прокси выпущен");
+        assert_eq!(tuic["password"], json!(node_side), "clash");
+
+        let sb: Value = serde_json::from_str(
+            &generate_singbox_config(&sub(), nodes, &keys, &[]).expect("sing-box-тело"),
+        )
+        .expect("sing-box — валидный JSON");
+        let sb_tuic = sb["outbounds"]
+            .as_array()
+            .expect("есть outbounds")
+            .iter()
+            .find(|o| o["type"] == "tuic")
+            .expect("tuic-исходящий выпущен");
+        assert_eq!(sb_tuic["password"], json!(node_side), "sing-box");
+
+        let uri = decoded_v2ray(&keys);
+        let link = uri
+            .lines()
+            .find(|l| l.starts_with("tuic://"))
+            .expect("tuic-ссылка выпущена");
+        assert!(
+            link.contains(&format!("{}:{}@", keys.user_uuid, node_side)),
+            "URI: {link}"
+        );
+        // Двоеточие в userinfo снова ровно одно: hy2-пароль давал их два, и на
+        // такой форме строгие разборщики URI спотыкались до соединения.
+        let userinfo = link
+            .trim_start_matches("tuic://")
+            .split('@')
+            .next()
+            .expect("userinfo");
+        assert_eq!(userinfo.matches(':').count(), 1, "userinfo: {userinfo}");
+    }
+
+    /// HTTPUpgrade в clash-теле — это `network: ws` с флагом
+    /// `v2ray-http-upgrade` и заголовком Host. Имя `httpupgrade` mihomo не
+    /// отвергает, а тихо роняет в plain TCP+TLS, и клиент получает
+    /// «unexpected response version» вместо соединения.
+    #[test]
+    fn clash_http_upgrade_is_written_the_only_way_mihomo_understands() {
+        let exit = node_one_behind_a_relay();
+        let yaml = generate_clash_config(&sub(), std::slice::from_ref(&exit), &keys(), &[])
+            .expect("clash-тело");
+        let doc: Value = serde_yaml::from_str(&yaml).expect("clash — валидный YAML");
+        let proxies = doc["proxies"].as_array().expect("есть proxies:");
+
+        assert!(
+            proxies.iter().all(|p| p["network"] != "httpupgrade"),
+            "сеть, которой у mihomo нет, снова попала в тело: {proxies:?}"
+        );
+        assert!(
+            proxies.iter().all(|p| p.get("http-upgrade-opts").is_none()),
+            "остался ключ, который mihomo не читает: {proxies:?}"
+        );
+
+        // Инбаунд 307 (порт 13400) — тот самый HTTPUpgrade-вход.
+        let hu = proxies
+            .iter()
+            .find(|p| p["port"] == 13400)
+            .expect("прокси для httpupgrade-инбаунда выпущен");
+        assert_eq!(hu["network"], "ws", "{hu:?}");
+        assert_eq!(hu["ws-opts"]["v2ray-http-upgrade"], json!(true), "{hu:?}");
+        assert_eq!(hu["ws-opts"]["path"], "/hu", "{hu:?}");
+        // Host обязателен: узел поднимает инбаунд с `host:` и без заголовка
+        // отклоняет апгрейд.
+        assert_eq!(hu["ws-opts"]["headers"]["Host"], "www.dekulta.de", "{hu:?}");
+    }
+
+    /// sing-box-тело не должно содержать naive: стоковая сборка не включает
+    /// такой исходящий и падает на разборе ВСЕГО конфига
+    /// («naive outbound is not included in this build»), то есть два входа,
+    /// которыми и так никто не пользуется, отбирали у клиента все остальные.
+    #[test]
+    fn singbox_body_carries_no_naive_outbound() {
+        let exit = node_one_behind_a_relay();
+        let body = generate_singbox_config(&sub(), std::slice::from_ref(&exit), &keys(), &[])
+            .expect("sing-box-тело");
+        let sb: Value = serde_json::from_str(&body).expect("sing-box — валидный JSON");
+        let outbounds = sb["outbounds"].as_array().expect("есть outbounds");
+        assert!(
+            outbounds.iter().all(|o| o["type"] != "naive"),
+            "naive снова в sing-box-теле: {outbounds:?}"
+        );
+        // И ни одна группа не должна ссылаться на выброшенный тег — иначе
+        // конфиг сломается уже на разрешении имён.
+        let tags: HashSet<&str> = outbounds.iter().filter_map(|o| o["tag"].as_str()).collect();
+        for ob in outbounds {
+            if let Some(members) = ob["outbounds"].as_array() {
+                for m in members.iter().filter_map(|m| m.as_str()) {
+                    assert!(
+                        tags.contains(m),
+                        "селектор ссылается на «{m}», которого нет"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Naive остаётся ссылкой только в URI-теле — и с той учёткой, которая
+    /// РЕАЛЬНО заведена на узле: `user_{identity}` и uuid без дефисов.
+    /// Раньше отдавались uuid с дефисами и hy2-пароль, то есть не совпадало
+    /// ни одно из двух полей.
+    #[test]
+    fn naive_link_carries_the_credentials_the_node_actually_has() {
+        let keys = keys();
+        let link = decoded_v2ray(&keys)
+            .lines()
+            .find(|l| l.starts_with("naive+https://"))
+            .expect("naive-ссылка выпущена")
+            .to_string();
+        let identity =
+            crate::services::user_tag::client_identity_from_proxy_password(&keys.hy2_password)
+                .expect("идентичность достаётся из hy2-пароля");
+        let expected = format!(
+            "naive+https://{}:{}@",
+            crate::services::user_tag::user_tag(identity),
+            crate::services::user_tag::node_user_password(&keys.user_uuid)
+        );
+        assert!(link.starts_with(&expected), "{link}");
+        // Именно пароль, а не только начало строки: у логина `user_-46`
+        // хвост совпадает с началом hy2-пароля, и проверка «нет подстроки
+        // hy2_password» здесь ничего бы не значила.
+        let password = link
+            .trim_start_matches("naive+https://")
+            .split('@')
+            .next()
+            .and_then(|ui| ui.split_once(':'))
+            .map(|(_, pw)| pw.to_string())
+            .expect("в userinfo есть пароль");
+        assert_eq!(
+            password,
+            crate::services::user_tag::node_user_password(&keys.user_uuid),
+            "{link}"
+        );
+    }
+
+    /// Декодирует v2ray-тело (base64) в список ссылок.
+    fn decoded_v2ray(keys: &UserKeys) -> String {
+        use base64::Engine;
+        let exit = node_one_behind_a_relay();
+        let b64 = generate_v2ray_config(&sub(), std::slice::from_ref(&exit), keys, &[])
+            .expect("v2ray-тело");
+        String::from_utf8(
+            base64::engine::general_purpose::STANDARD
+                .decode(b64)
+                .expect("тело — корректный base64"),
+        )
+        .expect("ссылки — UTF-8")
     }
 }
