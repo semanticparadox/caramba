@@ -142,6 +142,38 @@
                         </div>
                     </div>
 
+                    <div class="pt-6 border-t border-border-default">
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-1 ml-1">Caramba Connect app — download links</p>
+                        <p class="text-xs text-slate-500 mb-4 ml-1">Shown by the bot under the sign-in link and in the Mini App. Leave a field empty to show «coming soon» for that platform.</p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Android (APK)</label>
+                            <input type="url" form="main-settings-form" name="app_download_url_android" value="{{ app_download_url_android }}"
+                                placeholder="https://…/caramba-connect.apk" class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">iPhone / iPad</label>
+                            <input type="url" form="main-settings-form" name="app_download_url_ios" value="{{ app_download_url_ios }}"
+                                placeholder="https://…" class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Windows</label>
+                            <input type="url" form="main-settings-form" name="app_download_url_windows" value="{{ app_download_url_windows }}"
+                                placeholder="https://…" class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Mac</label>
+                            <input type="url" form="main-settings-form" name="app_download_url_macos" value="{{ app_download_url_macos }}"
+                                placeholder="https://…" class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Linux</label>
+                            <input type="url" form="main-settings-form" name="app_download_url_linux" value="{{ app_download_url_linux }}"
+                                placeholder="https://…" class="input-field">
+                        </div>
+                        </div>
+                    </div>
+
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6 border-t border-border-default">
                         <div>
                             <label

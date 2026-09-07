@@ -9,6 +9,8 @@ This document reflects the current workspace layout and runtime responsibilities
   - Hosts admin UI, public subscription endpoint, app pages, internal/bot/node APIs.
   - Generates Sing-box configs, orchestrates node sync, manages users/billing/subscriptions.
   - Processes node telemetry and frontend heartbeats.
+  - Owns the production Telegram bot as an embedded module (`src/bot`, started from `bot_manager.rs` via `crate::bot::run_bot`) — this is the bot that shows the `caramba://connect` sign-in link and code, not `apps/caramba-bot`.
+  - Settings `app_download_url_{android,ios,windows,macos,linux}` (Settings → "Caramba Connect app — download links") hold per-platform app download URLs, and `GET /api/client/app/downloads` / `POST /api/client/app/connect-link` expose them and the connect-link issuer to the mini app.
 
 - `apps/caramba-node`
   - Node agent.
@@ -20,7 +22,8 @@ This document reflects the current workspace layout and runtime responsibilities
   - Serves mini app assets and reports frontend heartbeat to panel.
 
 - `apps/caramba-bot`
-  - Telegram bot runtime using panel APIs.
+  - Separate Telegram bot binary (store/promo/payments/admin) talking to the panel over HTTP.
+  - Not the bot that issues the `caramba://connect` sign-in link — there is no `connect_link` logic in this crate; that lives in `apps/caramba-panel/src/bot`.
 
 - `apps/caramba-installer`
   - Install/bootstrap binary.

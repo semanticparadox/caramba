@@ -1581,6 +1581,10 @@ pub async fn message_handler(
 /// Сбой выпуска (не настроен panel_url, недоступна БД) даёт короткое честное
 /// сообщение, а не «ссылку-заглушку»: неработающая ссылка молча уводит
 /// приложение не туда, и человек видит непонятный сетевой сбой вместо причины.
+///
+/// Кнопка «Скачать для Android» вешается ТОЛЬКО на успешное сообщение: под
+/// извинением за неудачу предложение скачать приложение выглядит как ответ не
+/// на тот вопрос — скачивать нечего, пока ссылки нет.
 pub async fn send_connect_link(bot: &Bot, state: &AppState, chat_id: ChatId, tg_id: i64) {
     let lang = crate::bot::utils::lang_by_tg_id(state, tg_id).await;
 
@@ -1603,45 +1607,76 @@ pub async fn send_connect_link(bot: &Bot, state: &AppState, chat_id: ChatId, tg_
         }
     };
 
-    let _ = bot
-        .send_message(chat_id, connect_link_message(state, user_id, lang).await)
-        .parse_mode(ParseMode::Html)
-        .await
-        .map_err(|e| error!("Failed to send connect link: {}", e));
+    // Ветвимся по результату выпуска здесь, а не внутри `connect_link_message`:
+    // клавиатура зависит от того, получилась ссылка или нет, а обёртка отдаёт
+    // одну строку и этой разницы не видно.
+    match crate::api::v2::app_enroll::issue_connect_link(state, user_id).await {
+        Ok(link) => {
+            let send = bot
+                .send_message(chat_id, connect_link_text(lang, &link))
+                .parse_mode(ParseMode::Html);
+            let send =
+                match crate::bot::keyboards::app_download_keyboard(&state.settings, lang).await {
+                    Some(kb) => send.reply_markup(kb),
+                    None => send,
+                };
+            let _ = send
+                .await
+                .map_err(|e| error!("Failed to send connect link: {}", e));
+        }
+        Err(e) => {
+            error!("connect link: issue failed for user {}: {:#}", user_id, e);
+            let _ = bot
+                .send_message(chat_id, connect_link_failed_text(lang))
+                .await;
+        }
+    }
 }
 
-/// Готовый HTML-блок со ссылкой-приглашением. Отдельно от отправки, потому что
-/// у ссылки два места: собственное сообщение (кнопка входа в приложение) и
-/// врезка рядом со ссылкой на подписку — а текст обязан быть один и тот же.
+/// Сам текст сообщения со ссылкой — чистая функция, чтобы формулировки можно
+/// было проверить тестом, не поднимая ни бота, ни БД.
+///
+/// Принимает НЕэкранированную ссылку и экранирует её сама: `caramba://connect`
+/// несёт параметры через `&`, а в HTML parse mode неэкранированный `&` роняет
+/// отправку сообщения целиком.
+///
+/// Формулировка намеренно называет вещи своими именами: ссылка НЕ зашифрована,
+/// и человек должен это знать, раз уж от него зависит, кому она попадёт.
+pub(crate) fn connect_link_text(lang: Lang, link: &str) -> String {
+    let link = escape_html(link);
+    match lang {
+        Lang::Ru => format!(
+            "🔗 <b>Вход в приложение Caramba Connect</b>\n\n<code>{link}</code>\n\n\
+             Нажмите на ссылку — она скопируется. Откройте приложение, вставьте её, \
+             и оно само подключится: вводить больше ничего не нужно.\n\n\
+             Ссылка работает один раз и только 30 минут. Она не зашифрована: у кого \
+             окажется — тот и войдёт в ваш аккаунт. Никому её не пересылайте."
+        ),
+        Lang::En => format!(
+            "🔗 <b>Sign in to the Caramba Connect app</b>\n\n<code>{link}</code>\n\n\
+             Tap the link to copy it. Open the app and paste it — the app connects on \
+             its own, nothing else to type.\n\n\
+             The link works once and only for 30 minutes. It is not encrypted: whoever \
+             has it can sign in to your account. Don't forward it to anyone."
+        ),
+    }
+}
+
+/// Выпускает ссылку и отдаёт готовый блок текста одной строкой.
+///
+/// Текст живёт в [`connect_link_text`] ради тестируемости; обёртка нужна
+/// врезке в «Мои подписки» (`callback.rs`), которая вклеивает блок в чужое
+/// сообщение и ветвиться по успеху не может — ей нужна строка в любом случае.
 ///
 /// Сбой не возвращает `Result`: вызывающему нечего с ним делать, кроме как
 /// показать ту же строку, а полная причина уже в логе.
 pub async fn connect_link_message(state: &AppState, user_id: i64, lang: Lang) -> String {
-    let link = match crate::api::v2::app_enroll::issue_connect_link(state, user_id).await {
-        Ok(l) => l,
+    match crate::api::v2::app_enroll::issue_connect_link(state, user_id).await {
+        Ok(link) => connect_link_text(lang, &link),
         Err(e) => {
             error!("connect link: issue failed for user {}: {:#}", user_id, e);
-            return connect_link_failed_text(lang).to_string();
+            connect_link_failed_text(lang).to_string()
         }
-    };
-
-    match lang {
-        Lang::Ru => format!(
-            "🔗 <b>Ссылка для приложения Caramba Connect</b>\n\n<code>{}</code>\n\n\
-             Нажмите на ссылку, чтобы скопировать её, и вставьте в приложение — \
-             оно подключится к панели само, больше вводить ничего не нужно.\n\
-             Ссылка одноразовая и живёт 30 минут. Она не зашифрована: кто её получит, \
-             тот и подключится, — не пересылайте.",
-            escape_html(&link)
-        ),
-        Lang::En => format!(
-            "🔗 <b>Link for the Caramba Connect app</b>\n\n<code>{}</code>\n\n\
-             Tap the link to copy it, then paste it into the app — it connects to the \
-             panel on its own, nothing else to type.\n\
-             The link is one-time and lasts 30 minutes. It is not encrypted: whoever gets \
-             it can use it, so don't forward it.",
-            escape_html(&link)
-        ),
     }
 }
 
@@ -1650,8 +1685,14 @@ pub async fn connect_link_message(state: &AppState, user_id: i64, lang: Lang) ->
 /// логе она есть полностью.
 fn connect_link_failed_text(lang: Lang) -> &'static str {
     match lang {
-        Lang::Ru => "Не удалось выпустить ссылку для приложения. Попробуйте позже.",
-        Lang::En => "Could not issue the app connect link. Please try again later.",
+        Lang::Ru => {
+            "Не получилось подготовить ссылку для приложения. Попробуйте через минуту, \
+             а если не поможет — напишите в поддержку."
+        }
+        Lang::En => {
+            "Couldn't prepare the app link. Try again in a minute; if it keeps failing, \
+             contact support."
+        }
     }
 }
 
@@ -1697,4 +1738,45 @@ pub async fn send_login_code(bot: &Bot, state: &AppState, chat_id: ChatId, tg_id
         .reply_markup(crate::bot::keyboards::login_code_keyboard(lang))
         .await
         .map_err(|e| error!("Failed to send login code: {}", e));
+}
+
+#[cfg(test)]
+mod connect_link_text_tests {
+    use super::*;
+
+    /// Русский текст обязан оставаться человеческим: «панель» и «одноразовая» —
+    /// внутренний жаргон, по которому владелец подписки не понимает, что делать.
+    #[test]
+    fn russian_text_is_plain_and_honest() {
+        let text = connect_link_text(Lang::Ru, "caramba://connect?d=ABC123");
+        assert!(text.contains("<code>caramba://connect?d=ABC123</code>"));
+        assert!(text.contains("не зашифрована"));
+        assert!(text.contains("30 минут"));
+        assert!(text.contains("один раз"));
+        assert!(!text.contains("панел"), "жаргон «панель» вернулся в текст");
+        assert!(
+            !text.contains("одноразов"),
+            "жаргон «одноразовая» вернулся в текст"
+        );
+    }
+
+    /// Английская ветка не должна протекать русским: язык выбирает пользователь,
+    /// и смешанное сообщение читается как поломка.
+    #[test]
+    fn english_text_has_no_cyrillic() {
+        let text = connect_link_text(Lang::En, "caramba://connect?d=ABC123");
+        assert!(text.contains("not encrypted"));
+        assert!(
+            !text.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c)),
+            "в английском тексте оказалась кириллица: {text}"
+        );
+    }
+
+    /// В HTML parse mode неэкранированный `&` роняет отправку целиком, а
+    /// параметры ссылки разделяются именно им.
+    #[test]
+    fn ampersand_in_link_is_escaped() {
+        let text = connect_link_text(Lang::Ru, "caramba://connect?d=ABC123&p=1");
+        assert!(text.contains("<code>caramba://connect?d=ABC123&amp;p=1</code>"));
+    }
 }

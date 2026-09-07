@@ -19,6 +19,8 @@
 | `libs/caramba-db` | Модели, репозитории, миграции | SQLx (PostgreSQL) |
 | `libs/caramba-shared` | Общие типы и контракты | Rust |
 
+> Боевой Telegram-бот со ссылкой входа `caramba://connect` — это встроенный модуль панели `apps/caramba-panel/src/bot` (запускается через `bot_manager.rs`); `apps/caramba-bot` в таблице выше — отдельный бинарник для магазина/промо/платежей/админки, логики ссылки-приглашения в нём нет.
+
 ### Реализованные возможности (v0.9.5 -- v0.9.14)
 
 #### Telegram Mini App (TMA)
@@ -83,6 +85,8 @@ VLESS (Reality, WS, HTTPUpgrade, gRPC), Hysteria2, TUIC, Shadowsocks, NaiveProxy
 | `apps/caramba-installer` | CLI installer | Rust |
 | `libs/caramba-db` | Models, repositories, migrations | SQLx (PostgreSQL) |
 | `libs/caramba-shared` | Shared types and contracts | Rust |
+
+> The production Telegram bot that shows the `caramba://connect` sign-in link is an embedded panel module (`apps/caramba-panel/src/bot`, started via `bot_manager.rs`); `apps/caramba-bot` in the table above is a separate binary for the store/promo/payments/admin flows and has no connect-link logic.
 
 ### Implemented Features (v0.9.5 -- v0.9.14)
 

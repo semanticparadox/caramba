@@ -95,8 +95,33 @@ pub async fn guide_index_button(
     ]]))
 }
 
-/// Инлайн-клавиатура с кнопкой получения одноразового кода для входа в
-/// standalone-приложение. Используется в приветствии и где удобно.
+/// Кнопка «Скачать для Android» — к сообщению со ссылкой входа.
+///
+/// Адрес APK задаёт оператор в Settings → «Caramba Connect app — download
+/// links»; пусто или не https — кнопки нет. Требование https не косметическое:
+/// по кнопке человек ставит себе APK, и отдавать его по открытому каналу
+/// значит разрешить подменить установочный файл по дороге. Telegram к тому же
+/// не примет URL-кнопку с посторонней схемой.
+pub async fn app_download_keyboard(
+    settings: &crate::settings::SettingsService,
+    lang: Lang,
+) -> Option<InlineKeyboardMarkup> {
+    let url = settings
+        .get_or_default("app_download_url_android", "")
+        .await;
+    let parsed = url.trim().parse::<reqwest::Url>().ok()?;
+    if parsed.scheme() != "https" {
+        return None;
+    }
+    Some(InlineKeyboardMarkup::new(vec![vec![
+        InlineKeyboardButton::url(t(lang, "app.download_android_btn"), parsed),
+    ]]))
+}
+
+/// Инлайн-клавиатура «прислать заново» — висит ТОЛЬКО на сообщении с кодом
+/// входа (`command.rs::send_login_code`). По нажатию callback `get_login_code`
+/// присылает заново обе части: ссылку и код, — потому что человек нажимает её
+/// как раз тогда, когда первая пара уже протухла.
 pub fn login_code_keyboard(lang: Lang) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
         t(lang, "login.get_code_btn"),

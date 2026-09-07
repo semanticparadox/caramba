@@ -17,8 +17,11 @@ type Client = {
     recommended?: boolean
 }
 
-/** Клиенты с автоимпортом подписки. Hiddify сам определяет формат по
- *  User-Agent, поэтому ссылка передаётся чистой, без ?client=. */
+/** Сторонние клиенты с автоимпортом подписки. Своё приложение (Caramba
+ *  Connect) рендерится отдельной строкой выше этого списка, потому что у
+ *  него не импорт подписки, а вход по ссылке `caramba://connect`.
+ *  Hiddify сам определяет формат по User-Agent, поэтому ссылка передаётся
+ *  чистой, без ?client=. */
 const CLIENTS: Client[] = [
     {
         id: 'hiddify',
@@ -26,7 +29,6 @@ const CLIENTS: Client[] = [
         mark: 'H',
         platformsKey: 'exa.clients.hiddify',
         scheme: (u) => `hiddify://import/${encodeURIComponent(u)}`,
-        recommended: true,
     },
     { id: 'happ', name: 'Happ', mark: 'Ha', platformsKey: 'exa.clients.happ', scheme: (u) => `happ://import/${encodeURIComponent(u)}` },
     { id: 'v2raytun', name: 'v2rayTun', mark: 'V', platformsKey: 'exa.clients.v2raytun', scheme: (u) => `v2raytun://import/${encodeURIComponent(u)}` },
@@ -38,11 +40,13 @@ export default function ClientPickerSheet({
     sub,
     onClose,
     onGuide,
+    onCaramba,
 }: {
     open: boolean
     sub: UserSubscription | null
     onClose: () => void
     onGuide: () => void
+    onCaramba: () => void
 }) {
     const { t } = useTranslation()
     const toast = useToast()
@@ -68,6 +72,23 @@ export default function ClientPickerSheet({
     return (
         <Sheet open={open} title={t('exa.home.openInApp')} subtitle={t('exa.home.openInAppHint')} onClose={onClose}>
             <div className="exa-card exa-card--list">
+                <button
+                    type="button"
+                    className="exa-row is-tappable"
+                    onClick={() => {
+                        onClose()
+                        onCaramba()
+                    }}
+                >
+                    <span className="exa-client-mark">C</span>
+                    <span className="exa-row__body">
+                        <span className="exa-row__title">
+                            <span>Caramba Connect</span>
+                        </span>
+                        <span className="exa-row__meta">{t('exa.caramba.pickerMeta')}</span>
+                    </span>
+                    <Pill tone="accent">{t('exa.caramba.pill')}</Pill>
+                </button>
                 {CLIENTS.map((c) => (
                     <button key={c.id} type="button" className="exa-row is-tappable" onClick={() => void openIn(c)}>
                         <span className="exa-client-mark">{c.mark}</span>
