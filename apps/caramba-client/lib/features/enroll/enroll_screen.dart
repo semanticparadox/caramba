@@ -506,10 +506,14 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
 
   void _close() {
     ref.read(enrollProvider.notifier).reset();
+    // Экран накладной (T1): под ним обычно шелл, туда и возвращаемся. Стека
+    // может не быть — холодный старт по ссылке, — тогда уходим на
+    // «Подключение», а не на «Аккаунт панели»: человек закрывает энроллмент,
+    // а не просит ещё одну дверь для входа.
     if (context.canPop()) {
       context.pop();
     } else {
-      context.go(AppRoute.login);
+      context.go(AppRoute.home);
     }
   }
 

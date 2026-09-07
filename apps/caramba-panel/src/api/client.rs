@@ -71,6 +71,20 @@ pub fn routes(state: AppState) -> Router<AppState> {
             )),
         )
         .route(
+            "/app/downloads",
+            get(get_app_downloads).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/app/connect-link",
+            post(post_app_connect_link).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
             "/user/subscriptions",
             get(get_user_subscriptions).layer(middleware::from_fn_with_state(
                 state.clone(),
@@ -4019,4 +4033,130 @@ async fn get_guides(State(state): State<AppState>) -> impl IntoResponse {
         }
     }
     Json(serde_json::Value::Object(out))
+}
+
+/// Платформы, для которых оператор может задать адрес загрузки приложения.
+/// Порядок здесь тот же, в котором мини-апп рисует список: он берёт ключи
+/// не по алфавиту, а по этому массиву.
+const APP_DOWNLOAD_PLATFORMS: [&str; 5] = ["android", "ios", "windows", "macos", "linux"];
+
+/// Пропускает только тот адрес, по которому реально можно скачать файл.
+///
+/// Значение вписывает руками оператор, поэтому проверяем не «похоже на
+/// ссылку», а тот минимум, без которого кнопка ведёт в никуда: https (мини-апп
+/// внутри Telegram всё равно не откроет http) и отсутствие пробелов — самая
+/// частая порча адреса при копировании из чата.
+fn accept_download_url(raw: &str) -> Option<String> {
+    const PREFIX: &str = "https://";
+    let trimmed = raw.trim();
+    if !trimmed.starts_with(PREFIX)
+        || trimmed.len() <= PREFIX.len()
+        || trimmed.chars().any(char::is_whitespace)
+    {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+/// GET /api/client/app/downloads — где скачать Caramba Connect.
+///
+/// Адреса задаёт оператор в Settings → «Caramba Connect app — download links».
+/// Отсутствие ключа — не ошибка: по такой платформе мини-апп показывает
+/// «скоро», поэтому пустой объект здесь нормальный ответ, а не отказ.
+async fn get_app_downloads(State(state): State<AppState>) -> impl IntoResponse {
+    let mut out = serde_json::Map::new();
+    for key in APP_DOWNLOAD_PLATFORMS {
+        let raw = state
+            .settings
+            .get_or_default(&format!("app_download_url_{key}"), "")
+            .await;
+        if let Some(url) = accept_download_url(&raw) {
+            out.insert(key.to_string(), Value::String(url));
+        }
+    }
+    Json(Value::Object(out))
+}
+
+/// POST /api/client/app/connect-link — ссылка `caramba://connect` для мини-аппа.
+///
+/// Это второй вход в тот же механизм, что и кнопка бота: ссылку выпускает
+/// `app_enroll::issue_connect_link`, и новая гасит предыдущую — живой у
+/// аккаунта остаётся ровно одна, откуда бы её ни попросили.
+///
+/// Причину отказа наружу не отдаём: она всегда про настройки панели (не задан
+/// panel_url) или про сбой БД. Человеку в мини-аппе это ничего не объясняет, а
+/// оператору нужно в лог.
+async fn post_app_connect_link(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+) -> impl IntoResponse {
+    // Здесь `sub` не подстраховываем нулём, как соседние обработчики: ссылка
+    // пускает в аккаунт целиком, и выпускать её «пользователю 0» нельзя.
+    let Ok(tg_id) = claims.sub.parse::<i64>() else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+
+    let user = match state.store_service.get_user_by_tg_id(tg_id).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "user_not_found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(err = %e, tg_id, "app connect link: user lookup failed");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    match crate::api::v2::app_enroll::issue_connect_link(&state, user.id).await {
+        Ok(link) => Json(serde_json::json!({
+            "link": link,
+            "expires_in_seconds": crate::api::v2::app_enroll::LINK_TTL_MINUTES * 60,
+        }))
+        .into_response(),
+        Err(e) => {
+            tracing::error!(err = %e, user_id = user.id, "app connect link: issue failed");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "error": "connect_link_unavailable" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[cfg(test)]
+mod app_download_tests {
+    use super::{APP_DOWNLOAD_PLATFORMS, accept_download_url};
+
+    #[test]
+    fn accepts_https_url_and_drops_surrounding_spaces() {
+        assert_eq!(
+            accept_download_url(" https://x.example/a.apk ").as_deref(),
+            Some("https://x.example/a.apk")
+        );
+    }
+
+    #[test]
+    fn rejects_plain_http_empty_and_bare_prefix() {
+        assert_eq!(accept_download_url("http://x"), None);
+        assert_eq!(accept_download_url(""), None);
+        assert_eq!(accept_download_url("https://"), None);
+    }
+
+    #[test]
+    fn rejects_url_broken_by_an_inner_space() {
+        assert_eq!(accept_download_url("https://x.example/a b.apk"), None);
+    }
+
+    #[test]
+    fn keeps_the_platform_order_the_miniapp_renders() {
+        assert_eq!(
+            APP_DOWNLOAD_PLATFORMS,
+            ["android", "ios", "windows", "macos", "linux"]
+        );
+    }
 }

@@ -1,10 +1,11 @@
-// Первый экран приложения: одно поле, а не три раздела.
+// «Аккаунт панели»: три двери и ни одной формы.
 //
-// Экран входа спрашивал у человека, к какому из разделов — «Подписка»,
-// «Панель Caramba», «Код из бота» — относится строка, которую ему прислал
-// оператор. Ответить на это нельзя: по виду строки разделы не различаются.
-// Теперь на входе одно поле, а редкие входы (код приглашения, вход кодом из
-// бота, файл) живут под «Ещё» — не удалены, но и не на дороге.
+// Экран стоял первым и держал форму подключения — человек упирался в поле
+// ввода раньше, чем видел приложение, а строку для этого поля выдаёт оператор.
+// Теперь первым идёт шелл с пустой вкладкой «Подключение», а сюда приходят по
+// своей воле, и лежит здесь только относящееся к аккаунту панели: ссылка
+// подключения, код приглашения, вход кодом из бота. Форма одного поля живёт на
+// «Добавить подключение» — одна форма означает один ответ на одну строку.
 //
 // Отдельный гейт на выдуманного бота. В коде стоял
 // `defaultValue: 'exa_robot'`, то есть публичная сборка, не привязанная ни к
@@ -34,6 +35,10 @@ GoRouter _router() => GoRouter(
       builder: (context, state) => const Text('ЭКРАН ИНВАЙТ-КОДА'),
     ),
     GoRoute(
+      path: AppRoute.connect,
+      builder: (context, state) => const Text('ЭКРАН ПОДТВЕРЖДЕНИЯ'),
+    ),
+    GoRoute(
       path: AppRoute.home,
       builder: (context, state) => const Text('ГЛАВНАЯ'),
     ),
@@ -56,36 +61,27 @@ Future<GoRouter> _pumpLogin(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('на первом экране одно поле и одна кнопка', (tester) async {
+  testWidgets('экран «Аккаунт панели»: три двери и ни одной формы', (
+    tester,
+  ) async {
     await _pumpLogin(tester);
 
-    expect(find.byType(TextField), findsOneWidget);
-    expect(find.text('Продолжить'), findsOneWidget);
-
-    // Разделов больше нет: выбор между ними и был вопросом без ответа.
-    expect(find.text('Подписка'), findsNothing);
-    expect(find.text('Панель Caramba'), findsNothing);
-    expect(find.text('Код из бота'), findsNothing);
-    expect(find.text('Добавить подписку'), findsNothing);
-  });
-
-  testWidgets('редкие входы не удалены — они под «Ещё»', (tester) async {
-    // Исчезнувшая функция неотличима от несуществующей: человек с кодом
-    // приглашения в руках должен его найти, просто не на главной дороге.
-    await _pumpLogin(tester);
-
-    expect(find.text('У меня код приглашения'), findsNothing);
-    await tester.tap(find.text('Ещё'));
-    await tester.pump();
+    expect(find.text('Аккаунт панели'), findsOneWidget);
+    expect(find.text('Вставить ссылку подключения'), findsOneWidget);
     expect(find.text('У меня код приглашения'), findsOneWidget);
-    expect(find.text('Из файла'), findsOneWidget);
+
+    // Панели в тестовой сборке нет, значит нет и блока кода из бота: без
+    // панели ни бота, ни кодов не существует.
+    expect(find.byType(TextField), findsNothing);
+    // Форма подключения уехала на «Добавить подключение» целиком — вместе с
+    // «Продолжить» и её «Ещё».
+    expect(find.text('Продолжить'), findsNothing);
+    expect(find.text('Ещё'), findsNothing);
   });
 
   testWidgets('код приглашения ведёт на экран энроллмента', (tester) async {
     final router = await _pumpLogin(tester);
 
-    await tester.tap(find.text('Ещё'));
-    await tester.pump();
     await tester.tap(find.text('У меня код приглашения'));
     await tester.pumpAndSettle();
 
@@ -95,8 +91,24 @@ void main() {
     );
   });
 
+  testWidgets('ссылка подключения ведёт на экран подтверждения', (
+    tester,
+  ) async {
+    final router = await _pumpLogin(tester);
+
+    await tester.tap(find.text('Вставить ссылку подключения'));
+    await tester.pumpAndSettle();
+
+    expect(
+      router.routerDelegate.currentConfiguration.uri.path,
+      AppRoute.connect,
+    );
+  });
+
   test('в коде первого экрана нет выдуманного бота', () {
-    final source = File('lib/features/auth/login_screen.dart').readAsStringSync();
+    final source = File(
+      'lib/features/auth/login_screen.dart',
+    ).readAsStringSync();
     expect(
       source,
       isNot(contains('exa_robot')),

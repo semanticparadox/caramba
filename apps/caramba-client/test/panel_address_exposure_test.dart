@@ -1,16 +1,17 @@
 // Где адрес панели виден, а где его нет — и почему граница проходит именно так.
 //
-// Владелец попросил спрятать адрес панели «максимально». Буквальное исполнение
-// стоило бы пользователю единственной защиты, которая у него есть на экране
-// подтверждения `caramba://connect`: ссылку минтит кто угодно, имя оператора
-// внутри выбирает отправитель, и ЕДИНСТВЕННОЕ поле, за которое ручается не
-// отправитель, а TLS, это origin. Убрать его = разрешить молча привязать
-// устройство к чужой панели.
+// Решение владельца: при добавлении подписки по `caramba://` адрес панели не
+// стоит на дороге. Но убрать его совсем значило бы отнять у человека
+// единственную проверку, которая у него на этом экране есть: ссылку минтит кто
+// угодно, имя оператора внутри выбирает отправитель, и ЕДИНСТВЕННОЕ поле, за
+// которое ручается не отправитель, а TLS, это origin.
 //
-// Поэтому граница проведена по роли поля, а не по экранам: адрес остаётся там,
-// где он СРЕДСТВО ПРОВЕРКИ, и убран отовсюду, где он просто написан. Этот файл
-// стережёт обе половины решения — и «не спрятали проверяемое», и «не оставили
-// лишнее». Обе половины ломаются одинаково легко и в разные стороны.
+// Поэтому граница проведена по доступности, а не по наличию: адрес СКРЫТ ПО
+// УМОЛЧАНИЮ, ДОСТУПЕН ПО ДЕЙСТВИЮ «Показать адрес панели» на подтверждении и
+// ОТСУТСТВУЕТ на «Панель подключена», где проверять уже нечего. Этот файл
+// стережёт все три границы: они ломаются одинаково легко и в разные стороны —
+// «вернули строку на дорогу», «спрятали так, что не найти», «восстановили для
+// симметрии там, где не надо».
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,6 +26,7 @@ import 'package:caramba_client/features/enroll/connect_link.dart';
 import 'package:caramba_client/features/enroll/connect_redeem.dart';
 import 'package:caramba_client/features/enroll/connect_screen.dart';
 import 'package:caramba_client/theme/app_theme.dart';
+import 'package:caramba_client/widgets/ui.dart' show GhostButton;
 
 /// Живой адрес панели владельца: тесты пишутся против той строки, из-за которой
 /// разговор и начался.
@@ -75,29 +77,49 @@ String _visibleText(WidgetTester tester) => tester
     .join('\n');
 
 void main() {
-  group('экран подтверждения: адрес обязан быть виден', () {
-    testWidgets('origin показан целиком и без действия «показать»', (
-      tester,
-    ) async {
+  group('экран подтверждения: адрес не на дороге, но в одном нажатии', () {
+    testWidgets('по умолчанию адреса нет', (tester) async {
       await _pump(
         tester,
         const ConnectState(stage: ConnectStage.confirm, link: _link),
       );
 
+      expect(find.text(_origin), findsNothing);
+      expect(find.text('Адрес панели'), findsNothing);
+      // И нигде в кадре: утечка это не обязательно строка «Адрес панели», это
+      // и голый хост, зашедший в заголовок или в объяснение.
+      expect(_visibleText(tester), isNot(contains(_host)));
+
+      // Но вход к нему на экране есть и назван прямо: сверить панель
+      // по-прежнему можно, это стоит одного нажатия. Без этой кнопки от чужой
+      // панели не защищает ничто.
+      expect(
+        find.widgetWithText(GhostButton, 'Показать адрес панели'),
+        findsOneWidget,
+      );
+      // А то, что видно сразу, названо своим происхождением: «Имя из ссылки»
+      // читается как заявление отправителя, «Оператор» читалось бы как факт.
+      expect(find.text('Имя из ссылки'), findsOneWidget);
+    });
+
+    testWidgets('по действию адрес показан целиком', (tester) async {
+      await _pump(
+        tester,
+        const ConnectState(stage: ConnectStage.confirm, link: _link),
+      );
+
+      await tester.tap(find.text('Показать адрес панели'));
+      await tester.pump();
+
       // Целиком, а не хвостом и не отпечатком: человек сверяет его с тем, что
       // назвал оператор, и сверять он должен то же самое.
       expect(find.text(_origin), findsOneWidget);
       expect(find.text('Адрес панели'), findsOneWidget);
-
-      // И сразу, без нажатия. Защита, которую надо включить, для большинства не
-      // существует, а подсовывают чужую панель именно большинству.
-      expect(
-        find.widgetWithText(TextButton, 'Показать'),
-        findsNothing,
-        reason:
-            'адрес спрятан под действие: на этом экране он и есть решение, '
-            'прятать его нельзя',
-      );
+      // Вместе с ним раскрывается всё, по чему панель опознают, а не один
+      // адрес.
+      expect(find.text('Корневой ключ'), findsOneWidget);
+      // И блок закрывается обратно тем же нажатием.
+      expect(find.text('Скрыть адрес панели'), findsOneWidget);
     });
   });
 
@@ -143,8 +165,10 @@ void main() {
   });
 
   group('лист импорта: адрес не подставляется вместо имени', () {
-    PanelProbeResult panel(String brand) =>
-        PanelProbeResult(origin: _origin, branding: Branding(brandName: brand));
+    PanelProbeResult panel(String brand) => PanelProbeResult(
+      origin: _origin,
+      branding: Branding(brandName: brand),
+    );
 
     test('без брендинга заголовок называет продукт, а не хост', () {
       // Это и был путь утечки: пустой бренд — состояние панели по умолчанию,
@@ -155,7 +179,10 @@ void main() {
     });
 
     test('бренд оператора проходит как есть', () {
-      expect(panelOfferTitle(panel('Caramba Connect')), contains('Caramba Connect'));
+      expect(
+        panelOfferTitle(panel('Caramba Connect')),
+        contains('Caramba Connect'),
+      );
     });
   });
 
@@ -165,10 +192,7 @@ void main() {
     // входа — местах, где адрес ничего не подтверждает и не исчезает.
 
     test('без имени в конфиге хост не подставляется', () {
-      expect(
-        subscriptionProfileName(typed: '', sourceHost: _host),
-        'Подписка',
-      );
+      expect(subscriptionProfileName(typed: '', sourceHost: _host), 'Подписка');
     });
 
     test('имя из конфига, повторяющее хост, отбрасывается', () {

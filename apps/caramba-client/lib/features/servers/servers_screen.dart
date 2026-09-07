@@ -34,6 +34,11 @@ import 'package:caramba_client/widgets/ui.dart';
 /// Недоступная машина остаётся в списке приглушённой и с причиной: строка,
 /// пропавшая из списка, неотличима от машины, которой у оператора никогда не
 /// было, и пользователь ищет её в обновлении приложения.
+///
+/// Экран перестал быть вкладкой (владелец: «можно убрать вкладку серверы») и
+/// открывается поверх шелла со строки «Сервер» на «Подключении»; всё
+/// содержимое — список машин, карточка доступа, замер, автоподбор — осталось
+/// на месте.
 class ServersScreen extends ConsumerStatefulWidget {
   const ServersScreen({super.key});
 
@@ -71,15 +76,9 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
               AppSpace.s20 + AppSpace.s6,
             ),
             children: [
-              ScreenHead(
-                'Серверы',
-                trailing: IconBtn(
-                  Lucide.x,
-                  onTap: () => context.go(AppRoute.home),
-                ),
-              ),
-              // Тот же гейт, что на Главной и в Настройках. Смена страны или
-              // узла теперь применяется сама (окно тишины в
+              ScreenHead('Серверы', trailing: IconBtn(Lucide.x, onTap: _close)),
+              // Тот же гейт, что на «Подключении» и в Настройках. Смена
+              // страны или узла теперь применяется сама (окно тишины в
               // `auto_reconnect.dart`), и баннер здесь — её отчёт; он же
               // остаётся ручным для правок, которые ждут человека.
               if (ref.watch(reconnectRequiredProvider)) ...[
@@ -298,6 +297,17 @@ class _ServersScreenState extends ConsumerState<ServersScreen> {
   /// живут в состоянии, а не в этом виджете, потому что числа нужны и строкам
   /// списка, и инвентарю — они не принадлежат экрану.
   Future<void> _probe() => ref.read(probeRunProvider.notifier).measure();
+
+  /// Экран накладной: «Назад» и крестик возвращают туда, откуда пришли
+  /// (строка «Сервер» на «Подключении»). Запасной выход — на само
+  /// «Подключение», если стека под экраном нет (диплинк, тест).
+  void _close() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(AppRoute.home);
+    }
+  }
 }
 
 /// Первый уровень: страны выхода. «Авто» сверху, затем страны в порядке
@@ -336,7 +346,7 @@ class _Empty extends StatelessWidget {
       ExitInventorySource.none => const ScreenEmpty(
         glyph: Lucide.globe,
         title: 'Профиль подключения не выбран',
-        message: 'Импортируйте подписку или войдите в аккаунт панели.',
+        message: 'Добавьте подключение или подключите аккаунт панели.',
       ),
       _ => const ScreenEmpty(
         glyph: Lucide.globe,

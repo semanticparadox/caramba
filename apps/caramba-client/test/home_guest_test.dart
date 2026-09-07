@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:caramba_client/data/connection_profiles_store.dart';
 import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/server.dart';
+import 'package:caramba_client/features/home/autopilot_button.dart';
 import 'package:caramba_client/features/home/home_screen.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
@@ -208,15 +209,20 @@ Widget _guestHome({
   ),
   ConnectionProfile? profile,
   String activeProxy = 'Amsterdam #2',
+  // Список стора задаётся отдельно от «того самого» профиля: пустое состояние
+  // экрана требует стора вообще без записей, а не профиля без узлов.
+  List<ConnectionProfile>? profiles,
+  String? activeId,
 }) {
   final p = profile ?? _profile;
+  final stored = profiles ?? <ConnectionProfile>[p];
   return ProviderScope(
     overrides: [
       vpnConnectionProvider.overrideWithValue(
         _FakeCore(stage: stage, traffic: traffic, activeProxy: activeProxy),
       ),
       connectionProfilesStoreProvider.overrideWithValue(
-        _FakeProfilesStore(<ConnectionProfile>[p], p.id),
+        _FakeProfilesStore(stored, activeId ?? (stored.isEmpty ? null : p.id)),
       ),
     ],
     child: MaterialApp(theme: AppTheme.dark(), home: const HomeScreen()),
@@ -269,7 +275,7 @@ void main() {
     expect(find.text('ПРИЁМ'), findsOneWidget);
     expect(find.text('ОТДАЧА'), findsOneWidget);
     expect(find.text('СЕССИЯ'), findsOneWidget);
-    expect(find.text('Прокси'), findsOneWidget); // ячейка «Режим»
+    expect(find.text('Прокси'), findsOneWidget); // ячейка «Захват»
     expect(find.text('12,0 МБ'), findsOneWidget);
     expect(find.text('2,0 МБ/с'), findsOneWidget);
     expect(find.text('64 КБ/с'), findsOneWidget);
@@ -403,6 +409,73 @@ void main() {
     // сессии: строка живёт, пока ядро в proxy-режиме.
     expect(find.text('Прокси 127.0.0.1:7890'), findsOneWidget);
     expect(find.text('00:00'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  // Чистая установка: профилей нет вовсе. Раньше сюда не пускали — гейт держал
+  // человека на входе, и посмотреть приложение до импорта было нельзя. Теперь
+  // экран открывается, и на нём ровно одно действие: добавить подключение.
+  testWidgets('без единого подключения — пустое состояние с одним действием', (
+    tester,
+  ) async {
+    _usePhoneView(tester);
+    await tester.pumpWidget(
+      _guestHome(stage: VpnStage.disconnected, profiles: const []),
+    );
+    // Пока профили ЧИТАЮТСЯ, пустым состоянием не мигаем: «нет профилей» и
+    // «ещё не прочитали» — разные вещи, и вторая не имеет права выглядеть как
+    // первая.
+    expect(find.text('Подключений пока нет'), findsNothing);
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+
+    // Дайл на месте: геометрия атмосферы держится на нём, и убирать его из
+    // пустого состояния нельзя.
+    expect(find.byType(ConnectDial), findsOneWidget);
+    expect(find.text('Добавьте подключение'), findsOneWidget);
+    expect(find.text('Подключений пока нет'), findsOneWidget);
+    expect(
+      find.widgetWithText(FilledButton, 'Добавить подключение'),
+      findsOneWidget,
+    );
+
+    // Больше нет НИЧЕГО: ни группы строк, ни автоподбора, ни сетки статистики.
+    // Выбирать не из чего, и показывать выбор было бы обещанием пустоты.
+    expect(find.text('Сервер'), findsNothing);
+    expect(find.text('Relay (вход)'), findsNothing);
+    expect(find.text('Тип подключения'), findsNothing);
+    expect(find.text('Подписка'), findsNothing);
+    expect(find.byType(AutopilotButton), findsNothing);
+    expect(find.text('СКАЧАНО'), findsNothing);
+
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('профили есть, активный не выбран — пустого состояния нет', (
+    tester,
+  ) async {
+    _usePhoneView(tester);
+    // activeId не совпадает ни с одним профилем — ровно случай «активный не
+    // выбран».
+    await tester.pumpWidget(
+      _guestHome(stage: VpnStage.disconnected, activeId: 'нет такого id'),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+
+    // Пустое состояние — про «подключений НЕТ вовсе», а не про «активный не
+    // выбран»: при непопавшем id снимок профилей подставляет первый из списка
+    // (ConnectionProfilesState.active), тап по дайлу реально поднимет туннель,
+    // и звать «добавьте подключение» здесь было бы неправдой.
+    expect(find.text('Подключений пока нет'), findsNothing);
+    expect(find.text('Добавьте подключение'), findsNothing);
+    expect(find.text('Нажмите, чтобы подключиться'), findsOneWidget);
+    expect(find.text('Подписка'), findsOneWidget);
+
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });

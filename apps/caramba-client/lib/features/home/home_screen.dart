@@ -29,7 +29,6 @@ import 'package:caramba_client/features/servers/relay_screen.dart'
     show effectiveRelayIndex;
 import 'package:caramba_client/features/settings/applied_route_card.dart';
 import 'package:caramba_client/features/settings/reconnect_banner.dart';
-import 'package:caramba_client/features/settings/route_picker.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/access_guard.dart';
 import 'package:caramba_client/state/account_state.dart';
@@ -39,7 +38,6 @@ import 'package:caramba_client/state/core_config_state.dart';
 import 'package:caramba_client/state/core_error.dart';
 import 'package:caramba_client/state/exit_inventory_state.dart';
 import 'package:caramba_client/state/servers_state.dart';
-import 'package:caramba_client/state/settings_state.dart';
 import 'package:caramba_client/state/subscription_state.dart';
 import 'package:caramba_client/state/vpn_state.dart';
 import 'package:caramba_client/theme/colors.dart';
@@ -52,8 +50,13 @@ import 'package:caramba_client/widgets/lucide.dart';
 import 'package:caramba_client/widgets/traffic_chart.dart';
 import 'package:caramba_client/widgets/ui.dart';
 
-/// Главная (демо §HOME): дисплей-дайл подключения + config-rows
-/// (сервер/relay/протокол/маршрут) + ячейки статистики с tabular-цифрами.
+/// «Подключение» (первая вкладка; маршрут /home и имя HomeScreen не менялись):
+/// дисплей-дайл подключения + config-rows (сервер/relay/тип подключения) +
+/// ячейки статистики с tabular-цифрами.
+///
+/// Строки «Режим» здесь больше нет — она в Настройках, раздел «Правила
+/// трафика» (владелец: переключают редко). Что ядро применило, показывает
+/// AppliedRouteCard внизу.
 ///
 /// Экран двухветочный, и ветка выбирается ОДИН раз на билд:
 ///   * аккаунт панели — сегодняшняя Home: план, колокол, relay, рекомендованный
@@ -283,19 +286,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final traffic = ref.watch(trafficProvider).valueOrNull ?? TrafficStats.zero;
     final cfg = ref.watch(coreConfigProvider);
     final protocols = ref.watch(protocolsProvider);
-    final modes = ref.watch(routingModesProvider);
 
-    // Ветка экрана. Гость — это «пускаем без аккаунта панели» И «сессии панели
-    // сейчас нет»: залогиненный пользователь со своими профилями остаётся на
-    // панельной Home. Пока профили не прочитаны, выбор делается в пользу
-    // generic-ветки: без сессии панельные запросы всё равно ушли бы в 401, а
-    // мигать ими на холодном старте незачем.
     final panelSession =
         ref.watch(authProvider).stage == AuthStage.authenticated;
-    final guest =
-        !panelSession &&
-        (ref.watch(guestAllowedProvider) ||
-            !ref.watch(connectionProfilesReadyProvider));
+    // Ветка выбирается ТОЛЬКО по сессии панели: без неё панельные провайдеры
+    // ушли бы в 401, а флаг generic-режима и число профилей здесь ни при чём
+    // — без единого профиля экран теперь тоже показывается (пустое состояние).
+    final guest = !panelSession;
+    final profilesState = ref.watch(connectionProfilesProvider);
+    // Подключений нет вовсе (а не «активный не выбран»): пока профили не
+    // прочитаны, пустое состояние не показываем, чтобы не мигать им.
+    final noConnections =
+        guest && !profilesState.loading && profilesState.profiles.isEmpty;
 
     if (status.isConnected) {
       _startTicker();
@@ -334,21 +336,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         node: node,
         protocol: protocols[cfg.protocol].name,
         access: access,
+        noConnections: noConnections,
       );
       // Колокола и плана здесь нет, но высота шапки обязана остаться прежней:
       // атмосферный слой зарегистрирован на измеренную геометрию, и сдвиг дайла
       // вверх ломает порядок «зажигания» маршрутов (kAtmoOpenRank).
       headerTrailing = const SizedBox(height: 44);
-      cards = _guestCards(
-        status: status,
-        traffic: traffic,
-        profile: profile,
-        proxy: proxy,
-        node: node,
-        cfg: cfg,
-        protocols: protocols,
-        modes: modes,
-      );
+      cards = noConnections
+          ? _emptyCards()
+          : _guestCards(
+              status: status,
+              traffic: traffic,
+              profile: profile,
+              proxy: proxy,
+              node: node,
+              cfg: cfg,
+              protocols: protocols,
+            );
     } else {
       final user = ref.watch(currentUserProvider);
       final recommended = ref.watch(recommendedServerProvider);
@@ -404,7 +408,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         relayFromOperator: relayFromOperator,
         cfg: cfg,
         protocols: protocols,
-        modes: modes,
       );
     }
 
@@ -476,6 +479,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                             : csub,
                         onTap: () {
                           unawaited(HapticFeedback.mediumImpact());
+                          // Поднимать ядру нечего: подключений нет вовсе, и
+                          // единственное осмысленное действие дайла — увести
+                          // туда, где их добавляют.
+                          if (noConnections) {
+                            context.go(AppRoute.connectionImport);
+                            return;
+                          }
                           unawaited(ref.read(vpnProvider.notifier).toggle());
                         },
                       ),
@@ -527,7 +537,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       // попросил, следом — что из этого получилось. До моста
                       // отчёта второй половины не существовало вовсе, и
                       // «блок рекламы» оставался обещанием.
-                      const AppliedRouteCard(),
+                      if (!noConnections) const AppliedRouteCard(),
                     ],
                   ),
                 ],
@@ -574,7 +584,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     };
   }
 
-  /// Панельная Home: сервер/relay/протокол/маршрут, 4 ячейки и история трафика.
+  /// Панельная Home: сервер/relay/тип подключения, 4 ячейки и история трафика.
   List<Widget> _panelCards({
     required VpnStatus status,
     required TrafficStats traffic,
@@ -583,7 +593,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     required String? relayFromOperator,
     required CoreConfig cfg,
     required List<ProtocolOption> protocols,
-    required List<RoutingMode> modes,
   }) {
     // Строка сервера говорит СТРАНОЙ: узел под ней меняется автоподбором, а
     // выбирает пользователь именно страну. Имя узла остаётся рядом вторичным —
@@ -632,16 +641,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ),
           _relayRow(relay: relay, autoRelayCountry: relayFromOperator),
           _protocolRow(cfg: cfg, protocols: protocols),
-          // Строка открывает `_pickRoute()` — лист «Режим» (showRoutePicker),
-          // и называется его именем. Правило не стилистическое: дважды подряд
-          // строка называлась вкладкой настроек, а открывала один её лист, и
-          // человек шёл искать на вкладке то, чего строка ему не показывала
-          // (регрессия закреплена enhancements_naming_regression_test).
-          // Значение — не [CRow] (см. [_RouteModeRow] за обрезку).
-          _RouteModeRow(
-            value: modes[cfg.route].name,
-            onTap: () => _pickRoute(),
-          ),
         ],
       ),
       // Автоподбор вынесен ИЗ группы: он не выбор из списка, а действие, и
@@ -717,6 +716,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     ];
   }
 
+  /// Подключений нет вовсе. Одно действие и ничего лишнего: владелец просил
+  /// пустить человека посмотреть приложение до того, как он что-то добавит.
+  List<Widget> _emptyCards() => [
+    const ScreenEmpty(
+      glyph: Lucide.plus,
+      title: 'Подключений пока нет',
+      message:
+          'Добавьте ссылку на подписку, конфиг или ссылку caramba:// из бота '
+          'оператора — приложение само разберёт, что это. Настройки и профиль '
+          'можно посмотреть уже сейчас.',
+    ),
+    FilledButton(
+      onPressed: () => context.go(AppRoute.connectionImport),
+      child: const Text('Добавить подключение'),
+    ),
+  ];
+
   /// Generic-режим: подписка и узел берутся с активного профиля, статистика —
   /// из потока ядра. Ни квота-карты, ни плановых чипов здесь нет: тарифы живут
   /// у аккаунта панели, а его нет.
@@ -728,7 +744,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     required String? node,
     required CoreConfig cfg,
     required List<ProtocolOption> protocols,
-    required List<RoutingMode> modes,
   }) {
     final connected = status.isConnected;
     // МАШИНЫ, а не строки конфига. `profile.serverCount` — это длина списка
@@ -826,13 +841,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 Relay.defaults[effectiveRelayIndex(cfg.relay, Relay.defaults)],
           ),
           _protocolRow(cfg: cfg, protocols: protocols),
-          // Та же строка, что и в панельной ветке выше, и то же рассуждение:
-          // тап открывает лист «Режим» (showRoutePicker), и имя строки — имя
-          // этого листа.
-          _RouteModeRow(
-            value: modes[cfg.route].name,
-            onTap: () => _pickRoute(),
-          ),
         ],
       ),
       // Та же кнопка, что и в панельной ветке: автоподбор одинаково не
@@ -881,7 +889,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   TunnelMode.proxy => 'Прокси',
                   null => '·',
                 },
-                label: 'Режим',
+                label: 'Захват',
               ),
             ],
           );
@@ -898,6 +906,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     required String? proxy,
     required String? node,
     required String protocol,
+    required bool noConnections,
     AccessState? access,
   }) {
     final name = (profile == null || profile.displayName.isEmpty)
@@ -917,7 +926,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       VpnStage.error => dialErrorLabel(detail: status.detail, access: access),
       VpnStage.disconnected =>
         profile == null
-            ? 'Импортируйте подписку'
+            ? (noConnections ? 'Добавьте подключение' : 'Выберите подключение')
             : 'Нажмите, чтобы подключиться',
     };
   }
@@ -1059,65 +1068,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         value: value,
         chevron: true,
         onTap: () => context.go(AppRoute.relay),
-      ),
-    );
-  }
-
-  /// Лист маршрутов общий с настройками. Своей копии здесь больше нет: она
-  /// открывала список БЕЗ карты недоступного, то есть предлагала маршруты,
-  /// которых оператор не предлагает.
-  Future<void> _pickRoute() => showRoutePicker(context, ref);
-}
-
-/// Строка «Режим» на Home: подпись и значение на СВОИХ строках.
-///
-/// [CRow] кладёт подпись и значение в одну строку и режет значение
-/// [TextOverflow.ellipsis] без явного `maxLines` — dart:ui подставляет
-/// `maxLines: 1` самим фактом `overflow`. Двухстрочная раскладка нужна не
-/// подписи, а ЗНАЧЕНИЮ: имена режимов длинные («Российский полный обход»),
-/// и на одной строке они резались на узком экране. Короткое имя подписи
-/// («Режим» вместо «Режим для страны») этого не отменяет — оно лишь отдаёт
-/// значению ещё немного места. [CRow] общий для всего приложения и здесь не
-/// трогается (тот же фикс уже стоит в `_WrapRow` карточки [AppliedRouteCard])
-/// — значению нужна не более широкая колонка, а разрешение перенестись.
-class _RouteModeRow extends StatelessWidget {
-  final String value;
-  final VoidCallback? onTap;
-
-  const _RouteModeRow({required this.value, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 54),
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpace.s4,
-          vertical: AppSpace.s3,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                LucideIcon(Lucide.route, color: c.textMed, size: 20),
-                const SizedBox(width: AppSpace.s3 + 2),
-                Expanded(
-                  child: Text(
-                    'Режим',
-                    style: AppType.bodyMd.copyWith(color: c.textHi),
-                  ),
-                ),
-                const SizedBox(width: AppSpace.s2),
-                LucideIcon(Lucide.chevronRight, color: c.textLow, size: 18),
-              ],
-            ),
-            const SizedBox(height: 2),
-            Text(value, style: AppType.bodySm.copyWith(color: c.textMed)),
-          ],
-        ),
       ),
     );
   }

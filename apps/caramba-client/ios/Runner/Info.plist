@@ -22,6 +22,14 @@
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+	<!-- Встроенный диплинкинг Flutter выключен намеренно — та же причина, что и
+	     в android/app/src/main/AndroidManifest.xml: без этого ключа фреймворк
+	     сам шлёт ссылку в маршрутизатор как локацию, go_router сводит
+	     `caramba://connect?d=...` к `/`, и эта навигация затирает переход,
+	     сделанный DeepLinkHandler. Разбор схем живёт в Dart, и второй
+	     маршрутизатор здесь лишний. -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
 	<!-- Две схемы намеренно. caramba://connect?d=<armor> это ссылка-приглашение,
 	     которую сейчас выдаёт бот панели; carambaconnect:// остаётся навсегда
 	     рядом, потому что такие ссылки уже разосланы людям, а мёртвый диплинк

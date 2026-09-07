@@ -51,7 +51,8 @@ class AppliedRouteCard extends ConsumerWidget {
             const InlineBanner(
               tone: BannerTone.warning,
               glyph: Lucide.alert,
-              text: 'Ядро этой сборки не отчитывается о применённом маршруте. '
+              text:
+                  'Ядро этой сборки не отчитывается о применённом маршруте. '
                   'Что именно оно применило, проверить нечем.',
             )
           else if (!report.known)
@@ -60,8 +61,8 @@ class AppliedRouteCard extends ConsumerWidget {
               glyph: Lucide.alert,
               text: report.reason == 'not_raised'
                   ? 'Ядро ещё не отчиталось о поднятом туннеле. Пока это '
-                      'состояние держится, о применённых правилах ничего не '
-                      'известно.'
+                        'состояние держится, о применённых правилах ничего не '
+                        'известно.'
                   : 'Ядро не сообщило, какой маршрут применён.',
             )
           else ...[
@@ -79,14 +80,15 @@ class AppliedRouteCard extends ConsumerWidget {
       CRow(
         icon: Lucide.route,
         // То же имя, что у настройки везде: лист выбора
-        // (`kRouteModeSheetTitle`), строка на Главной и
+        // (`kRouteModeSheetTitle`), строка в Настройках и
         // `csmSettingTitle(CsmSettingKey.preset)` зовут её «Режим», и эта
         // строка не вправе называть ту же величину иначе.
         label: 'Режим',
         value: switch (r.source) {
-          AppliedRouteSource.preset => preset == null
-              ? 'пресет без имени'
-              : '${preset.emoji} ${preset.name}'.trim(),
+          AppliedRouteSource.preset =>
+            preset == null
+                ? 'пресет без имени'
+                : '${preset.emoji} ${preset.name}'.trim(),
           // Ядро выбрало правила само — это не пресет, и подписывать его
           // именем последнего выбранного значило бы соврать.
           AppliedRouteSource.coreDefault => 'правила ядра по умолчанию',
@@ -130,9 +132,10 @@ class AppliedRouteCard extends ConsumerWidget {
         value: switch (r.relay.state) {
           AppliedRelayState.notRequested => 'не запрашивался',
           AppliedRelayState.ignored => 'отброшен',
-          AppliedRelayState.sent => r.relay.chained
-              ? 'цепочка в конфиге есть'
-              : 'цепочки в конфиге нет',
+          AppliedRelayState.sent =>
+            r.relay.chained
+                ? 'цепочка в конфиге есть'
+                : 'цепочки в конфиге нет',
           AppliedRelayState.unknown => 'неизвестно',
         },
       ),

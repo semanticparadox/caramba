@@ -2,10 +2,10 @@
 /// разные вещи.
 ///
 /// СНЯТО НА УСТРОЙСТВЕ. Закреплён TUIC (его собственный замер честно говорит
-/// «Не проходит: адрес не отвечает»), переподключение, Главная: «Защищено»,
-/// сервер «🇩🇪 Stream», строка «Тип подключения: TUIC». В логе ядра при этом
-/// `match Match using CARAMBA[🇩🇪 Stream]` — vless. Экран назвал TUIC над
-/// туннелем, которого по TUIC нет.
+/// «Не проходит: адрес не отвечает»), переподключение, «Подключение»:
+/// «Защищено», сервер «🇩🇪 Stream», строка «Тип подключения: TUIC». В логе
+/// ядра при этом `match Match using CARAMBA[🇩🇪 Stream]` — vless. Экран
+/// назвал TUIC над туннелем, которого по TUIC нет.
 ///
 /// ПОЧЕМУ ЯДРО ТАК ДЕЛАЕТ. `applyProtocol` (libs/caramba-core/profile/
 /// profile.go) собирает url-test группу `Caramba-Proto` из прокси, у которых
@@ -53,7 +53,7 @@ import 'package:caramba_client/features/protocol/protocol_screen.dart'
 import 'package:caramba_client/state/core_config_state.dart';
 import 'package:caramba_client/state/vpn_state.dart';
 
-/// Готовый ответ строки «Тип подключения» на Главной.
+/// Готовый ответ строки «Тип подключения» на «Подключении».
 class ProtocolTruth {
   /// Текст значения строки.
   final String value;
@@ -98,8 +98,9 @@ ProtocolTruth protocolTruthOf({
   required Map<String, FleetFact> facts,
   required AutoLabel auto,
 }) {
-  final option =
-      (pinned >= 0 && pinned < options.length) ? options[pinned] : null;
+  final option = (pinned >= 0 && pinned < options.length)
+      ? options[pinned]
+      : null;
   if (option == null) return const ProtocolTruth(value: '·');
 
   // «Авто» — отказ от выбора: расходиться нечему, и подпись автоподбора уже
@@ -129,7 +130,8 @@ ProtocolTruth protocolTruthOf({
     value: '$actual вместо ${option.name}',
     glyph: protocolGlyph(wire),
     diverged: true,
-    note: 'Закреплён ${option.name}, но туннель поднят по $actual. Ядро '
+    note:
+        'Закреплён ${option.name}, но туннель поднят по $actual. Ядро '
         'собирает группу из входов закреплённого типа и, когда ни один из них '
         'не отвечает, берёт другой рабочий вход — иначе связи не было бы '
         'вовсе. Пока это так, трафик идёт по $actual.',
@@ -154,7 +156,8 @@ String _wireFamilyOf(FleetFact fact, List<ProtocolOption> options) {
   return fact.protocol.trim().toLowerCase();
 }
 
-/// Строка «Тип подключения» на Главной — одним источником для обеих её веток.
+/// Строка «Тип подключения» на «Подключении» — одним источником для обеих
+/// её веток.
 final protocolTruthProvider = Provider<ProtocolTruth>((ref) {
   return protocolTruthOf(
     options: ref.watch(protocolsProvider),
@@ -177,8 +180,8 @@ final protocolTruthProvider = Provider<ProtocolTruth>((ref) {
 ///
 /// Но раз ядро деградирует молча, момент закрепления обязан назвать, чем это
 /// кончится. Здесь текст короче обычного: у тоста 2,4 секунды, и подробность
-/// съела бы главное. Подробность ждёт на Главной — там же, где человек увидит
-/// последствие.
+/// съела бы главное. Подробность ждёт на «Подключении» — там же, где
+/// человек увидит последствие.
 ///
 /// [exact] — закреплён конкретный прокси (сырой путь), а не только семейство.
 /// [noneAnswered] — замер прошёл, и ни один вход этого типа запрос не

@@ -664,6 +664,20 @@ body {
     font-weight: 600;
     flex-shrink: 0;
 }
+/* Ссылка входа целиком на экране: её вставляют руками, поэтому переносим
+ * по символам и даём выделить одним тапом, если буфер недоступен. */
+.exa-codebox {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    word-break: break-all;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--exa-elevated);
+    color: var(--exa-text);
+    margin: 8px 0;
+    user-select: all;
+}
 
 /* ---------- общее ---------- */
 .exa-muted { color: var(--exa-hint); font-size: var(--exa-text-sm); }

@@ -325,8 +325,8 @@ List<SentRequest> buildSentRequests(CsmProfileState? csm) {
       method: 'POST',
       path: kCsmWritePathEnrollCode,
       purpose:
-          'Энроллмент по коду. Происходит один раз, при подключении '
-          'оператора.',
+          'Подключение по коду приглашения. Происходит один раз, при '
+          'подключении оператора.',
       fields: <SentField>[
         (
           wire: 'code',

@@ -332,6 +332,11 @@ pub struct SettingsTemplate {
     pub guide_url_linux: String,
     pub guide_url_tv: String,
     pub guide_url_router: String,
+    pub app_download_url_android: String,
+    pub app_download_url_ios: String,
+    pub app_download_url_windows: String,
+    pub app_download_url_macos: String,
+    pub app_download_url_linux: String,
     pub panel_url: String,
     pub panel_url_display: String,
     pub admin_ui_url_display: String,
@@ -530,6 +535,11 @@ pub struct SaveSettingsForm {
     pub guide_url_linux: Option<String>,
     pub guide_url_tv: Option<String>,
     pub guide_url_router: Option<String>,
+    pub app_download_url_android: Option<String>,
+    pub app_download_url_ios: Option<String>,
+    pub app_download_url_windows: Option<String>,
+    pub app_download_url_macos: Option<String>,
+    pub app_download_url_linux: Option<String>,
     pub panel_url: Option<String>,
     pub bot_username: Option<String>,
     pub brand_name: Option<String>,
@@ -661,6 +671,26 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     let guide_url_linux = state.settings.get_or_default("guide_url_linux", "").await;
     let guide_url_tv = state.settings.get_or_default("guide_url_tv", "").await;
     let guide_url_router = state.settings.get_or_default("guide_url_router", "").await;
+    let app_download_url_android = state
+        .settings
+        .get_or_default("app_download_url_android", "")
+        .await;
+    let app_download_url_ios = state
+        .settings
+        .get_or_default("app_download_url_ios", "")
+        .await;
+    let app_download_url_windows = state
+        .settings
+        .get_or_default("app_download_url_windows", "")
+        .await;
+    let app_download_url_macos = state
+        .settings
+        .get_or_default("app_download_url_macos", "")
+        .await;
+    let app_download_url_linux = state
+        .settings
+        .get_or_default("app_download_url_linux", "")
+        .await;
     let panel_url_setting = state.settings.get_or_default("panel_url", "").await;
     let panel_url_env = std::env::var("PANEL_URL").unwrap_or_default();
     let panel_url = if !panel_url_setting.trim().is_empty() {
@@ -1202,6 +1232,11 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         guide_url_linux,
         guide_url_tv,
         guide_url_router,
+        app_download_url_android,
+        app_download_url_ios,
+        app_download_url_windows,
+        app_download_url_macos,
+        app_download_url_linux,
         panel_url,
         panel_url_display,
         admin_ui_url_display,
@@ -1571,6 +1606,21 @@ pub async fn save_settings(
     }
     if let Some(v) = form.guide_url_router {
         settings.insert("guide_url_router".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.app_download_url_android {
+        settings.insert("app_download_url_android".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.app_download_url_ios {
+        settings.insert("app_download_url_ios".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.app_download_url_windows {
+        settings.insert("app_download_url_windows".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.app_download_url_macos {
+        settings.insert("app_download_url_macos".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.app_download_url_linux {
+        settings.insert("app_download_url_linux".to_string(), v.trim().to_string());
     }
     if let Some(v) = form.support_url {
         settings.insert("support_url".to_string(), v);

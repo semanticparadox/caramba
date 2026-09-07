@@ -117,20 +117,32 @@ void main() {
     // читается как установленный факт, «Имя из ссылки» — нет.
     expect(find.text('Имя из ссылки'), findsOneWidget);
     expect(find.text('Оператор'), findsNothing);
-    expect(find.text('Адрес панели'), findsOneWidget);
-    expect(find.text('https://app.exarobot.top'), findsOneWidget);
 
-    // И объяснение, чем одно отличается от другого, а не общее «будьте
-    // осторожны».
-    final banners = tester
+    // Адрес по решению владельца свёрнут, и объяснение свёрнуто вместе с ним:
+    // объяснение живёт РЯДОМ С АДРЕСОМ, там же, где адрес раскрывают. Совет
+    // «сверяйте адрес» над экраном, где адреса нет, был бы советом ни о чём.
+    expect(find.text('Адрес панели'), findsNothing);
+    expect(find.text('https://app.exarobot.top'), findsNothing);
+
+    String banners() => tester
         .widgetList<InlineBanner>(find.byType(InlineBanner))
         .map((b) => b.text)
         .join('\n');
-    expect(banners, contains('сертификат'));
-    expect(banners, contains('Сверяйте адрес, а не имя'));
-    // И прямым текстом: ссылка НЕ зашифрована. Обратное утверждение на этом
-    // экране появиться не может — шифровать её нечем.
-    expect(banners, contains('не зашифрована'));
+
+    // Прямым текстом и до всякого раскрытия: ссылка НЕ зашифрована. Обратное
+    // утверждение на этом экране появиться не может — шифровать её нечем.
+    expect(banners(), contains('не зашифрована'));
+
+    await tester.tap(find.text('Показать адрес панели'));
+    await tester.pump();
+
+    expect(find.text('Адрес панели'), findsOneWidget);
+    expect(find.text('https://app.exarobot.top'), findsOneWidget);
+
+    // И только теперь — объяснение, чем одно отличается от другого, а не общее
+    // «будьте осторожны».
+    expect(banners(), contains('сертификат'));
+    expect(banners(), contains('Сверяйте адрес, а не имя'));
   });
 
   testWidgets('отвергнутая подделка объясняется, а не показывается', (

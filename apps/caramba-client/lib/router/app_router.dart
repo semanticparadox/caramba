@@ -53,7 +53,8 @@ final _rootKey = GlobalKey<NavigatorState>(debugLabel: 'root');
 ///   * [profilesReady] — прочитан список профилей подключения (иначе холодный
 ///     старт с импортированной подпиской успевал бы отскочить на `/login`);
 ///   * [guest] — generic-режим: есть своя подписка либо явно выбран режим без
-///     аккаунта. Такой пользователь работает в шелле без входа в панель.
+///     аккаунта. Значит «не ждать auth-пробу»; в шелл теперь пускают и без
+///     него.
 String? resolveRedirect({
   required AuthStage stage,
   required bool firstRun,
@@ -97,22 +98,21 @@ String? resolveRedirect({
       // /enroll и /connections/import на сплеш или логин (иначе панель/код или
       // ссылка подписки из URI потеряются).
       if (preAuth) return null;
-      // Локальное состояние ещё грузится: решение «гость или нет» без него
-      // было бы принято по дефолтам.
       if (!bootReady || !profilesReady) {
         return onSplash ? null : AppRoute.splash;
       }
-      // Generic-режим: своя подписка вместо аккаунта панели. Пускаем в шелл,
-      // не дожидаясь ни логина, ни завершения auth-пробы — иначе подключаться
-      // есть чем, а приложение упирается в /login.
-      if (guest) {
-        if (onSplash || onAutotune) return AppRoute.home;
-        // /login и /enroll остаются доступны по своей воле: гость может в
-        // любой момент привязать аккаунт панели.
-        return null;
+      // Своих профилей нет и сессия ещё резолвится: держим сплеш, чтобы не
+      // мигнуть шеллом перед возможным входом. Гость (свой профиль или явный
+      // generic-режим) auth-пробу не ждёт. Проба — чтение secure storage без
+      // сети (AuthNotifier._restore), так что это доли секунды.
+      if (!guest && stage == AuthStage.unknown) {
+        return onSplash ? null : AppRoute.splash;
       }
-      if (stage == AuthStage.unknown) return onSplash ? null : AppRoute.splash;
-      return onLogin ? null : AppRoute.login;
+      // Шелл открыт всем: вход в панель — раздел, а не дверь. Без подписки
+      // «Подключение» показывает пустое состояние с одним действием.
+      if (onSplash || onAutotune) return AppRoute.home;
+      // /login и /enroll остаются доступны по своей воле.
+      return null;
   }
 }
 
@@ -188,7 +188,10 @@ class CarambaRouter extends GoRouter {
     // по той же ссылке). Ни push, ни go здесь не годятся: первый положил бы
     // вторую копию, и «Назад» вернуло бы на тот же экран; второй СНЁС БЫ стек,
     // из-под уже открытого экрана — и «Назад» снова закрыло бы приложение.
-    // Мы уже там, где просят.
+    // Мы уже там, где просят. Для /connect это значит, что повторная ссылка
+    // caramba:// при открытом экране подтверждения его не перерисовывает —
+    // предсуществующее ограничение (initialLink читается в initState),
+    // чинится отдельно.
     if (AppRoute.isOverlay(location) && _topLocation() == _pathOf(location)) {
       return;
     }
@@ -253,7 +256,8 @@ final _routerGateReadyProvider = Provider<bool>(
 ///
 /// Auth-gating: cold start lands on `/` (splash), which mounts NO protected
 /// providers. While `unknown` we hold on the splash; `unauthenticated`/
-/// `authenticating` -> `/login`; `authenticated` + первый вход -> `/autotune`;
+/// `authenticating` -> `/home`: шелл открыт без входа; `authenticated` +
+/// первый вход -> `/autotune`;
 /// `authenticated` -> `/home`. Решение про онбординг ждёт [appBootProvider]:
 /// до чтения prefs `firstRunProvider` держит дефолтное `true`, и autotune
 /// всплывал бы при каждом запуске. «Тип подключения» (`/protocol`) и «Правила
@@ -287,8 +291,8 @@ final routerProvider = Provider<GoRouter>((ref) {
   // роутера, чтобы навигация шла в готовый GoRouter. Гасим при dispose.
   final deepLinks = DeepLinkHandler(
     router,
-    // Ссылка импорта — вход в generic-режим: без этого флага пользователь без
-    // аккаунта панели отскочил бы на /login с уже открытого экрана импорта.
+    // Ссылка импорта — вход в generic-режим: флаг говорит гейту не ждать
+    // auth-пробу, пока профиль по ссылке ещё не сохранён.
     onImport: () => ref.read(guestModeProvider.notifier).enable(),
     // Отказ показываем: ссылка без TLS (INV-8) или без кода иначе просто
     // ничего не делает, и это неотличимо от зависшего приложения.
@@ -363,8 +367,8 @@ List<RouteBase> appRoutes() => <RouteBase>[
     builder: (context, state) => const AutotuneScreen(),
   ),
   // Повторный автоподбор. РАНЬШЕ ЭТОТ МАРШРУТ БЫЛ ВЛОЖЕН В ВЕТКУ НАСТРОЕК,
-  // и это ломало возврат: открывают его с трёх мест (Главная, Настройки,
-  // Серверы), а «Назад» из ветки всегда приводило в Настройки — то есть
+  // и это ломало возврат: открывают его с трёх мест (Подключение, Настройки,
+  // экран серверов), а «Назад» из ветки всегда приводило в Настройки — то есть
   // туда, откуда человек, как правило, и не приходил. Следующее «Назад» в
   // корне навигатора снимать было уже нечего, и приложение закрывалось.
   // Здесь он такой же полноэкранный пикер, как остальные, и ложится поверх
@@ -393,6 +397,13 @@ List<RouteBase> appRoutes() => <RouteBase>[
     path: AppRoute.relay,
     parentNavigatorKey: _rootKey,
     builder: (context, state) => const RelayScreen(),
+  ),
+  // Серверы: накладной экран со строки «Сервер» на «Подключении». Вкладкой
+  // быть перестал — владелец: «можно убрать вкладку серверы».
+  GoRoute(
+    path: AppRoute.servers,
+    parentNavigatorKey: _rootKey,
+    builder: (context, state) => const ServersScreen(),
   ),
   // Профили подключения (мульти-профиль) + импорт, поверх шелла.
   GoRoute(
@@ -488,14 +499,6 @@ List<RouteBase> appRoutes() => <RouteBase>[
           GoRoute(
             path: AppRoute.home,
             builder: (context, state) => const HomeScreen(),
-          ),
-        ],
-      ),
-      StatefulShellBranch(
-        routes: [
-          GoRoute(
-            path: AppRoute.servers,
-            builder: (context, state) => const ServersScreen(),
           ),
         ],
       ),

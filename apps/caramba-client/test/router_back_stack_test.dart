@@ -42,6 +42,16 @@ List<RouteBase> _routes(GlobalKey<NavigatorState> root) => <RouteBase>[
     parentNavigatorKey: root,
     builder: (_, __) => const Text('autotune'),
   ),
+  GoRoute(
+    path: AppRoute.servers,
+    parentNavigatorKey: root,
+    builder: (_, __) => const Text('servers'),
+  ),
+  GoRoute(
+    path: AppRoute.connect,
+    parentNavigatorKey: root,
+    builder: (_, __) => const Text('connect'),
+  ),
   StatefulShellRoute.indexedStack(
     builder: (_, __, shell) => shell,
     branches: [
@@ -108,7 +118,7 @@ void main() {
     );
   });
 
-  testWidgets('«Тип подключения»: «Назад» возвращает на Главную', (
+  testWidgets('«Тип подключения»: «Назад» возвращает на «Подключение»', (
     tester,
   ) async {
     final router = _router();
@@ -165,6 +175,65 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('settings'), findsOneWidget);
   });
+
+  testWidgets('«Серверы»: «Назад» возвращает на «Подключение»', (tester) async {
+    // Вкладкой серверы быть перестали: экран открывают строкой «Сервер», и
+    // возвращаться он обязан туда же, а не в корень навигатора.
+    final router = _router();
+    addTearDown(router.dispose);
+    await _mount(tester, router);
+
+    router.go(AppRoute.servers);
+    await tester.pumpAndSettle();
+    expect(find.text('servers'), findsOneWidget);
+
+    expect(await router.routerDelegate.popRoute(), isTrue);
+    await tester.pumpAndSettle();
+    expect(find.text('home'), findsOneWidget);
+    expect(find.text('servers'), findsNothing);
+  });
+
+  testWidgets('/connect из шелла возвращает назад', (tester) async {
+    // Ссылку caramba:// теперь вставляют из приложения, а не только ловят на
+    // холодном старте: под экраном подтверждения есть шелл.
+    final router = _router();
+    addTearDown(router.dispose);
+    await _mount(tester, router);
+
+    router.go(AppRoute.connect);
+    await tester.pumpAndSettle();
+    expect(find.text('connect'), findsOneWidget);
+
+    expect(await router.routerDelegate.popRoute(), isTrue);
+    await tester.pumpAndSettle();
+    expect(find.text('home'), findsOneWidget);
+  });
+
+  testWidgets(
+    '«Аккаунт панели» → ссылка → «Назад» дважды возвращает в Настройки',
+    (tester) async {
+      // Живая цепочка из Настроек: «Войти или подключить панель» → «Вставить
+      // ссылку подключения». Каждый шаг обязан сниматься по одному, иначе
+      // человек, передумавший на ссылке, вылетал бы из приложения.
+      final router = _router(at: AppRoute.settings);
+      addTearDown(router.dispose);
+      await _mount(tester, router);
+
+      router.go(AppRoute.login);
+      await tester.pumpAndSettle();
+      router.go(AppRoute.connect);
+      await tester.pumpAndSettle();
+      expect(find.text('connect'), findsOneWidget);
+
+      expect(await router.routerDelegate.popRoute(), isTrue);
+      await tester.pumpAndSettle();
+      expect(find.text('login'), findsOneWidget);
+
+      expect(await router.routerDelegate.popRoute(), isTrue);
+      await tester.pumpAndSettle();
+      expect(find.text('settings'), findsOneWidget);
+    },
+  );
 
   group('автоподбор', () {
     // Верификатор отметил его отдельно: маршрут лежал ВНУТРИ ветки настроек, и

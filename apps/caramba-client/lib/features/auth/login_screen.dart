@@ -5,33 +5,30 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:caramba_client/data/api_client.dart';
-import 'package:caramba_client/data/brand.dart';
-import 'package:caramba_client/features/connections/connection_import_screen.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/branding_state.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
-import 'package:caramba_client/state/settings_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
 import 'package:caramba_client/theme/typography.dart';
 import 'package:caramba_client/widgets/lucide.dart';
 import 'package:caramba_client/widgets/ui.dart';
 
-/// Первый экран приложения: одно поле, чтобы подключиться.
+/// «Аккаунт панели»: накладной экран, а не дверь в приложение.
 ///
-/// ЧТО ЗДЕСЬ БЫЛО. Три раздела на одном экране — «Подписка», «Панель Caramba»,
-/// «Код из бота» — и человек, у которого в руках одна строка, обязан был сперва
-/// решить, к какому из трёх она относится. Решить это он не может: строку ему
-/// прислал оператор, и по её виду разделы не различаются никак. Дальше шёл
-/// второй экран с именем профиля и выбором формата из пяти. До первого узла
-/// набиралось четыре-пять решений, из которых человек не мог принять ни одного.
+/// ЧТО ЗДЕСЬ БЫЛО. Экран стоял первым и держал форму подключения: человек,
+/// только что установивший приложение, упирался в поле ввода раньше, чем видел
+/// хоть один экран. Строку для этого поля выдаёт оператор, и у того, кто пришёл
+/// посмотреть, её просто нет — дверь оказывалась запертой снаружи.
 ///
-/// ЧТО СТАЛО. Одно поле и одна кнопка ([ConnectionEntryForm]). Куда нести
-/// строку, приложение определяет само — той же развилкой, которой оно всегда
-/// разбирало диплинки. Редкое (файл, код приглашения, вход кодом из бота) живёт
-/// под «Ещё»: оно не удалено, потому что исчезнувшая функция неотличима от
-/// несуществующей, но и не стоит на дороге у главного пути.
+/// ЧТО СТАЛО. Первым идёт шелл с пустой вкладкой «Подключение»: приложение
+/// можно обойти целиком до того, как что-то подключать. Сюда приходят по своей
+/// воле — из Настроек и из пустых панельных разделов, — и лежит здесь только
+/// то, что относится к аккаунту панели: ссылка подключения, код приглашения и
+/// вход кодом из бота. Формы одного поля тут нет: её единственный хозяин —
+/// экран «Добавить подключение», и две формы означали бы два разных ответа на
+/// одну и ту же вставленную строку.
 ///
 /// БОТ. Дефолтного username здесь больше нет. Публичная сборка ни к какому
 /// оператору не привязана, и вписанный в код чужой бот — это выдуманный адрес,
@@ -59,11 +56,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     return _botUsername.isEmpty ? '' : 'https://t.me/$_botUsername';
   }
 
-  /// Generic-режим: аккаунт панели не нужен. Флаг ставим ДО сохранения профиля,
-  /// чтобы редирект роутера уже считал пользователя допущенным в шелл и не
-  /// отбросил его обратно на /login в момент, когда подключаться уже есть чем.
-  Future<void> _enableGuest() async {
-    ref.read(guestModeProvider.notifier).enable();
+  /// Экран накладной: крестик возвращает туда, откуда пришли. Стека под нами
+  /// может не быть (холодный старт по ссылке) — тогда уходим на «Подключение»,
+  /// чтобы закрытие никогда не упиралось в пустоту.
+  void _close() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(AppRoute.home);
+    }
   }
 
   @override
@@ -81,34 +82,45 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       backgroundColor: c.bgCanvas,
       body: SafeArea(
         bottom: false,
-        child: ConnectionEntryForm(
-          onBeforeSave: _enableGuest,
-          onDone: () => context.go(AppRoute.home),
-          head: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(kBrandName, style: AppType.titleMd.copyWith(color: c.textHi)),
-              const SizedBox(height: AppSpace.s5),
-              Text(
-                'Подключение',
-                style: AppType.headline.copyWith(color: c.textHi),
-              ),
-              const SizedBox(height: AppSpace.s3),
-            ],
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpace.s5,
+            AppSpace.s5,
+            AppSpace.s5,
+            AppSpace.s12,
           ),
-          extras: [
-            // Ручной код приглашения. Основной путь у приглашения — ссылка
-            // `caramba://`, которая вставляется в то же поле выше и вводить не
-            // требует ничего; ручной ввод остался для случая, когда код
-            // продиктовали голосом.
+          children: [
+            ScreenHead(
+              'Аккаунт панели',
+              trailing: IconBtn(Lucide.x, onTap: _close),
+            ),
+            Text(
+              'Аккаунт панели добавляет тарифы, устройства, рефералов и '
+              'поддержку. Подключается ссылкой caramba://, которую выдаёт бот '
+              'оператора.',
+              style: AppType.bodyMd.copyWith(color: c.textMed),
+            ),
+            const SizedBox(height: AppSpace.s5),
+            // Главный путь: ссылку `caramba://` разбирает экран подтверждения,
+            // а не это место — здесь только дверь к нему.
+            FilledButton(
+              onPressed: () => context.go(AppRoute.connect),
+              child: const Text('Вставить ссылку подключения'),
+            ),
+            const SizedBox(height: AppSpace.s2),
+            // Ручной код приглашения — для случая, когда код продиктовали
+            // голосом и ссылки на руках нет.
             GhostButton(
               label: 'У меня код приглашения',
               icon: Lucide.userPlus,
               onPressed: () => context.go(AppRoute.enroll),
             ),
             // Вход в аккаунт панели кодом из бота. Показывается только когда
-            // панель уже подключена: без панели ни бота, ни кодов не существует.
-            if (hasPanel) _BotCodeSection(botLink: _botLink),
+            // панель уже известна: без панели ни бота, ни кодов не существует.
+            if (hasPanel) ...[
+              const SizedBox(height: AppSpace.s5),
+              _BotCodeSection(botLink: _botLink),
+            ],
           ],
         ),
       ),

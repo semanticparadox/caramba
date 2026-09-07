@@ -2,7 +2,8 @@
 //
 // Проверяется чистая [resolveRedirect] — без GoRouter, платформенных каналов и
 // сети. Главное свойство: generic-режим (своя подписка) работает БЕЗ аккаунта
-// панели, а пользователь без подписки и без сессии по-прежнему уходит на вход.
+// панели, а пользователь без подписки и без сессии попадает в шелл, а вход
+// остаётся разделом.
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -42,10 +43,10 @@ void main() {
       );
     });
 
-    test('без подписки и без сессии /plans всё же уводит на вход', () {
+    test('без подписки и без сессии /plans тоже не выбрасывает на вход', () {
       expect(
         redirect(stage: AuthStage.unauthenticated, location: AppRoute.plans),
-        AppRoute.login,
+        isNull,
       );
     });
   });
@@ -125,22 +126,22 @@ void main() {
     });
   });
 
-  group('без подписки и без сессии', () {
-    test('любой экран уводит на вход', () {
+  group('без подписки и без сессии — шелл открыт', () {
+    test('холодный старт ведёт в шелл, экраны шелла не трогаются', () {
       expect(
         redirect(stage: AuthStage.unauthenticated, location: AppRoute.home),
-        AppRoute.login,
+        isNull,
       );
       expect(
         redirect(stage: AuthStage.unauthenticated, location: AppRoute.splash),
-        AppRoute.login,
+        AppRoute.home,
       );
       expect(
         redirect(
           stage: AuthStage.unauthenticated,
           location: AppRoute.connections,
         ),
-        AppRoute.login,
+        isNull,
       );
     });
 
@@ -148,6 +149,36 @@ void main() {
       expect(
         redirect(stage: AuthStage.unauthenticated, location: AppRoute.login),
         isNull,
+      );
+    });
+
+    test('/connect доступен до входа', () {
+      // Ссылка caramba:// — весь смысл в том, что аккаунт для неё уже есть на
+      // панели, а в приложении сессии ещё нет.
+      expect(
+        redirect(
+          stage: AuthStage.unauthenticated,
+          location: '${AppRoute.connect}?link=x',
+        ),
+        isNull,
+      );
+      expect(
+        redirect(
+          stage: AuthStage.unknown,
+          location: '${AppRoute.connect}?link=x',
+        ),
+        isNull,
+      );
+    });
+
+    test('вход кодом (authenticating) не выдёргивает с /login', () {
+      expect(
+        redirect(stage: AuthStage.authenticating, location: AppRoute.login),
+        isNull,
+      );
+      expect(
+        redirect(stage: AuthStage.authenticating, location: AppRoute.splash),
+        AppRoute.home,
       );
     });
 

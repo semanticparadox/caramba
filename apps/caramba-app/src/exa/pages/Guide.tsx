@@ -10,6 +10,7 @@ import { Button, Pill, ScreenHeader } from '../ui'
 import { pickPrimary, subscriptionUrl } from '../lib/subscription'
 import { useGuides, type GuidePlatform } from '../lib/useGuides'
 import { useToast } from '../lib/useToast'
+import CarambaAppSheet from '../sheets/CarambaAppSheet'
 
 const PLATFORMS: { id: PlatformKey; labelKey: string; guide: GuidePlatform }[] = [
     { id: 'ios', labelKey: 'exa.guide.ios', guide: 'ios' },
@@ -20,8 +21,10 @@ const PLATFORMS: { id: PlatformKey; labelKey: string; guide: GuidePlatform }[] =
     { id: 'tv', labelKey: 'exa.guide.tv', guide: 'tv' },
 ]
 
-/** Гайд по подключению: платформа → приложения с загрузкой и подробной
- *  инструкцией на Telegraph. Ссылка подписки — одной кнопкой сверху. */
+/** Гайд по подключению: сверху — своё приложение Caramba Connect (вход по
+ *  ссылке, без ручной настройки), ниже — сторонние клиенты по платформам
+ *  с загрузкой и подробной инструкцией на Telegraph. Ссылка подписки — одной
+ *  кнопкой сверху. */
 export default function Guide() {
     const { t } = useTranslation()
     const toast = useToast()
@@ -38,6 +41,7 @@ export default function Guide() {
     })
     const dir = PLATFORM_DIRECTORY.find((d) => d.id === platform) ?? PLATFORM_DIRECTORY[0]
     const guideUrl = guides[PLATFORMS.find((p) => p.id === platform)?.guide ?? 'index'] ?? guides.index
+    const [caramba, setCaramba] = useState(false)
 
     const copy = async () => {
         if (!sub) return
@@ -61,6 +65,20 @@ export default function Guide() {
                     {t('exa.home.copyLink')}
                 </Button>
                 {!sub ? <p className="exa-muted">{t('exa.guide.noSubscription')}</p> : null}
+            </section>
+
+            <section className="exa-card">
+                <div className="exa-card__head">
+                    <span className="exa-card__hint">{t('exa.caramba.guideTitle')}</span>
+                    <Pill tone="accent">{t('exa.caramba.pill')}</Pill>
+                </div>
+                <div className="exa-row__title">
+                    <span>Caramba Connect</span>
+                </div>
+                <p className="exa-card__note">{t('exa.caramba.guideNote')}</p>
+                <Button size="md" icon={<ExaIcon name="connect" size={20} />} onClick={() => setCaramba(true)}>
+                    {t('exa.caramba.guideOpen')}
+                </Button>
             </section>
 
             <div className="exa-platforms">
@@ -114,6 +132,8 @@ export default function Guide() {
                     <ExaIcon name="chevron" size={20} className="exa-linkrow__chevron" />
                 </button>
             ) : null}
+
+            <CarambaAppSheet open={caramba} onClose={() => setCaramba(false)} />
         </div>
     )
 }

@@ -1,7 +1,7 @@
 // Автоподбор на Главной: отдельная кнопка, а не пятая строка списка.
 //
-// Жалоба владельца была про вид, но дефект — про смысл: «Сервер», «Relay»,
-// «Тип подключения» и «Режим» это ВЫБОРЫ, а автоподбор — ДЕЙСТВИЕ, и пока он
+// Жалоба владельца была про вид, но дефект — про смысл: «Сервер», «Relay» и
+// «Тип подключения» это ВЫБОРЫ, а автоподбор — ДЕЙСТВИЕ, и пока он
 // стоял [CRow]-строкой с шевроном в той же группе, форма обещала пятый список.
 // Поэтому проверяется не цвет, а два факта: кнопка вне группы строк, и строки
 // «Автоподбор» с шевроном в группе больше нет.
@@ -381,21 +381,25 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
-    testWidgets('строка режима называется «Режим»', (tester) async {
-      _phone(tester);
-      await tester.pumpWidget(_guestHome());
-      await tester.pump();
-      await tester.pump();
-      await tester.pump();
+    testWidgets(
+      'строки «Режим» на «Подключении» больше нет — она в Настройках',
+      (tester) async {
+        _phone(tester);
+        await tester.pumpWidget(_guestHome());
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
 
-      // Владелец дословно: «просто переименуй в Режим». Старое имя не имеет
-      // права остаться нигде на Главной — иначе на экране два имени одного
-      // листа.
-      expect(find.text('Режим'), findsOneWidget);
-      expect(find.text('Режим для страны'), findsNothing);
+        // Владелец перенёс режим в Настройки (раздел «Правила трафика»):
+        // переключают его редко, а строка стояла рядом с теми, что трогают
+        // каждый день. На «Подключении» осталась только карточка ядра «Что
+        // применилось» — отчёт о применённом, а не ещё один переключатель.
+        expect(find.text('Режим'), findsNothing);
+        expect(find.text('Режим для страны'), findsNothing);
 
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-    });
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
   });
 }

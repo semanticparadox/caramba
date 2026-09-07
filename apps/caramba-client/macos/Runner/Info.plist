@@ -18,6 +18,12 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(FLUTTER_BUILD_NAME)</string>
+	<!-- Встроенный диплинкинг Flutter выключен намеренно — та же причина, что и
+	     в android/app/src/main/AndroidManifest.xml: иначе фреймворк шлёт ссылку
+	     в маршрутизатор второй раз, уже как локацию, и затирает переход
+	     DeepLinkHandler. Разбор схем живёт в Dart. -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
 	<!-- Две схемы намеренно, как и на iOS: caramba://connect это нынешняя
 	     ссылка-приглашение, carambaconnect:// остаётся ради уже разосланных. -->
 	<key>CFBundleURLTypes</key>

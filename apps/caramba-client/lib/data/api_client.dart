@@ -124,7 +124,7 @@ class ApiClient {
                 requestOptions: options,
                 type: DioExceptionType.cancel,
                 error: const ApiException(
-                  'Панель не подключена. Импортируйте подписку или введите код приглашения.',
+                  'Панель не подключена. Добавьте подключение или введите код приглашения.',
                 ),
               ),
               true,

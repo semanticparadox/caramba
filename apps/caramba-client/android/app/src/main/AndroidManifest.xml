@@ -43,6 +43,25 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+
+            <!-- ВСТРОЕННЫЙ ДИПЛИНКИНГ FLUTTER ВЫКЛЮЧЕН НАМЕРЕННО, И ЭТО НЕ
+                 УКРАШЕНИЕ. Со времени, когда флаг стал по умолчанию включённым
+                 (FlutterActivityLaunchConfigs.deepLinkEnabled: нет meta-data =
+                 true), embedding на КАЖДЫЙ VIEW-интент шлёт в фреймворк
+                 pushRouteInformation(<вся ссылка целиком>). go_router приводит
+                 `caramba://connect?d=...` к пустому пути, то есть к `/`, гейт
+                 со сплеша уводит на `/home` — и эта навигация приходит ПОСЛЕ
+                 нашей, затирая переход, который сделал DeepLinkHandler.
+                 Наружу это выглядело так: ссылка из бота при уже открытом
+                 приложении не делает НИЧЕГО (холодный старт при этом работал,
+                 потому что там ссылку доставляет getInitialLink, и наш переход
+                 случается последним). Разбор ссылок живёт в Dart
+                 (lib/router/deep_links.dart), и второй, ничего не знающий о
+                 схемах маршрутизатор здесь лишний. -->
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false"
+              />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

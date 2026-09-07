@@ -10,6 +10,7 @@ import 'package:caramba_client/features/csm/keep_or_revert_card.dart';
 import 'package:caramba_client/features/settings/csm_settings_bridge.dart';
 import 'package:caramba_client/features/settings/csm_write_status_note.dart';
 import 'package:caramba_client/features/settings/enhancements_summary.dart';
+import 'package:caramba_client/features/settings/route_picker.dart';
 import 'package:caramba_client/features/settings/route_report.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/auth_state.dart';
@@ -39,6 +40,10 @@ class SettingsScreen extends ConsumerWidget {
     final settingsN = ref.read(settingsProvider.notifier);
 
     final protocols = ref.watch(protocolsProvider);
+    final modes = ref.watch(routingModesProvider);
+    final routeMode = (cfg.route >= 0 && cfg.route < modes.length)
+        ? modes[cfg.route]
+        : modes.first;
     final isLight = settings.themeMode == ThemeMode.light;
     final tunnelMode = ref.watch(tunnelModeProvider);
     final authed = ref.watch(authProvider).stage == AuthStage.authenticated;
@@ -112,26 +117,46 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
 
-            // ── Реклама и блокировки ──────────────────────────────────────
+            // ── Правила трафика ───────────────────────────────────────────
             //
-            // Владелец: «настройки рекламы и блокировки вынеси только в
-            // настройки приложения а отсюда убери». Раньше блок рекламы и
-            // списки сайтов жили на вкладке «Улучшения», а отсюда туда вела
-            // строка — то есть на вопрос «где это включается» приложение
-            // отвечало двумя адресами. Теперь ответ один: реклама
-            // включается ЗДЕСЬ, списки сайтов — на своём экране за одной
-            // строкой отсюда, режим — на Главной. Вкладка «Улучшения»
-            // растворена, а не оставлена пустой оболочкой.
+            // Раздел держит три вещи, отвечающие на один вопрос — «какой
+            // трафик куда идёт»: режим (пресет), блок рекламы и списки
+            // сайтов. Каждая живёт ровно в одном месте, и это цена правки
+            // владельца («настройки рекламы и блокировки вынеси только в
+            // настройки приложения а отсюда убери», позже — «уберём настройки
+            // режим в настройки правил»): пока части были размазаны по
+            // «Улучшениям», «Подключению» и Настройкам, на вопрос «где это
+            // включается» приложение отвечало разными адресами. Вкладка
+            // «Улучшения» растворена, а не оставлена пустой оболочкой;
+            // списки сайтов — на своём экране за одной строкой отсюда,
+            // потому что их правят сериями, а не одним касанием.
             //
-            // Обе строки — [_StackedRow], а не [CRow]: и статус рекламы, и
-            // сводка списков перерастают половину строки, которую [CRow]
-            // оставляет колонке значения, а обрезка у dart:ui включается уже
-            // самим фактом `overflow` (даже без `maxLines`) и режет фразу
-            // посреди слова — «блок рекламы не рабо…». [CRow] общий для всего
+            // Строки — [_StackedRow], а не [CRow]: и статус рекламы, и сводка
+            // списков перерастают половину строки, которую [CRow] оставляет
+            // колонке значения, а обрезка у dart:ui включается уже самим
+            // фактом `overflow` (даже без `maxLines`) и режет фразу посреди
+            // слова — «блок рекламы не рабо…». [CRow] общий для всего
             // приложения и здесь не трогается.
-            const SectionTitle('Реклама и блокировки'),
+            const SectionTitle('Правила трафика'),
             RowsGroup(
               children: [
+                // Режим переехал сюда с «Подключения» по решению владельца:
+                // переключают его редко. Строка называется именем листа,
+                // который открывает (kRouteModeSheetTitle) — регрессия
+                // «одно имя — два места» закреплена
+                // enhancements_naming_regression_test. Смена применяется САМА
+                // (preset — путевой ключ, см. auto_reconnect.dart), баннер
+                // сверху отчитывается о переподключении.
+                _StackedRow(
+                  icon: Lucide.route,
+                  label: kRouteModeSheetTitle,
+                  subtitle: routeModeLabel(routeMode),
+                  chevron: true,
+                  trailing: const CsmProvenanceTag(
+                    settingKey: CsmSettingKey.preset,
+                  ),
+                  onTap: () => showRoutePicker(context, ref),
+                ),
                 _StackedRow(
                   icon: Lucide.shield,
                   label: 'Блокировать рекламу и трекеры',
