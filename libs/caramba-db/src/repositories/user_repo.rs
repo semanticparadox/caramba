@@ -198,10 +198,18 @@ impl UserRepository {
     ) -> Result<User> {
         let default_ref_code = tg_id.to_string();
 
+        // language_code вставляем ЯВНЫМ NULL. У колонки в схеме стоит DEFAULT 'en'
+        // (init-миграция), и без этого каждый новый аккаунт рождался «англичанином»:
+        // бот показывает выбор языка только при пустом language_code, поэтому экран
+        // никогда не появлялся, а соглашение и всё дальше шли по-английски — на
+        // проде 18 из 19 Telegram-аккаунтов так и остались на en, ни разу не выбрав.
+        // NULL здесь значит «ещё не спрашивали», и /start спросит до соглашения.
+        // ON CONFLICT язык не трогает: выбор уже существующего человека сохраняется.
+
         // Safe DB-agnostic cast to bigint to avoid BIGINT/INTEGER driver mismatch
         let query_primary = r#"
-            INSERT INTO users (tg_id, username, full_name, referral_code, referrer_id)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO users (tg_id, username, full_name, referral_code, referrer_id, language_code)
+            VALUES ($1, $2, $3, $4, $5, NULL)
             ON CONFLICT(tg_id) DO UPDATE SET
                 username = COALESCE(excluded.username, users.username, ''),
                 full_name = COALESCE(excluded.full_name, users.full_name, 'User'),
@@ -211,8 +219,8 @@ impl UserRepository {
         "#;
 
         let query_legacy = r#"
-            INSERT INTO users (tg_id, username, full_name, referral_code, referrer_id)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO users (tg_id, username, full_name, referral_code, referrer_id, language_code)
+            VALUES ($1, $2, $3, $4, $5, NULL)
             ON CONFLICT(tg_id) DO UPDATE SET
                 username = COALESCE(excluded.username, users.username, ''),
                 full_name = COALESCE(excluded.full_name, users.full_name, 'User'),
@@ -221,8 +229,8 @@ impl UserRepository {
         "#;
 
         let query_old = r#"
-            INSERT INTO users (tg_id, username, full_name, referral_code)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO users (tg_id, username, full_name, referral_code, language_code)
+            VALUES ($1, $2, $3, $4, NULL)
             ON CONFLICT(tg_id) DO UPDATE SET
                 username = COALESCE(excluded.username, users.username, ''),
                 full_name = COALESCE(excluded.full_name, users.full_name, 'User')
@@ -278,7 +286,7 @@ impl UserRepository {
                                         .await;
                                     return Ok(existing_user);
                                 } else {
-                                    let new_id_res = sqlx::query_scalar::<_, i64>("INSERT INTO users (tg_id, username, full_name, referral_code) VALUES ($1, $2, $3, $4) RETURNING id::bigint")
+                                    let new_id_res = sqlx::query_scalar::<_, i64>("INSERT INTO users (tg_id, username, full_name, referral_code, language_code) VALUES ($1, $2, $3, $4, NULL) RETURNING id::bigint")
                                         .bind(tg_id)
                                         .bind(username)
                                         .bind(full_name)
