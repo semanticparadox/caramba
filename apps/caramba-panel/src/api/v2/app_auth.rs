@@ -13,6 +13,12 @@
 //! токены приложения были изолированы от admin/mini-app сессий панели.
 
 use crate::AppState;
+use crate::services::welcome_gift;
+// Контракт результата регистрации живёт рядом с самой акцией, но доступен и
+// отсюда: вызывающие (бот) знают именно `grant_free_plan_on_signup` и берут тип
+// его результата там же. `WelcomeGift` в самом этом файле не упоминается — он
+// нужен читателю результата (bot::handlers::callback).
+pub(crate) use crate::services::welcome_gift::{SignupGrant, WelcomeGift};
 use axum::{
     extract::{Request, State},
     http::{HeaderMap, StatusCode, header},
@@ -552,6 +558,13 @@ pub async fn register_email(
 
 /// Сажает новый аккаунт на бесплатный план и публикует конфиг плана на ноды.
 ///
+/// Перед этим — подарок при регистрации, если акция включена
+/// (`services::welcome_gift`). Порядок принципиален: подарок это активная
+/// подписка на платном плане, а `ensure_free_plan_subscription` при её наличии
+/// ничего не создаёт, то есть выдача Free ниже сама себя пропустит. Она
+/// намеренно оставлена как есть и работает страховкой: не удался подарок —
+/// человек всё равно получает бесплатный план.
+///
 /// Best-effort по построению: аккаунт уже создан и токены будут выданы в любом
 /// случае. Отсутствие настроенного бесплатного плана это конфигурация оператора,
 /// а не сбой регистрации, поэтому здесь предупреждение, а не ошибка ответа.
@@ -560,7 +573,9 @@ pub async fn register_email(
 /// входа: бот принимает соглашение (bot::handlers::callback, "accept_terms") и
 /// обязан выдать тот же план тем же порядком (выдача → publish на ноды). Вторая
 /// копия этой последовательности неизбежно разъехалась бы с первой.
-pub(crate) async fn grant_free_plan_on_signup(state: &AppState, user_id: i64) {
+pub(crate) async fn grant_free_plan_on_signup(state: &AppState, user_id: i64) -> SignupGrant {
+    let gift = welcome_gift::grant_on_signup(state, user_id).await;
+
     let granted = match state
         .store_service
         .ensure_free_plan_subscription(user_id)
@@ -591,11 +606,17 @@ pub(crate) async fn grant_free_plan_on_signup(state: &AppState, user_id: i64) {
     };
 
     let Some(plan_id) = plan_id else {
-        tracing::warn!(
-            user_id,
-            "signup: no active free plan configured, account created without a subscription"
-        );
-        return;
+        // Подарок — штатная причина остаться без бесплатной подписки: она
+        // появится сама, когда подарок истечёт (monitoring). Предупреждать здесь
+        // не о чем, иначе каждая успешная выдача подарка выглядела бы в логах
+        // как сбой конфигурации.
+        if gift.is_none() {
+            tracing::warn!(
+                user_id,
+                "signup: no active free plan configured, account created without a subscription"
+            );
+        }
+        return SignupGrant { gift };
     };
 
     if let Err(e) = state
@@ -610,6 +631,8 @@ pub(crate) async fn grant_free_plan_on_signup(state: &AppState, user_id: i64) {
             "signup: free plan granted but node publish failed (non-fatal)"
         );
     }
+
+    SignupGrant { gift }
 }
 
 /// POST /api/v2/app/login/email — вход по email/password.

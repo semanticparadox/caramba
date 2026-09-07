@@ -384,6 +384,64 @@ pub(crate) async fn ensure_free_plan_for_active_bot_user(state: &AppState, tg_id
     crate::api::v2::app_auth::grant_free_plan_on_signup(state, user_id).await;
 }
 
+/// Строка про подарок новым пользователям — добавка к приветствию `/start`.
+///
+/// Почему не зашита в текст `welcome.start`: акция задаётся настройками
+/// (`welcome_gift_*`) и кончается по дате, а приветствие живёт вечно. Вшитая
+/// строка врала бы каждому, кто нажмёт /start после 1 октября, и убирать её
+/// пришлось бы правкой кода и релизом. Здесь же условие показа ровно то, по
+/// которому подарок реально выдаётся при регистрации, — текст и выдача не
+/// могут разъехаться.
+///
+/// Best-effort: любая неудача (акция выключена, БД недоступна, план удалён или
+/// выключен) даёт `None`, то есть приветствие без строки. Приветствие важнее
+/// объявления акции, поэтому ни одна ошибка здесь не всплывает наружу.
+async fn promo_line(state: &AppState, lang: Lang) -> Option<String> {
+    use crate::services::welcome_gift;
+
+    let promo = welcome_gift::parse_settings(
+        &state
+            .settings
+            .get_or_default(welcome_gift::SETTING_PLAN_ID, "")
+            .await,
+        &state
+            .settings
+            .get_or_default(welcome_gift::SETTING_DAYS, "")
+            .await,
+        &state
+            .settings
+            .get_or_default(welcome_gift::SETTING_UNTIL, "")
+            .await,
+    )?;
+    if !welcome_gift::is_open(&promo, chrono::Utc::now()) {
+        return None;
+    }
+
+    // Название плана берём тем же запросом, что и сама выдача подарка: он же
+    // служит проверкой, что настройка указывает на живой план. Обещать подарок,
+    // который не выдастся, хуже, чем промолчать.
+    let plan_name: Option<String> =
+        sqlx::query_scalar("SELECT name FROM plans WHERE id = $1 AND is_active = TRUE")
+            .bind(promo.plan_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    plan_id = promo.plan_id,
+                    error = %e,
+                    "welcome promo line: plan lookup failed (non-fatal), greeting goes without it"
+                );
+                None
+            });
+    let plan_name = plan_name?;
+
+    Some(tf(
+        lang,
+        "welcome.start_promo",
+        &[&escape_html(&plan_name), &promo.days.to_string()],
+    ))
+}
+
 pub async fn message_handler(
     bot: Bot,
     msg: Message,
@@ -698,7 +756,13 @@ pub async fn message_handler(
                     .as_ref()
                     .map(|u| u.full_name())
                     .unwrap_or_else(|| "User".to_string());
-                let welcome_text = tf(lang, "welcome.start", &[&escape_html(&user_name)]);
+                let mut welcome_text = tf(lang, "welcome.start", &[&escape_html(&user_name)]);
+                // Строка акции живёт отдельно от приветствия и приезжает только
+                // пока акция открыта (см. `promo_line`).
+                if let Some(promo) = promo_line(&state, lang).await {
+                    welcome_text.push_str("\n\n");
+                    welcome_text.push_str(&promo);
+                }
                 let bot_for_task = bot.clone();
                 let state_for_task = state.clone();
                 let bot_buttons_mode = state
