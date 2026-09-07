@@ -1,4 +1,7 @@
 use crate::AppState;
+// Результат выдачи при регистрации: бот — единственный его потребитель
+// (приложению показать подарок негде).
+use crate::api::v2::app_auth::WelcomeGift;
 use crate::bot::handlers::command::money;
 use crate::bot::keyboards::{main_menu, terms_keyboard};
 use crate::bot::translations::{Lang, t, tf};
@@ -316,6 +319,28 @@ pub fn render_devices_page(
     (text, buttons)
 }
 
+/// Текст сообщения о подарочной подписке (акция `services::welcome_gift`).
+///
+/// Вынесен чистой функцией только ради теста: сам подарок выдаётся в БД, и
+/// проверить подстановку на живом боте нечем.
+///
+/// Название плана экранируется здесь, а не у вызывающего: оно приходит из
+/// `plans.name`, правится в админке и уходит с `parse_mode=HTML` — амперсанд в
+/// названии уронил бы отправку сообщения целиком.
+fn welcome_gift_message(lang: Lang, gift: &WelcomeGift) -> String {
+    let plan = escape_html(&gift.plan_name);
+    let days = gift.days.to_string();
+    match gift.free_daily_mb {
+        Some(mb) => tf(
+            lang,
+            "welcome.gift_granted",
+            &[&plan, &days, &mb.to_string()],
+        ),
+        // Квота бесплатного тарифа неизвестна — обходимся без числа, см. ключ.
+        None => tf(lang, "welcome.gift_granted_nofree", &[&plan, &days]),
+    }
+}
+
 pub async fn callback_handler(
     bot: Bot,
     q: CallbackQuery,
@@ -445,7 +470,8 @@ pub async fn callback_handler(
                     // раньше, чем эта выдача появилась в коде. Их досаживает
                     // `command::ensure_free_plan_for_active_bot_user` — вызов в
                     // начале этого же обработчика и в `message_handler`.
-                    crate::api::v2::app_auth::grant_free_plan_on_signup(&state, u.id).await;
+                    let grant =
+                        crate::api::v2::app_auth::grant_free_plan_on_signup(&state, u.id).await;
 
                     if let Some(msg) = q.message {
                         let _ = bot.delete_message(msg.chat().id, msg.id()).await;
@@ -477,6 +503,19 @@ pub async fn callback_handler(
                                 });
                             })
                             .map_err(|e| error!("Failed to send welcome after terms: {}", e));
+
+                        // Подарок — ОТДЕЛЬНЫМ сообщением и только после
+                        // приветствия: клавиатуру меню несёт приветствие, и
+                        // провал этой отправки не должен утащить её за собой.
+                        // Когда акция выключена или подарок не положен, `gift`
+                        // пуст — ветка молчит, как будто её нет.
+                        if let Some(gift) = grant.gift.as_ref() {
+                            let _ = bot
+                                .send_message(msg.chat().id, welcome_gift_message(lang, gift))
+                                .parse_mode(ParseMode::Html)
+                                .await
+                                .map_err(|e| error!("Failed to send welcome gift: {}", e));
+                        }
                     }
                 }
             }
@@ -2511,4 +2550,72 @@ fn make_amount_keyboard(lang: Lang, prefix: &str) -> InlineKeyboardMarkup {
         "topup_menu",
     )]);
     InlineKeyboardMarkup::new(buttons)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn gift(free_daily_mb: Option<i32>) -> WelcomeGift {
+        WelcomeGift {
+            plan_name: "Gold".to_string(),
+            days: 30,
+            free_daily_mb,
+        }
+    }
+
+    /// Ни один плейсхолдер не должен пережить подстановку: пропущенный `{1}`
+    /// уходит пользователю дословно и выглядит как поломка.
+    #[test]
+    fn gift_message_substitutes_every_placeholder() {
+        let g = gift(Some(200));
+        for lang in [Lang::Ru, Lang::En] {
+            let text = welcome_gift_message(lang, &g);
+            assert!(!text.contains('{'), "{lang:?}: остался плейсхолдер: {text}");
+            assert!(
+                text.contains("Gold"),
+                "{lang:?}: нет названия плана: {text}"
+            );
+            assert!(text.contains("30"), "{lang:?}: нет срока: {text}");
+            assert!(text.contains("200"), "{lang:?}: нет квоты: {text}");
+        }
+        // Языки не перепутаны местами.
+        assert!(welcome_gift_message(Lang::Ru, &g).contains("МБ в день"));
+        assert!(welcome_gift_message(Lang::En, &g).contains("MB per day"));
+    }
+
+    /// Без известной квоты берётся второй ключ: числа в тексте быть не должно,
+    /// иначе пользователю пообещали бы «0 МБ в день».
+    #[test]
+    fn gift_message_without_free_quota_drops_the_number() {
+        let g = gift(None);
+        for lang in [Lang::Ru, Lang::En] {
+            let text = welcome_gift_message(lang, &g);
+            assert!(!text.contains('{'), "{lang:?}: остался плейсхолдер: {text}");
+            assert!(
+                !text.contains("МБ") && !text.contains("MB"),
+                "{lang:?}: обещание квоты без самой квоты: {text}"
+            );
+            assert!(
+                text.contains("Gold") && text.contains("30"),
+                "{lang:?}: {text}"
+            );
+        }
+    }
+
+    /// Название плана правится в админке и уходит в HTML — символы разметки
+    /// обязаны быть экранированы до отправки, иначе Telegram отклонит сообщение.
+    #[test]
+    fn gift_message_escapes_plan_name() {
+        let g = WelcomeGift {
+            plan_name: "Gold & <b>Pro</b>".to_string(),
+            days: 30,
+            free_daily_mb: Some(200),
+        };
+        let text = welcome_gift_message(Lang::Ru, &g);
+        assert!(
+            text.contains("Gold &amp; &lt;b&gt;Pro&lt;/b&gt;"),
+            "название плана не экранировано: {text}"
+        );
+    }
 }

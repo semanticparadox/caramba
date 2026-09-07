@@ -248,6 +248,37 @@ translations! {
         en: "👋 <b>Welcome!</b>\n\nUse the menu below to manage your VPN subscriptions and digital goods."
     },
 
+    // Подарок при регистрации (акция, см. `services::welcome_gift`). Уходит
+    // ОТДЕЛЬНЫМ сообщением сразу после `welcome.after_terms`: приветствие несёт
+    // клавиатуру меню, и подарок не должен зависеть от того, дошло ли оно.
+    //
+    // {0} = название плана (подставляется уже экранированным — оно из БД),
+    // {1} = срок подарка в днях, {2} = суточная квота бесплатного тарифа в МБ.
+    "welcome.gift_granted" => {
+        ru: "🎁 <b>Вам подарена подписка {0} на {1} дней</b>\n\n\
+             Безлимитный трафик и все серверы — уже включены, ничего оплачивать не нужно. \
+             Когда {1} дней закончатся, вы автоматически перейдёте на бесплатный тариф: {2} МБ в день.\n\n\
+             Если купите подписку раньше — оплаченные дни прибавятся к подарочным.",
+        en: "🎁 <b>You've received {0} for {1} days</b>\n\n\
+             Unlimited traffic and every server are already on — nothing to pay. \
+             When the {1} days are over, you'll switch to the free plan automatically: {2} MB per day.\n\n\
+             If you buy a subscription earlier, the paid days are added on top."
+    },
+    // Тот же текст, когда суточная квота бесплатного тарифа неизвестна
+    // (`WelcomeGift::free_daily_mb == None`): фраза без числа честнее, чем
+    // обещание «0 МБ в день». Отдельный ключ, а не пустая подстановка в {2},
+    // иначе в тексте осталось бы висячее двоеточие.
+    "welcome.gift_granted_nofree" => {
+        ru: "🎁 <b>Вам подарена подписка {0} на {1} дней</b>\n\n\
+             Безлимитный трафик и все серверы — уже включены, ничего оплачивать не нужно. \
+             Когда {1} дней закончатся, вы автоматически перейдёте на бесплатный тариф.\n\n\
+             Если купите подписку раньше — оплаченные дни прибавятся к подарочным.",
+        en: "🎁 <b>You've received {0} for {1} days</b>\n\n\
+             Unlimited traffic and every server are already on — nothing to pay. \
+             When the {1} days are over, you'll switch to the free plan automatically.\n\n\
+             If you buy a subscription earlier, the paid days are added on top."
+    },
+
     // =========================================================================
     // Общие ошибки и доступ
     // =========================================================================

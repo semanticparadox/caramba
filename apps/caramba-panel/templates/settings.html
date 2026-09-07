@@ -174,6 +174,32 @@
                         </div>
                     </div>
 
+                    <div class="pt-6 border-t border-border-default">
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-1 ml-1">Welcome gift (promo)</p>
+                        <p class="text-xs text-slate-500 mb-4 ml-1">Granted once per account on sign-up through Telegram, before the free plan. Pick «Off» to stop the promo. Leave the end date empty to run it indefinitely.</p>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Gift plan</label>
+                            <select form="main-settings-form" name="welcome_gift_plan_id" class="input-field">
+                                <option value="" {% if welcome_gift_plan_id.is_empty() %}selected{% endif %}>Off — no gift</option>
+                                {% for plan in welcome_gift_plans %}
+                                <option value="{{ plan.id }}" {% if plan.selected %}selected{% endif %}>{{ plan.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Days</label>
+                            <input type="number" min="1" form="main-settings-form" name="welcome_gift_days" value="{{ welcome_gift_days }}"
+                                placeholder="30" class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Runs until (UTC)</label>
+                            <input type="date" form="main-settings-form" name="welcome_gift_until" value="{{ welcome_gift_until }}"
+                                class="input-field">
+                        </div>
+                        </div>
+                    </div>
+
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6 border-t border-border-default">
                         <div>
                             <label
