@@ -147,10 +147,12 @@ if [[ -n "${ANDROID_KEYSTORE_BASE64:-}" ]]; then
   umask 077
   printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 -d > "${KEYSTORE}"
   [[ -s "${KEYSTORE}" ]] || die "keystore из ANDROID_KEYSTORE_BASE64 пуст"
-  # storeFile читается через rootProject.file(), то есть относительно
-  # apps/caramba-client/android — имя файла без пути и есть правильный путь.
+  # (раньше здесь ждали rootProject.file() и писали относительное имя —
+  #  Gradle искал его в android/app/ и падал на validateSigningRelease.)
   {
-    echo "storeFile=release.keystore"
+    # Абсолютный путь: build.gradle.kts резолвит storeFile через file() модуля
+    # app/, а не rootProject.file(), и относительное имя искалось в android/app/.
+    echo "storeFile=${KEYSTORE}"
     echo "storePassword=${ANDROID_KEYSTORE_PASSWORD:-}"
     echo "keyAlias=${ANDROID_KEY_ALIAS:-caramba-connect}"
     echo "keyPassword=${ANDROID_KEY_PASSWORD:-${ANDROID_KEYSTORE_PASSWORD:-}}"
