@@ -11,6 +11,8 @@ import 'package:go_router/go_router.dart';
 import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/panel_probe.dart';
 import 'package:caramba_client/data/subscription_fetch.dart';
+import 'package:caramba_client/desktop/adaptive_sheet.dart';
+import 'package:caramba_client/desktop/desktop_platform.dart';
 import 'package:caramba_client/features/connections/entry_classifier.dart';
 import 'package:caramba_client/features/connections/qr_scan_sheet.dart';
 import 'package:caramba_client/router/routes.dart';
@@ -176,7 +178,10 @@ class ConnectionImportScreen extends ConsumerWidget {
             // Заголовок не повторяет имя вкладки («Подключение»): совпадение
             // читалось бы как «я всё ещё там же», хотя это другой экран.
             'Добавить подключение',
-            trailing: IconBtn(Lucide.arrowLeft, onTap: () => _close(context)),
+            trailing: IconBtn(
+              isDesktopPlatform ? Lucide.x : Lucide.arrowLeft,
+              onTap: () => _close(context),
+            ),
           ),
           onDone: () => _close(context),
         ),
@@ -417,9 +422,8 @@ class _ConnectionEntryFormState extends ConsumerState<ConnectionEntryForm> {
           GhostButton(
             label: _moreOpen ? 'Скрыть' : 'Ещё',
             icon: _moreOpen ? Lucide.chevronUp : Lucide.chevronDown,
-            onPressed: _busy
-                ? null
-                : () => setState(() => _moreOpen = !_moreOpen),
+            onPressed:
+                _busy ? null : () => setState(() => _moreOpen = !_moreOpen),
           ),
           if (_moreOpen) ...[
             const SizedBox(height: AppSpace.s3),
@@ -582,10 +586,8 @@ class _ConnectionEntryFormState extends ConsumerState<ConnectionEntryForm> {
   Future<_PanelOffer> _offerPanel(PanelProbeResult panel) async {
     final c = context.c;
     final botUrl = panel.branding.botUrl.trim();
-    final answer = await showModalBottomSheet<_PanelOffer>(
-      context: context,
-      backgroundColor: c.surface1,
-      isScrollControlled: true,
+    final answer = await showAdaptiveSheet<_PanelOffer>(
+      context,
       shape: const RoundedRectangleBorder(borderRadius: AppRadius.sheetTop),
       builder: (sheetContext) => SafeArea(
         child: Padding(
@@ -614,12 +616,12 @@ class _ConnectionEntryFormState extends ConsumerState<ConnectionEntryForm> {
               Text(
                 botUrl.isEmpty
                     ? 'Подключение делается ссылкой, которую выдаёт бот '
-                          'оператора. Адрес бота эта панель не публикует, '
-                          'поэтому открыть его отсюда нельзя: возьмите ссылку у '
-                          'оператора и вставьте её.'
+                        'оператора. Адрес бота эта панель не публикует, '
+                        'поэтому открыть его отсюда нельзя: возьмите ссылку у '
+                        'оператора и вставьте её.'
                     : 'Подключение делается ссылкой из бота оператора: она '
-                          'приходит личным сообщением рядом со ссылкой на '
-                          'подписку.',
+                        'приходит личным сообщением рядом со ссылкой на '
+                        'подписку.',
                 style: AppType.bodySm.copyWith(color: c.textLow),
               ),
               const SizedBox(height: AppSpace.s5),

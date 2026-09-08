@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/data/brand.dart';
+import 'package:caramba_client/desktop/desktop_bootstrap.dart';
+import 'package:caramba_client/desktop/desktop_platform.dart';
+import 'package:caramba_client/desktop/desktop_services_host.dart';
 import 'package:caramba_client/router/app_router.dart';
 import 'package:caramba_client/state/bootstrap_state.dart';
 import 'package:caramba_client/state/csm_profile_binding.dart';
@@ -9,8 +12,12 @@ import 'package:caramba_client/state/branding_state.dart';
 import 'package:caramba_client/state/settings_state.dart';
 import 'package:caramba_client/theme/app_theme.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Окно готовится ДО первого кадра: размер и позиция читаются с диска, и
+  // окно, которое сначала открылось дефолтом, а потом прыгнуло на своё место,
+  // человек читает как сбой. На мобильном шаг отсутствует целиком.
+  if (isDesktopPlatform) await initDesktop();
   runApp(const ProviderScope(child: CarambaApp()));
 }
 
@@ -53,6 +60,11 @@ class CarambaApp extends ConsumerWidget {
       darkTheme: AppTheme.dark(brandAccent: brandAccent),
       themeMode: themeMode,
       routerConfig: router,
+      // Десктопные сервисы (окно, значок в строке меню, автозапуск) живут
+      // ВНУТРИ MaterialApp: им нужен контекст с темой и с мессенджером -
+      // автозапуск объясняет свой отказ тостом. На мобильном хост прозрачен и
+      // отдаёт ребёнка как есть.
+      builder: (context, child) => DesktopServicesHost(child: child!),
     );
   }
 }

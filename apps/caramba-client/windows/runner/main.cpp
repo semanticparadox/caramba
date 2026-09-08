@@ -27,7 +27,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
-  if (!window.Create(L"caramba_client", origin, size)) {
+  // Заголовок окна и подпись в панели задач: имя продукта, а не имя
+  // Dart-пакета. Само окно на десктопе идёт со скрытым системным
+  // заголовком (window_manager), но эта строка остаётся видимой в панели
+  // задач, Alt+Tab и списке процессов.
+  if (!window.Create(L"Caramba Connect", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

@@ -10,6 +10,7 @@ import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/models/sub_plan.dart';
 import 'package:caramba_client/data/models/subscription.dart'
     show AccessState, formatBytesRu;
+import 'package:caramba_client/desktop/adaptive_sheet.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
 import 'package:caramba_client/features/profile/panel_required.dart';
 import 'package:caramba_client/features/servers/access_card.dart';
@@ -444,13 +445,7 @@ class SubscriptionCard extends ConsumerWidget {
   }
 
   void _openFamily(BuildContext context, WidgetRef ref, SubPlan sub) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: context.c.surface1,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (ctx) => _FamilySheet(sub: sub),
-    );
+    showAdaptiveSheet<void>(context, builder: (ctx) => _FamilySheet(sub: sub));
   }
 }
 

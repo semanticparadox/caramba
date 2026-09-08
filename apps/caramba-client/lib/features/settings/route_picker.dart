@@ -61,6 +61,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/data/models/protocol.dart';
+import 'package:caramba_client/desktop/adaptive_sheet.dart';
 import 'package:caramba_client/domain/offering/offering.dart';
 import 'package:caramba_client/domain/offering/offering_providers.dart';
 import 'package:caramba_client/domain/offering/route_presets.dart';
@@ -281,17 +282,17 @@ Future<int?> showRoutePicker(BuildContext context, WidgetRef ref) async {
 
 /// Лист выбора. Геометрия повторяет [showPickerSheet] — отличие ровно одно:
 /// слева произвольный виджет, чтобы страновой пресет мог показать флаг.
+///
+/// Показывается через [showAdaptiveSheet]: на десктопе нижний лист становится
+/// центрированным диалогом, содержимое не меняется.
 Future<int?> _showRouteSheet({
   required BuildContext context,
   required List<_RouteRow> rows,
   required int selected,
 }) {
   final c = context.c;
-  return showModalBottomSheet<int>(
-    context: context,
-    backgroundColor: c.surface1,
-    isScrollControlled: true,
-    showDragHandle: true,
+  return showAdaptiveSheet<int>(
+    context,
     builder: (ctx) {
       return SafeArea(
         child: Padding(

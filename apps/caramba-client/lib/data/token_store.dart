@@ -1,6 +1,7 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'package:caramba_client/data/models/auth_tokens.dart';
+import 'package:caramba_client/data/secure_storage_options.dart';
 
 /// Хранилище JWT-пары в платформенном secure storage (Keychain/Keystore/
 /// libsecret/DPAPI), КЛЮЧЁВАННОЕ ПО `pid`. Единственный источник истины по
@@ -54,14 +55,7 @@ class TokenStore {
 
   TokenStore({FlutterSecureStorage? storage, String pid = legacyPid})
     : pid = _normalizePid(pid),
-      _storage =
-          storage ??
-          const FlutterSecureStorage(
-            aOptions: AndroidOptions(encryptedSharedPreferences: true),
-            iOptions: IOSOptions(
-              accessibility: KeychainAccessibility.first_unlock,
-            ),
-          );
+      _storage = storage ?? createSecureStorage();
 
   /// Хранилище сессии конкретного тенанта.
   TokenStore.forPid(String pid, {FlutterSecureStorage? storage})

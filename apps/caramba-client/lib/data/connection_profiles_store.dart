@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'package:caramba_client/data/models/connection_profile.dart';
+import 'package:caramba_client/data/secure_storage_options.dart';
 
 /// Локальное хранилище профилей подключения в платформенном secure storage.
 ///
@@ -17,14 +18,7 @@ class ConnectionProfilesStore {
   final FlutterSecureStorage _storage;
 
   ConnectionProfilesStore({FlutterSecureStorage? storage})
-    : _storage =
-          storage ??
-          const FlutterSecureStorage(
-            aOptions: AndroidOptions(encryptedSharedPreferences: true),
-            iOptions: IOSOptions(
-              accessibility: KeychainAccessibility.first_unlock,
-            ),
-          );
+    : _storage = storage ?? createSecureStorage();
 
   /// Читает сохранённый список профилей. Пустой список, если ничего нет или
   /// JSON повреждён (не роняем UI на битой записи).

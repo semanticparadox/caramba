@@ -83,7 +83,7 @@ class ExitNodeList extends ConsumerWidget {
           onTap: () => onSelect(null),
         ),
         if (exits.isEmpty)
-          for (final n in _sortedNodes(inventory.nodes))
+          for (final n in sortedNodes(inventory.nodes))
             _NodeRow(
               node: n,
               selected: n.isAvailable && selectedKey == n.key,
@@ -93,7 +93,7 @@ class ExitNodeList extends ConsumerWidget {
             )
         else
           ..._exitRows(
-            _sortedExits(exits, inventory.nodes),
+            sortedExits(exits, inventory.nodes),
             inventory.nodes,
             selectedKey,
             blocked,
@@ -171,30 +171,43 @@ String _joinSentences(String head, String tail) {
 /// В плоском списке порядок несёт больше, чем в списке по странам: он и есть
 /// единственная подсказка, что выбирать. Узел без известной задержки уходит
 /// ВНИЗ, а не наверх: «не мерили» это не «быстрее всех».
-List<ExitNode> _sortedNodes(List<ExitNode> nodes) {
+///
+/// Публичная, потому что тот же порядок обязан держать десктопный
+/// [ExitNodeTable]: две реализации одного порядка разошлись бы, и один и тот
+/// же флот читался бы на телефоне и на Маке по-разному.
+List<ExitNode> sortedNodes(List<ExitNode> nodes) {
   final out = [...nodes];
   out.sort((a, b) {
     if (a.isAvailable != b.isAvailable) return a.isAvailable ? -1 : 1;
-    final c = _rank(a.latency.ms).compareTo(_rank(b.latency.ms));
+    final c = latencyRank(a.latency.ms).compareTo(latencyRank(b.latency.ms));
     return c != 0 ? c : a.name.compareTo(b.name);
   });
   return out;
 }
 
-List<ExitOffer> _sortedExits(List<ExitOffer> exits, List<ExitNode> nodes) {
+/// Тот же порядок для МАШИН предложения: доступные раньше недоступных, внутри —
+/// по задержке узла (а при её отсутствии — по числу оператора), затем по
+/// заголовку.
+///
+/// Публичная по той же причине, что и [sortedNodes]: порядок строк — часть
+/// того, что экран сообщает, и он один на обе платформы.
+List<ExitOffer> sortedExits(List<ExitOffer> exits, List<ExitNode> nodes) {
   final out = [...exits];
   out.sort((a, b) {
     if (a.isAvailable != b.isAvailable) return a.isAvailable ? -1 : 1;
     final la = nodeForExit(a, nodes)?.latency.ms ?? a.pingMs;
     final lb = nodeForExit(b, nodes)?.latency.ms ?? b.pingMs;
-    final c = _rank(la).compareTo(_rank(lb));
+    final c = latencyRank(la).compareTo(latencyRank(lb));
     return c != 0 ? c : machineTitleOf(a).compareTo(machineTitleOf(b));
   });
   return out;
 }
 
 /// Неизвестная и отрицательная (таймаут) задержка — в конец.
-int _rank(int? ms) => (ms == null || ms < 0) ? 1 << 30 : ms;
+///
+/// Публичная вместе с [sortedNodes] и [sortedExits]: правило «не мерили это не
+/// быстрее всех» — часть порядка, а не деталь одной сортировки.
+int latencyRank(int? ms) => (ms == null || ms < 0) ? 1 << 30 : ms;
 
 /// Строка МАШИНЫ. Недоступная рисуется тем же приёмом, что и выключенный
 /// вариант в [showPickerSheet]: приглушённая, с ПРИЧИНОЙ вместо подписи и без

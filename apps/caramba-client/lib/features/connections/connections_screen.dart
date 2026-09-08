@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/subscription_fetch.dart';
+import 'package:caramba_client/desktop/adaptive_sheet.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/core_error.dart';
@@ -164,10 +165,11 @@ class _ProfileCard extends ConsumerWidget {
 
   void _openMenu(BuildContext context, WidgetRef ref) {
     final c = context.c;
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: c.surface1,
-      showDragHandle: true,
+    // isScrollControlled: false — как было у листа: меню коротких действий не
+    // растягивается на весь экран.
+    showAdaptiveSheet<void>(
+      context,
+      isScrollControlled: false,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,

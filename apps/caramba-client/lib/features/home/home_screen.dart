@@ -14,6 +14,7 @@ import 'package:caramba_client/data/models/relay.dart';
 import 'package:caramba_client/data/models/server.dart';
 import 'package:caramba_client/data/models/sub_plan.dart';
 import 'package:caramba_client/data/models/subscription.dart' show AccessState;
+import 'package:caramba_client/desktop/desktop_platform.dart';
 import 'package:caramba_client/domain/autopilot/auto_pick.dart'
     show namingOfProxy;
 import 'package:caramba_client/domain/autopilot/autopilot_state.dart';
@@ -22,6 +23,7 @@ import 'package:caramba_client/domain/offering/offering_providers.dart';
 import 'package:caramba_client/features/csm/config_age_card.dart';
 import 'package:caramba_client/features/csm/keep_or_revert_card.dart';
 import 'package:caramba_client/features/home/autopilot_button.dart';
+import 'package:caramba_client/features/home/home_desktop_layout.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
 import 'package:caramba_client/features/protocol/protocol_truth.dart';
 import 'package:caramba_client/features/servers/access_card.dart';
@@ -307,6 +309,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _measureAnchor());
 
+    // Ветка раскладки выбирается ПЛАТФОРМОЙ и ровно один раз за билд: всё, что
+    // ниже, считается одинаково для обеих, и расходятся они только в самом
+    // конце, на композиции. Ширина окна тут ни при чём — узкое окно на Маке
+    // остаётся десктопом.
+    final desktop = isDesktopPlatform;
+
     final String csub;
     final List<Widget> cards;
     final Widget headerTrailing;
@@ -342,8 +350,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       // атмосферный слой зарегистрирован на измеренную геометрию, и сдвиг дайла
       // вверх ломает порядок «зажигания» маршрутов (kAtmoOpenRank).
       headerTrailing = const SizedBox(height: 44);
+      // Пустое состояние на десктопе рисует РАСКЛАДКА, а не список карточек:
+      // там кнопки по содержимому и текст влево, а мобильные `_emptyCards`
+      // растянули бы «Добавить подключение» на всю правую колонку.
       cards = noConnections
-          ? _emptyCards()
+          ? (desktop ? const <Widget>[] : _emptyCards())
           : _guestCards(
               status: status,
               traffic: traffic,
@@ -352,6 +363,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               node: node,
               cfg: cfg,
               protocols: protocols,
+              desktop: desktop,
             );
     } else {
       final user = ref.watch(currentUserProvider);
@@ -408,11 +420,76 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         relayFromOperator: relayFromOperator,
         cfg: cfg,
         protocols: protocols,
+        desktop: desktop,
       );
     }
 
     final needsReconnect = ref.watch(reconnectRequiredProvider);
     final proxyEndpoint = ref.watch(proxyEndpointProvider);
+
+    // Дайл собирается ОДИН раз и уезжает в обе раскладки как есть: те же ключи,
+    // та же подпись, тот же `onTap`. Дублировать его в десктопной ветке значило
+    // бы завести второе место, где решают, что делает нажатие.
+    final dial = ValueListenableBuilder<int>(
+      valueListenable: _tick,
+      builder: (context, _, __) => ConnectDial(
+        dialKey: _dialKey,
+        labelKey: _labelKey,
+        stage: status.stage,
+        accessBlocked: accessBlocked,
+        // Идущий таймер под закрытым доступом читается как
+        // «работает уже 1м43с» — ровно та строка, которая и
+        // сделала ложную защиту убедительной. Пока доступа нет,
+        // на её месте стоит причина; сам таймер остаётся в
+        // ячейке «Сессия», где он говорит про туннель, а не про
+        // защиту, и там он правда.
+        subLabel: status.stage == VpnStage.connected && !accessBlocked
+            ? _session(status.connectedSince)
+            : csub,
+        onTap: () {
+          unawaited(HapticFeedback.mediumImpact());
+          // Поднимать ядру нечего: подключений нет вовсе, и
+          // единственное осмысленное действие дайла — увести
+          // туда, где их добавляют.
+          if (noConnections) {
+            context.go(AppRoute.connectionImport);
+            return;
+          }
+          unawaited(ref.read(vpnProvider.notifier).toggle());
+        },
+      ),
+    );
+
+    if (desktop) {
+      return HomeDesktopLayout(
+        layerKey: _layerKey,
+        headerKey: _headerKey,
+        stage: status.stage,
+        anchor: _anchor,
+        headerTrailing: headerTrailing,
+        dial: dial,
+        proxyEndpoint: proxyEndpoint,
+        // Подбирать не из чего, пока нет ни одного подключения.
+        autopilot: noConnections ? null : const AutopilotButton(),
+        needsReconnect: needsReconnect,
+        access: access,
+        // Состав и порядок правой колонки тот же, что у мобильного бэкдропа:
+        // INV-21/INV-22 сверху, карточки ветки следом, отчёт ядра о том, что
+        // ОНО применило, — последним. Баннер реконнекта и карточка доступа из
+        // этого списка вычтены: они уехали в левую панель, к дайлу.
+        cards: noConnections
+            ? const <Widget>[]
+            : <Widget>[
+                const CsmConfigAgeCard(),
+                const CsmPendingChangesSection(),
+                ...cards,
+                const AppliedRouteCard(),
+              ],
+        noConnections: noConnections,
+        onAddConnection: () => context.go(AppRoute.connectionImport),
+        onConnectPanel: () => context.go(AppRoute.login),
+      );
+    }
 
     return Scaffold(
       backgroundColor: c.bgBase,
@@ -459,38 +536,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   // The chart needs its designed headroom above the dial: the
                   // upper stations and the boundary top edge sit in this gap.
                   const SizedBox(height: AppSpace.s8),
-                  Center(
-                    child: ValueListenableBuilder<int>(
-                      valueListenable: _tick,
-                      builder: (context, _, __) => ConnectDial(
-                        dialKey: _dialKey,
-                        labelKey: _labelKey,
-                        stage: status.stage,
-                        accessBlocked: accessBlocked,
-                        // Идущий таймер под закрытым доступом читается как
-                        // «работает уже 1м43с» — ровно та строка, которая и
-                        // сделала ложную защиту убедительной. Пока доступа нет,
-                        // на её месте стоит причина; сам таймер остаётся в
-                        // ячейке «Сессия», где он говорит про туннель, а не про
-                        // защиту, и там он правда.
-                        subLabel:
-                            status.stage == VpnStage.connected && !accessBlocked
-                            ? _session(status.connectedSince)
-                            : csub,
-                        onTap: () {
-                          unawaited(HapticFeedback.mediumImpact());
-                          // Поднимать ядру нечего: подключений нет вовсе, и
-                          // единственное осмысленное действие дайла — увести
-                          // туда, где их добавляют.
-                          if (noConnections) {
-                            context.go(AppRoute.connectionImport);
-                            return;
-                          }
-                          unawaited(ref.read(vpnProvider.notifier).toggle());
-                        },
-                      ),
-                    ),
-                  ),
+                  Center(child: dial),
                   // Proxy-режим не перехватывает трафик системы: адрес локального
                   // инбаунда нужно видеть, чтобы прописать его в браузере/системе.
                   if (proxyEndpoint != null) ...[
@@ -504,7 +550,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   // The cards keep their own opaque surfaces; this is the seam
                   // where the chart slides under the content so it never fights
                   // the stats.
-                  _CardsBackdrop(
+                  CardsBackdrop(
                     children: [
                       // Правка настроек при поднятом туннеле применяется со
                       // следующего Up — баннер стоит первым в контенте, до
@@ -593,6 +639,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     required String? relayFromOperator,
     required CoreConfig cfg,
     required List<ProtocolOption> protocols,
+    bool desktop = false,
   }) {
     // Строка сервера говорит СТРАНОЙ: узел под ней меняется автоподбором, а
     // выбирает пользователь именно страну. Имя узла остаётся рядом вторичным —
@@ -644,9 +691,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         ],
       ),
       // Автоподбор вынесен ИЗ группы: он не выбор из списка, а действие, и
-      // форма обязана это говорить (см. [AutopilotButton]).
-      const SizedBox(height: AppSpace.s3),
-      const AutopilotButton(),
+      // форма обязана это говорить (см. [AutopilotButton]). На десктопе он
+      // уезжает в левую панель, под дайл: там живут действия над самим
+      // подключением, а правая колонка остаётся списком карточек.
+      if (!desktop) ...[
+        const SizedBox(height: AppSpace.s3),
+        const AutopilotButton(),
+      ],
       ..._protocolTruthBanner(),
       ..._autopilotBanner(),
       if (!ref
@@ -744,6 +795,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     required String? node,
     required CoreConfig cfg,
     required List<ProtocolOption> protocols,
+    bool desktop = false,
   }) {
     final connected = status.isConnected;
     // МАШИНЫ, а не строки конфига. `profile.serverCount` — это длина списка
@@ -844,9 +896,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         ],
       ),
       // Та же кнопка, что и в панельной ветке: автоподбор одинаково не
-      // принадлежит группе выборов на обоих путях.
-      const SizedBox(height: AppSpace.s3),
-      const AutopilotButton(),
+      // принадлежит группе выборов на обоих путях — и одинаково уезжает в
+      // левую панель на десктопе.
+      if (!desktop) ...[
+        const SizedBox(height: AppSpace.s3),
+        const AutopilotButton(),
+      ],
       ..._protocolTruthBanner(),
       ..._autopilotBanner(),
       if (!chaining.isAvailable) ...[
@@ -862,6 +917,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         builder: (context, _, __) {
           final mode = ref.watch(activeTunnelModeProvider);
           return _StatsGrid(
+            // Шесть ячеек в правой колонке десктопа встают в три столбца: в
+            // два они уходят вниз шестью строками и выталкивают график.
+            columns: desktop ? 3 : 2,
             cells: [
               (
                 value: connected ? _fmtBytes(traffic.downTotal) : '0,0 МБ',
@@ -1078,9 +1136,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 /// of numbers still costs legibility, so the atmosphere is damped to under a
 /// fifth from the first card down. The short top ramp keeps it from reading as
 /// a box edge.
-class _CardsBackdrop extends StatelessWidget {
+class CardsBackdrop extends StatelessWidget {
   final List<Widget> children;
-  const _CardsBackdrop({required this.children});
+  const CardsBackdrop({required this.children, super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -1128,30 +1186,35 @@ class _PlanChip extends StatelessWidget {
 /// Одна ячейка сетки статистики: крупное tabular-число и подпись капсом.
 typedef StatCell = ({String value, String label});
 
-/// Сетка статистики в две колонки. Число ячеек чётное: панельная Home даёт
+/// Сетка статистики. Число ячеек кратно числу колонок: панельная Home даёт
 /// четыре, generic — шесть (к объёмам добавляются мгновенные скорости и режим
 /// захвата трафика, которых у панельной ветки нет).
+///
+/// [columns] — сколько ячеек в строке. Две на мобильном (и в панельной ветке
+/// десктопа, где ячеек всего четыре), три в правой колонке десктопа под
+/// generic-шестёрку. Неполный хвост не рисуется: сетка из ячейки-полторы
+/// читается как обрезанная таблица.
 class _StatsGrid extends StatelessWidget {
   final List<StatCell> cells;
-  const _StatsGrid({required this.cells});
+  final int columns;
+  const _StatsGrid({required this.cells, this.columns = 2});
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
     final rows = <Widget>[];
-    for (var i = 0; i + 1 < cells.length; i += 2) {
+    for (var i = 0; i + columns - 1 < cells.length; i += columns) {
       if (rows.isNotEmpty) {
         rows.add(Container(height: 1, color: c.borderSubtle));
       }
-      rows.add(
-        Row(
-          children: [
-            Expanded(child: _cell(c, cells[i])),
-            Container(width: 1, height: 64, color: c.borderSubtle),
-            Expanded(child: _cell(c, cells[i + 1])),
-          ],
-        ),
-      );
+      final row = <Widget>[];
+      for (var j = 0; j < columns; j++) {
+        if (j > 0) {
+          row.add(Container(width: 1, height: 64, color: c.borderSubtle));
+        }
+        row.add(Expanded(child: _cell(c, cells[i + j])));
+      }
+      rows.add(Row(children: row));
     }
     return Container(
       decoration: BoxDecoration(

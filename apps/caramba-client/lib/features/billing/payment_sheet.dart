@@ -26,6 +26,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/models/plan_catalog.dart';
 import 'package:caramba_client/data/models/subscription.dart' show AccessPay;
+import 'package:caramba_client/desktop/adaptive_sheet.dart';
 import 'package:caramba_client/state/account_state.dart';
 import 'package:caramba_client/state/exit_inventory_state.dart'
     show subscriptionAccessProvider;
@@ -47,11 +48,8 @@ Future<void> showPaymentSheet(
   required CatalogPlan plan,
   required PlanDurationOffer duration,
   required PlanCatalog catalog,
-}) => showModalBottomSheet<void>(
-  context: context,
-  backgroundColor: context.c.surface1,
-  isScrollControlled: true,
-  showDragHandle: true,
+}) => showAdaptiveSheet<void>(
+  context,
   builder: (ctx) =>
       PaymentSheet(plan: plan, duration: duration, catalog: catalog),
 );

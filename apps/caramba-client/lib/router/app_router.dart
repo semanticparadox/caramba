@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:caramba_client/desktop/desktop_overlay_page.dart';
+import 'package:caramba_client/desktop/desktop_platform.dart';
+import 'package:caramba_client/desktop/shell/desktop_shell.dart';
 import 'package:caramba_client/features/auth/login_screen.dart';
 import 'package:caramba_client/features/autotune/autotune_screen.dart';
 import 'package:caramba_client/features/billing/plans_screen.dart';
@@ -18,11 +21,14 @@ import 'package:caramba_client/features/enroll/enroll_screen.dart';
 import 'package:caramba_client/features/home/home_screen.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
 import 'package:caramba_client/features/partner/partner_screen.dart';
+import 'package:caramba_client/features/profile/profile_desktop.dart';
 import 'package:caramba_client/features/profile/profile_screen.dart';
 import 'package:caramba_client/features/protocol/protocol_screen.dart';
 import 'package:caramba_client/features/referrals/referrals_screen.dart';
 import 'package:caramba_client/features/servers/relay_screen.dart';
+import 'package:caramba_client/features/servers/servers_desktop.dart';
 import 'package:caramba_client/features/servers/servers_screen.dart';
+import 'package:caramba_client/features/settings/settings_desktop.dart';
 import 'package:caramba_client/features/settings/settings_screen.dart';
 import 'package:caramba_client/features/settings/site_rules_screen.dart';
 import 'package:caramba_client/features/splash/splash_screen.dart';
@@ -327,6 +333,27 @@ final routerProvider = Provider<GoRouter>((ref) {
   return router;
 });
 
+/// Страница накладного маршрута.
+///
+/// ЗАЧЕМ `pageBuilder`, А НЕ `builder`. На мобильном ничего не меняется:
+/// [desktopOverlayPage] отдаёт ту же `MaterialPage` с тем же ключом и именем,
+/// которую построил бы сам go_router из `builder:`. На десктопе тот же маршрут
+/// обязан лечь ПОВЕРХ шелла панелью справа или диалогом по центру — то есть
+/// не заменить приложение, а накрыть его, оставив сайдбар и статус видимыми.
+/// Решение о ширине и о том, закрывается ли экран по Esc и скриму, принимает
+/// таблица в `desktop_overlay_page.dart` — одна на все маршруты, чтобы не
+/// повторять её тридцать раз здесь.
+Page<void> _overlay(GoRouterState state, Widget child) =>
+    desktopOverlayPage<void>(
+      key: state.pageKey,
+      // Имя берём то же, что подставил бы go_router: страница участвует в
+      // `RouteSettings`, и подмена имени сбила бы наблюдателей навигатора.
+      name: state.name,
+      presentation: presentationFor(state.matchedLocation),
+      dismissible: dismissibleFor(state.matchedLocation),
+      child: child,
+    );
+
 /// Таблица маршрутов приложения.
 ///
 /// Вынесена из [routerProvider] отдельной функцией, чтобы тест мог прочитать её
@@ -340,27 +367,32 @@ List<RouteBase> appRoutes() => <RouteBase>[
   ),
   GoRoute(
     path: AppRoute.login,
-    builder: (context, state) => const LoginScreen(),
+    pageBuilder: (context, state) => _overlay(state, const LoginScreen()),
   ),
   // Энроллмент: открывается deeplink-хендлером (carambaconnect://enroll),
   // переходом из логина или вручную. `panel`/`code` приходят query-строкой.
   GoRoute(
     path: AppRoute.enroll,
-    builder: (context, state) => EnrollScreen(
-      initialPanel: state.uri.queryParameters['panel'],
-      initialCode: state.uri.queryParameters['code'],
-      // k это link_pin ссылки энроллмента. Он доезжает до контроллера, а не
-      // теряется по дороге: без него закреплённый энроллмент молча стал бы
-      // незакреплённым.
-      initialLinkPin: state.uri.queryParameters['k'],
+    pageBuilder: (context, state) => _overlay(
+      state,
+      EnrollScreen(
+        initialPanel: state.uri.queryParameters['panel'],
+        initialCode: state.uri.queryParameters['code'],
+        // k это link_pin ссылки энроллмента. Он доезжает до контроллера, а не
+        // теряется по дороге: без него закреплённый энроллмент молча стал бы
+        // незакреплённым.
+        initialLinkPin: state.uri.queryParameters['k'],
+      ),
     ),
   ),
   // Подключение панели по ссылке: `link` приходит целиком, разбор живёт в
   // экране, а не здесь, потому что причина отказа это часть UI.
   GoRoute(
     path: AppRoute.connect,
-    builder: (context, state) =>
-        ConnectScreen(initialLink: state.uri.queryParameters['link']),
+    pageBuilder: (context, state) => _overlay(
+      state,
+      ConnectScreen(initialLink: state.uri.queryParameters['link']),
+    ),
   ),
   GoRoute(
     path: AppRoute.autotune,
@@ -376,13 +408,14 @@ List<RouteBase> appRoutes() => <RouteBase>[
   GoRoute(
     path: AppRoute.settingsAutotune,
     parentNavigatorKey: _rootKey,
-    builder: (context, state) => const AutotuneScreen(fromSettings: true),
+    pageBuilder: (context, state) =>
+        _overlay(state, const AutotuneScreen(fromSettings: true)),
   ),
   // Полноэкранные пикеры поверх шелла.
   GoRoute(
     path: AppRoute.protocol,
     parentNavigatorKey: _rootKey,
-    builder: (context, state) => const ProtocolScreen(),
+    pageBuilder: (context, state) => _overlay(state, const ProtocolScreen()),
   ),
   // Списки сайтов. Путь лежит ПОД настройками (`/settings/site-rules`),
   // но маршрут объявлен здесь, а не веткой таба, — по той же причине, что
@@ -391,33 +424,39 @@ List<RouteBase> appRoutes() => <RouteBase>[
   GoRoute(
     path: AppRoute.siteRules,
     parentNavigatorKey: _rootKey,
-    builder: (context, state) => const SiteRulesScreen(),
+    pageBuilder: (context, state) => _overlay(state, const SiteRulesScreen()),
   ),
   GoRoute(
     path: AppRoute.relay,
     parentNavigatorKey: _rootKey,
-    builder: (context, state) => const RelayScreen(),
+    pageBuilder: (context, state) => _overlay(state, const RelayScreen()),
   ),
   // Серверы: накладной экран со строки «Сервер» на «Подключении». Вкладкой
   // быть перестал — владелец: «можно убрать вкладку серверы».
   GoRoute(
     path: AppRoute.servers,
     parentNavigatorKey: _rootKey,
-    builder: (context, state) => const ServersScreen(),
+    // Таблица вместо карточек: в панели 720 строка узла читается целиком, а
+    // мобильный список там выглядел бы растянутым.
+    pageBuilder: (context, state) => _overlay(
+      state,
+      isDesktopPlatform ? const ServersDesktopScreen() : const ServersScreen(),
+    ),
   ),
   // Профили подключения (мульти-профиль) + импорт, поверх шелла.
   GoRoute(
     path: AppRoute.connections,
     parentNavigatorKey: _rootKey,
-    builder: (context, state) => const ConnectionsScreen(),
+    pageBuilder: (context, state) => _overlay(state, const ConnectionsScreen()),
     routes: [
       GoRoute(
         path: 'import',
         parentNavigatorKey: _rootKey,
         // `url` приходит из deeplink `carambaconnect://import?url=...`
         // и подставляется в поле ссылки.
-        builder: (context, state) => ConnectionImportScreen(
-          initialUrl: state.uri.queryParameters['url'],
+        pageBuilder: (context, state) => _overlay(
+          state,
+          ConnectionImportScreen(initialUrl: state.uri.queryParameters['url']),
         ),
       ),
     ],
@@ -428,22 +467,25 @@ List<RouteBase> appRoutes() => <RouteBase>[
   GoRoute(
     path: AppRoute.csmOperator,
     parentNavigatorKey: _rootKey,
-    builder: (context, state) => const OperatorIdentityScreen(),
+    pageBuilder: (context, state) =>
+        _overlay(state, const OperatorIdentityScreen()),
   ),
   GoRoute(
     path: AppRoute.csmDocuments,
     parentNavigatorKey: _rootKey,
-    builder: (context, state) => const CsmDocumentsScreen(),
+    pageBuilder: (context, state) =>
+        _overlay(state, const CsmDocumentsScreen()),
   ),
   GoRoute(
     path: AppRoute.csmTransport,
     parentNavigatorKey: _rootKey,
-    builder: (context, state) => const TransportLadderScreen(),
+    pageBuilder: (context, state) =>
+        _overlay(state, const TransportLadderScreen()),
   ),
   GoRoute(
     path: AppRoute.csmDisclosure,
     parentNavigatorKey: _rootKey,
-    builder: (context, state) => const WhatWeSendScreen(),
+    pageBuilder: (context, state) => _overlay(state, const WhatWeSendScreen()),
   ),
   // Тарифы: поверх шелла, как остальные полноэкранные пикеры. Гейта на
   // авторизацию у маршрута нет намеренно — витрину запрашивает экран, и
@@ -453,46 +495,53 @@ List<RouteBase> appRoutes() => <RouteBase>[
   GoRoute(
     path: AppRoute.plans,
     parentNavigatorKey: _rootKey,
-    builder: (context, state) => const PlansScreen(),
+    pageBuilder: (context, state) => _overlay(state, const PlansScreen()),
   ),
   GoRoute(
     path: AppRoute.referrals,
     parentNavigatorKey: _rootKey,
-    builder: (context, state) => const ReferralsScreen(),
+    pageBuilder: (context, state) => _overlay(state, const ReferralsScreen()),
   ),
   GoRoute(
     path: AppRoute.partner,
     parentNavigatorKey: _rootKey,
-    builder: (context, state) => const PartnerScreen(),
+    pageBuilder: (context, state) => _overlay(state, const PartnerScreen()),
   ),
   GoRoute(
     path: AppRoute.notifications,
     parentNavigatorKey: _rootKey,
-    builder: (context, state) => const NotificationsScreen(),
+    pageBuilder: (context, state) =>
+        _overlay(state, const NotificationsScreen()),
   ),
   GoRoute(
     path: AppRoute.tickets,
     parentNavigatorKey: _rootKey,
-    builder: (context, state) => const TicketsScreen(),
+    pageBuilder: (context, state) => _overlay(state, const TicketsScreen()),
     routes: [
       // Статический сегмент идёт раньше параметра: /tickets/new.
       GoRoute(
         path: 'new',
         parentNavigatorKey: _rootKey,
-        builder: (context, state) => const NewTicketScreen(),
+        pageBuilder: (context, state) =>
+            _overlay(state, const NewTicketScreen()),
       ),
       GoRoute(
         path: ':id',
         parentNavigatorKey: _rootKey,
-        builder: (context, state) {
+        pageBuilder: (context, state) {
           final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
-          return TicketDetailScreen(ticketId: id);
+          return _overlay(state, TicketDetailScreen(ticketId: id));
         },
       ),
     ],
   ),
   StatefulShellRoute.indexedStack(
-    builder: (context, state, shell) => AppShell(navigationShell: shell),
+    // Ветка по ПЛАТФОРМЕ, а не по ширине окна: мобильный шелл со своими двумя
+    // раскладками остаётся нетронутым, десктоп получает сайдбар, тулбар и
+    // клавиатуру. Узкое окно на Маке остаётся десктопом.
+    builder: (context, state, shell) => isDesktopPlatform
+        ? DesktopShell(navigationShell: shell)
+        : AppShell(navigationShell: shell),
     branches: [
       StatefulShellBranch(
         routes: [
@@ -506,7 +555,9 @@ List<RouteBase> appRoutes() => <RouteBase>[
         routes: [
           GoRoute(
             path: AppRoute.profile,
-            builder: (context, state) => const ProfileScreen(),
+            builder: (context, state) => isDesktopPlatform
+                ? const ProfileDesktopScreen()
+                : const ProfileScreen(),
           ),
         ],
       ),
@@ -514,7 +565,9 @@ List<RouteBase> appRoutes() => <RouteBase>[
         routes: [
           GoRoute(
             path: AppRoute.settings,
-            builder: (context, state) => const SettingsScreen(),
+            builder: (context, state) => isDesktopPlatform
+                ? const SettingsDesktopScreen()
+                : const SettingsScreen(),
           ),
         ],
       ),

@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/server.dart';
 import 'package:caramba_client/data/safe_url.dart';
+import 'package:caramba_client/desktop/desktop_platform.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
 import 'package:caramba_client/theme/typography.dart';
@@ -775,6 +776,20 @@ Future<int?> showPickerSheet({
   Map<int, String> disabled = const <int, String>{},
 }) {
   final c = context.c;
+  // Десктоп: тот же список, но диалогом по центру. Ветка стоит первой строкой
+  // и уводит целиком, а не подменяет куски ниже: у листа и диалога разные
+  // корневые виджеты, и «общая» реализация с парой `if` внутри читалась бы
+  // хуже двух коротких.
+  if (isDesktopPlatform) {
+    return _showPickerDialog(
+      context: context,
+      title: title,
+      subtitle: subtitle,
+      options: options,
+      selected: selected,
+      disabled: disabled,
+    );
+  }
   return showModalBottomSheet<int>(
     context: context,
     backgroundColor: c.surface1,
@@ -834,6 +849,110 @@ Future<int?> showPickerSheet({
         ),
       );
     },
+  );
+}
+
+/// Десктопная форма [showPickerSheet]: тот же список в центрированном диалоге.
+///
+/// Отличий от листа ровно три, и все вынужденные. Первое: крестик в заголовке —
+/// у диалога нет ни ручки перетаскивания, ни жеста вниз, и без явной кнопки
+/// закрыть его мышью можно только мимо окна, что угадывается не всеми. Второе:
+/// `FocusScope(autofocus: true)` — без фокуса внутри диалога Esc не доходит до
+/// `DismissAction`, поставленного `ModalRoute`. Третье: ширина ограничена
+/// [AppBreakpoints.dialogMaxWidth], иначе список опций растянулся бы на всё
+/// окно 1120 и строки перестали бы читаться как строки.
+Future<int?> _showPickerDialog({
+  required BuildContext context,
+  required String title,
+  required String subtitle,
+  required List<({String name, String desc, String? icon})> options,
+  required int selected,
+  required Map<int, String> disabled,
+}) {
+  final c = context.c;
+  return showDialog<int>(
+    context: context,
+    barrierColor: c.overlayScrim,
+    builder: (ctx) => Dialog(
+      backgroundColor: c.surface1,
+      surfaceTintColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: AppRadius.r22),
+      insetPadding: const EdgeInsets.all(40),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: AppBreakpoints.dialogMaxWidth,
+          maxHeight: MediaQuery.sizeOf(ctx).height * 0.85,
+        ),
+        child: FocusScope(
+          autofocus: true,
+          child: SizedBox(
+            width: double.infinity,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpace.s5,
+                AppSpace.s5,
+                AppSpace.s5,
+                AppSpace.s5,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: AppType.titleLg.copyWith(color: c.textHi),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpace.s2),
+                      IconBtn(
+                        Lucide.x,
+                        size: 36,
+                        onTap: () => Navigator.of(ctx).pop(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpace.s1),
+                  Text(
+                    subtitle,
+                    style: AppType.bodyMd.copyWith(color: c.textMed),
+                  ),
+                  const SizedBox(height: AppSpace.s3),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: options.length,
+                      itemBuilder: (_, i) {
+                        final o = options[i];
+                        final off = disabled[i];
+                        return Opacity(
+                          opacity: off == null ? 1 : 0.45,
+                          child: ListItemCard(
+                            leading: o.icon != null
+                                ? IBox(o.icon!)
+                                : const SizedBox(width: 0, height: 40),
+                            title: o.name,
+                            subtitle: off ?? o.desc,
+                            selected: off == null && i == selected,
+                            onTap: off == null
+                                ? () => Navigator.of(ctx).pop(i)
+                                : null,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
   );
 }
 

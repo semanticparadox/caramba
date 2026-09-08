@@ -14,11 +14,6 @@ struct _MyApplication {
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
-// Called when first Flutter frame received.
-static void first_frame_cb(MyApplication* self, FlView* view) {
-  gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
-}
-
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
@@ -66,6 +61,9 @@ static void my_application_activate(GApplication* application) {
   }
 
   gtk_window_set_default_size(window, 1280, 720);
+  // Требование window_manager: окно должно быть realized до того, как
+  // плагин начнёт им управлять, но показывать его здесь нельзя (см. ниже).
+  gtk_widget_realize(GTK_WIDGET(window));
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
@@ -80,10 +78,13 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_show(GTK_WIDGET(view));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
 
-  // Show the window when Flutter renders.
-  // Requires the view to be realized so we can start rendering.
-  g_signal_connect_swapped(view, "first-frame", G_CALLBACK(first_frame_cb),
-                           self);
+  // Зачем без сигнала "first-frame": штатный шаблон показывает окно сам, как
+  // только пришёл первый кадр. На десктопе показом заведует window_manager
+  // (waitUntilReadyToShow -> show из desktop_bootstrap.dart): он ждёт, пока
+  // восстановятся сохранённые размеры и станет ясно, не запускаемся ли мы
+  // только значком в трее. Показ по первому кадру перебивал бы это решение и
+  // давал вспышку окна дефолтного размера. Realize оставляем — без него view
+  // не начнёт рендерить.
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
