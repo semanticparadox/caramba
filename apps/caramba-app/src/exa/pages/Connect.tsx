@@ -6,7 +6,7 @@ import { apiUrl } from '../../config'
 import { copyText } from '../../lib/copyActions'
 import { hapticError, hapticSuccess, hapticTap } from '../../lib/haptics'
 import { subscriptionLimitBytes } from '../../lib/subscriptionMetrics'
-import ExaMark from '../ExaMark'
+import BrandMark from '../BrandMark'
 import Mascot from '../Mascot'
 import { ExaIcon } from '../icons'
 import { Button, Card, CountryChip, IconButton, Pill } from '../ui'
@@ -326,7 +326,7 @@ function StatusHeader({
     const { t } = useTranslation()
     return (
         <header className="exa-status">
-            <ExaMark size={36} lit={lit} />
+            <BrandMark size={36} lit={lit} />
             <div className="exa-status__text">
                 <div className={`exa-status__title is-${tone}`}>{title}</div>
                 <div className="exa-status__sub">{sub}</div>

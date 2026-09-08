@@ -4,6 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="/assets/brand/caramba-icon.png">
+    <link rel="apple-touch-icon" href="/assets/brand/caramba-icon.png">
     <title>CARAMBA - {% block title %}{% endblock %}</title>
     <script>
         if (localStorage.getItem('theme') === 'light' || (!('theme' in localStorage) && !window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -195,16 +197,8 @@
                 <div class="flex items-center gap-3">
                     <!-- Brand -->
                     <div class="flex items-center gap-2 opacity-90">
-                        <svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M16 2C8.268 2 2 8.268 2 16C2 23.732 8.268 30 16 30C23.732 30 30 23.732 30 16"
-                                stroke="#FF6B35" stroke-width="3" stroke-linecap="round" />
-                            <circle cx="12" cy="14" r="2" fill="#E63946" />
-                            <circle cx="20" cy="14" r="2" fill="#E63946" />
-                            <path d="M16 8V5" stroke="#FF6B35" stroke-width="2" stroke-linecap="round" />
-                            <circle cx="16" cy="3" r="1.5" fill="#FF6B35" />
-                            <path d="M26 16C26 21.523 21.523 26 16 26C10.477 26 6 21.523 6 16" stroke="#FF6B35"
-                                stroke-width="2" stroke-linecap="round" stroke-opacity="0.5" />
-                        </svg>
+                        <img src="/assets/brand/caramba-icon.png" width="28" height="28"
+                            alt="Caramba" class="rounded-lg shrink-0">
                         <span
                             class="font-bold tracking-tight text-slate-900 dark:text-white hidden sm:block">CARAMBA</span>
                     </div>

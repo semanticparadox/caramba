@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppLock } from '../context/AppLockContext';
 import { normalizePinInput } from '../security/pin';
 import PinPad from './PinPad';
+import BrandMark from '../exa/BrandMark';
 import './AppLockGate.css';
 
 // Коды ошибок из AppLockContext / pin.ts → переводимые ключи
@@ -59,7 +60,7 @@ export default function AppLockGate() {
     return (
         <div className="applock-overlay" role="dialog" aria-modal="true" aria-label={t('applock.locked')}>
             <div className="applock-brand">
-                <span className="applock-logo">PIN</span>
+                <BrandMark size={64} />
                 <h1>{t('applock.locked')}</h1>
                 <p>{t('applock.enterPin')}</p>
             </div>

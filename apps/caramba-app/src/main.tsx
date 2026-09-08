@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import ExaApp from './exa/ExaApp'
+import { carambaIconUrl } from './exa/BrandMark'
 import './i18n'
 // Самохостинг шрифтов (@fontsource): без обращений к Google Fonts — РФ-аудитория.
 // Tektur — display-шрифт бренда; тело набирается системным стеком.
@@ -41,7 +42,8 @@ if (!tg?.initData && !isEnvDev) {
     ReactDOM.createRoot(document.getElementById('root')!).render(
         <div className="tg-denied-screen">
             <div className="tg-denied-card glass-card">
-                <div className="tg-denied-emblem" aria-hidden="true">EXA</div>
+                <img src={carambaIconUrl} width="72" height="72" alt="Caramba"
+                    style={{ display: 'block', margin: '0 auto 20px', borderRadius: 18 }} />
                 <h2>{deniedCopy.title}</h2>
                 <p>{deniedCopy.hint}</p>
             </div>
