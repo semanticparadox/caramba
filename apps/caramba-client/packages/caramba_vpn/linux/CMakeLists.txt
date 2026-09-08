@@ -49,7 +49,23 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE ${CMAKE_DL_LIBS})
 # List of absolute paths to libraries that should be bundled with the plugin.
 # Flutter installs these into the bundle's lib/ next to the host binary, so the
 # dlopen("libcaramba_core.so") resolves via the rpath at runtime.
-set(caramba_vpn_bundled_libraries
-  "${CMAKE_CURRENT_SOURCE_DIR}/lib/libcaramba_core.so"
-  PARENT_SCOPE
-)
+#
+# Зачем if(EXISTS): ядро — gitignored артефакт (см. lib/README.md), и в
+# mock-сборке (без --dart-define=USE_NATIVE_VPN=true) его на диске нет. Без
+# проверки install(FILES ...) валит `flutter build linux` на этапе install с
+# «file INSTALL cannot find», хотя приложение в mock-режиме ядро не трогает.
+# Если .so есть — он попадает в bundle/lib/ как раньше; если нет — плагин
+# честно вернёт ошибку dlopen при первой попытке подключения.
+set(CARAMBA_CORE_SO "${CMAKE_CURRENT_SOURCE_DIR}/lib/libcaramba_core.so")
+if(EXISTS "${CARAMBA_CORE_SO}")
+  set(caramba_vpn_bundled_libraries
+    "${CARAMBA_CORE_SO}"
+    PARENT_SCOPE
+  )
+else()
+  message(WARNING
+    "caramba_vpn: ${CARAMBA_CORE_SO} не найден — собираем без ядра "
+    "(mock-режим). Для нативного туннеля: libs/caramba-core/scripts/"
+    "build-desktop-lib.sh, затем скопировать .so в linux/lib/.")
+  set(caramba_vpn_bundled_libraries "" PARENT_SCOPE)
+endif()

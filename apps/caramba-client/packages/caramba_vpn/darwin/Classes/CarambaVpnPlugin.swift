@@ -35,10 +35,17 @@ import NetworkExtension
 
 // The gomobile-bound Go core, used ONLY for the metadata-only generic-mode calls
 // (importSubscription / probe) that must not raise a tunnel. The packet path
-// still lives in the Network Extension. Guarded so the plugin compiles without
-// the vendored framework; the calls then answer FlutterError("core_missing").
-#if canImport(Caramba)
-import Caramba
+// still lives in the Network Extension.
+//
+// Модуль называется Exarobot (имя файла exarobot.xcframework), классы —
+// CarambaMobile* (-prefix Caramba + имя Go-пакета mobile). Условие CARAMBA_CORE
+// ставит podspec, когда фреймворк действительно вендорен; CARAMBA_CORE_REQUIRED
+// он ставит, когда сборка нативная, а фреймворка нет — и тогда мы падаем ЗДЕСЬ,
+// а не отдаём core_missing на устройстве.
+#if CARAMBA_CORE
+import Exarobot
+#elseif CARAMBA_CORE_REQUIRED
+#error("caramba_vpn: нативная сборка без ядра. Соберите биндинг и повторите pod install: libs/caramba-core/scripts/build-mobile.sh ios (или macos). Для сборки на моке: USE_NATIVE_VPN=false")
 #endif
 
 public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
@@ -78,8 +85,8 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     /// Lazily built metadata-only core client for the generic-mode calls
     /// (importSubscription / probe). It runs IN THE APP PROCESS and never raises
     /// a tunnel; the packet path stays in the extension.
-    #if canImport(Caramba)
-    private var tools: CarambaClient?
+    #if CARAMBA_CORE
+    private var tools: CarambaMobileClient?
     #endif
 
     /// The Secure Enclave holder of the device identity. One instance: the
@@ -90,8 +97,8 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     /// The core client that owns the CSM/1 profile. Separate from `tools`
     /// because its work dir is PERSISTENT: the CSM store is the profile's
     /// identity and it must survive a restart.
-    #if canImport(Caramba)
-    private var csm: CarambaClient?
+    #if CARAMBA_CORE
+    private var csm: CarambaMobileClient?
 
     /// The profile whose CSM store is selected (02-SPEC.md 1.2). Empty means the
     /// single store in the core work dir, as installs made before the second
@@ -140,7 +147,7 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
             // 401 until the app restarts, so it is dropped and rebuilt on the
             // next CSM call. The device identity survives: it lives in the
             // Secure Enclave, not in the core.
-            #if canImport(Caramba)
+            #if CARAMBA_CORE
             csm = nil
             #endif
             result(nil)
@@ -294,12 +301,12 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
 
     /// Sends the settings write through the core and returns its state snapshot.
     private func csmRequestSettings(json: String, result: @escaping FlutterResult) {
-        #if canImport(Caramba)
+        #if CARAMBA_CORE
         toolsQueue.async { [weak self] in
             guard let self = self else { return }
             do {
                 let client = try self.csmClient()
-                let out = try client.csmRequestSettings(json)
+                let out = try carambaCoreCall { client.csmRequestSettings(json, error: $0) }
                 DispatchQueue.main.async { result(out) }
             } catch {
                 DispatchQueue.main.async {
@@ -328,7 +335,7 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     /// budget of a cycle, so none of this runs on the platform thread.
     private func csmCall(kind: CsmCallKind, json: String, code: String,
                          result: @escaping FlutterResult) {
-        #if canImport(Caramba)
+        #if CARAMBA_CORE
         toolsQueue.async { [weak self] in
             guard let self = self else { return }
             do {
@@ -336,14 +343,14 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
                 let out: String
                 switch kind {
                 case .enroll:
-                    out = try client.csmEnroll(json)
+                    out = try carambaCoreCall { client.csmEnroll(json, error: $0) }
                 case .refresh:
-                    out = try client.csmRefresh(Int(json) ?? 30)
+                    out = try carambaCoreCall { client.csmRefresh(Int(json) ?? 30, error: $0) }
                 case .setLadder:
                     try client.csmSetLadder(json)
                     out = "{\"ok\":true}"
                 case .answerCatalogChange:
-                    out = try client.csmAnswerCatalogChange(json)
+                    out = try carambaCoreCall { client.csmAnswerCatalogChange(json, error: $0) }
                 }
                 DispatchQueue.main.async { result(out) }
             } catch {
@@ -362,7 +369,7 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     /// Points the CSM store at one profile and drops the current core so the
     /// next CSM call rebuilds it against that profile's directory.
     private func selectCsmProfile(key: String, result: @escaping FlutterResult) {
-        #if canImport(Caramba)
+        #if CARAMBA_CORE
         toolsQueue.async { [weak self] in
             guard let self = self else { return }
             if self.csmProfileKey == key {
@@ -414,7 +421,7 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     /// itself lives under the same guard as every other core call here and the
     /// selector is a plain enum rather than a closure over that type.
     private func csmRead(kind: CoreReadKind, code: String, result: @escaping FlutterResult) {
-        #if canImport(Caramba)
+        #if CARAMBA_CORE
         toolsQueue.async { [weak self] in
             guard let self = self else { return }
             do {
@@ -422,11 +429,11 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
                 let out: String
                 switch kind {
                 case .ladder:
-                    out = try client.csmLadder()
+                    out = try carambaCoreCall { client.csmLadder($0) }
                 case .state:
-                    out = try client.csmState()
+                    out = try carambaCoreCall { client.csmState($0) }
                 case .routeReport:
-                    out = try client.routeReport()
+                    out = try carambaCoreCall { client.routeReport($0) }
                 }
                 DispatchQueue.main.async { result(out) }
             } catch {
@@ -591,8 +598,8 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
 
     /// Lazily builds the metadata-only core client. Its work dir is separate from
     /// the extension's so a probe never disturbs a live tunnel.
-    #if canImport(Caramba)
-    private func toolsClient() throws -> CarambaClient {
+    #if CARAMBA_CORE
+    private func toolsClient() throws -> CarambaMobileClient {
         if let existing = tools { return existing }
         let base = CarambaAppGroup.containerURL ?? FileManager.default.temporaryDirectory
         let workDir = base.appendingPathComponent("caramba-tools", isDirectory: true).path
@@ -600,7 +607,7 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
         var initError: NSError?
         // Empty panel URL: NewClient only wires the client (no network), and the
         // generic path never talks to a panel.
-        guard let client = CarambaNewClient("", "", workDir, tokenPath, &initError) else {
+        guard let client = CarambaMobileNewClient("", "", workDir, tokenPath, &initError) else {
             throw initError ?? NSError(domain: "com.caramba.vpn", code: -1,
                                        userInfo: [NSLocalizedDescriptionKey: "core init failed"])
         }
@@ -614,14 +621,14 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     /// which is the software tier; registering the bridge late would leave the
     /// core with a software identity it then has to keep, because `dtp` has
     /// already gone to the operator.
-    private func csmClient() throws -> CarambaClient {
+    private func csmClient() throws -> CarambaMobileClient {
         if let existing = csm { return existing }
         let base = CarambaAppGroup.containerURL ?? FileManager.default.temporaryDirectory
         let workDir = base.appendingPathComponent("caramba-csm", isDirectory: true).path
         let tokenPath = base.appendingPathComponent("caramba-csm/token.json").path
         let panelUrl = pendingConfig[CarambaVpnKeys.panelUrl] as? String ?? ""
         var initError: NSError?
-        guard let client = CarambaNewClient(panelUrl, "", workDir, tokenPath, &initError) else {
+        guard let client = CarambaMobileNewClient(panelUrl, "", workDir, tokenPath, &initError) else {
             throw initError ?? NSError(domain: "com.caramba.vpn", code: -1,
                                        userInfo: [NSLocalizedDescriptionKey: "core init failed"])
         }
@@ -654,12 +661,12 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     /// raising a tunnel. Dart parses the JSON into ImportResult.
     private func importSubscription(raw: String, format: String,
                                     result: @escaping FlutterResult) {
-        #if canImport(Caramba)
+        #if CARAMBA_CORE
         toolsQueue.async { [weak self] in
             guard let self = self else { return }
             do {
                 let client = try self.toolsClient()
-                let json = try client.importSubscription(raw, format: format)
+                let json = try carambaCoreCall { client.importSubscription(raw, format: format, error: $0) }
                 DispatchQueue.main.async { result(json) }
             } catch {
                 DispatchQueue.main.async {
@@ -677,12 +684,12 @@ public final class CarambaVpnPlugin: NSObject, FlutterPlugin, FlutterStreamHandl
     /// Measures the latency of every node of the currently loaded config and
     /// returns the ABI v2 JSON verbatim. Blocking, so it runs off the main thread.
     private func probe(timeoutMs: Int, result: @escaping FlutterResult) {
-        #if canImport(Caramba)
+        #if CARAMBA_CORE
         toolsQueue.async { [weak self] in
             guard let self = self else { return }
             do {
                 let client = try self.toolsClient()
-                let json = try client.probeJSON(timeoutMs)
+                let json = try carambaCoreCall { client.probeJSON(timeoutMs, error: $0) }
                 DispatchQueue.main.async { result(json) }
             } catch {
                 DispatchQueue.main.async {

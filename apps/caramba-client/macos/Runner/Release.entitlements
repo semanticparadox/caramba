@@ -6,5 +6,11 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- Зачем: в proxy-режиме ядро само слушает 127.0.0.1:7890 (mixed inbound)
+	     внутри процесса приложения. Под App Sandbox приём входящих соединений
+	     запрещён без network.server, поэтому release-сборка молча не принимала
+	     бы подключения к локальному прокси, хотя debug (DebugProfile) работал. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
 </dict>
 </plist>

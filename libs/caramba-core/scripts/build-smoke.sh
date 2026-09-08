@@ -7,7 +7,7 @@
 # поднимается, поэтому НИКАКИХ прав (root/админ, Network Extension) не нужно —
 # это способ доказать соединение до того, как клиент получит привилегии.
 #
-# Требования (те же, что у build-desktop.sh):
+# Требования (те же, что у build-desktop-lib.sh):
 #   - Go-тулчейн и заполненный go.sum: `cd libs/caramba-core && go mod tidy`;
 #   - CGO_ENABLED=1 и системный C-тулчейн (clang/gcc; на Windows mingw-w64),
 #     т.к. ядро mihomo требует cgo.

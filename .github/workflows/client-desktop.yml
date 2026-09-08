@@ -1,0 +1,273 @@
+name: Client Desktop (macOS / Windows / Linux)
+
+# Десктопные сборки Caramba Connect + проверка компиляции iOS.
+#
+# Отдельный workflow, а не шаг в release.yml: здесь три разных раннера, свой
+# Go-тулчейн, Flutter и по 100+ МБ нативного ядра на каждую платформу. Падение
+# Windows-сборки не должно валить выпуск панели и узлов, а падение macOS — не
+# должно блокировать Windows: поэтому три независимых job без needs.
+#
+# На теге v* ассеты дописываются в релиз этого тега (softprops/action-gh-release
+# дописывает файлы в существующий релиз, поэтому порядок с release.yml и
+# client-android.yml неважен). На workflow_dispatch артефакты кладутся в прогон
+# — так ветку можно проверить, ничего не публикуя:
+#
+#   gh workflow run client-desktop.yml --ref feat/connect-protocol
+#
+# Вся логика сборки живёт в apps/caramba-client/scripts/ci-desktop.sh: шаги
+# здесь — только тулчейн и кэши. Отличие «локально» от «в CI» — самый дешёвый
+# способ выпустить бандл без нативного ядра (на десктопе его отсутствие сборку
+# НЕ роняет, приложение молча уходит в mock).
+#
+# Чего этот workflow не делает и почему:
+#   - не подписывает ничего: у проекта нет ни сертификата Apple Developer, ни
+#     сертификата подписи кода Windows. DMG и .exe уедут неподписанными;
+#   - не собирает ассет для iOS: без сертификата и таргета Network Extension
+#     собирать нечего, остаётся только проверка, что Swift-мост компилируется и
+#     линкуется с настоящим биндингом gomobile;
+#   - не проверяет сборки на устройстве: Windows и Linux собираются здесь
+#     впервые и на живой машине не запускались.
+
+on:
+  push:
+    tags:
+      # Клиент живёт на своей ветке и релизится своими тегами client-v*:
+      # тег панели v* лежит на релизной ветке со СТАРЫМ клиентом, собирать
+      # оттуда нечего. v* оставлен, чтобы общий релиз тоже мог нести клиент,
+      # когда ветки сойдутся.
+      - 'v*'
+      - 'client-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: client-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Версия из libs/caramba-core/go.mod (go 1.26.0): более старый тулчейн
+  # откажется собирать модуль вовсе.
+  GO_VERSION: '1.26'
+  # Закреплена намеренно: релизный бандл не должен меняться от того, что
+  # stable-канал Flutter уехал вперёд между двумя тегами. Та же версия, что в
+  # client-android.yml.
+  FLUTTER_VERSION: '3.47.2'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # macOS: DMG (proxy-режим, dart:ffi поверх libcaramba_core.dylib) + проверка iOS
+  # ---------------------------------------------------------------------------
+  macos:
+    name: macOS DMG + iOS compile check
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: libs/caramba-core/go.sum
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      # Ядро зависит только от исходников Go и патчей mihomo — кэшируется по их
+      # хэшу. Холодная сборка dylib ~10 минут, на прогретом кэше ~15 секунд.
+      - name: Cache core dylib
+        id: cache-dylib
+        uses: actions/cache@v4
+        with:
+          path: libs/caramba-core/build/libcaramba_core.dylib
+          key: ${{ runner.os }}-carambacore-dylib-${{ hashFiles('libs/caramba-core/**/*.go', 'libs/caramba-core/go.mod', 'libs/caramba-core/go.sum', 'libs/caramba-core/patches/*.patch', 'libs/caramba-core/scripts/*.sh') }}
+
+      - name: Build macOS DMG
+        env:
+          CARAMBA_SKIP_CORE: ${{ steps.cache-dylib.outputs.cache-hit == 'true' && '1' || '0' }}
+        run: bash apps/caramba-client/scripts/ci-desktop.sh macos
+
+      - name: Cache iOS xcframework
+        id: cache-xcframework
+        uses: actions/cache@v4
+        with:
+          path: libs/caramba-core/build/ios/exarobot.xcframework
+          key: ${{ runner.os }}-carambacore-iosxcf-${{ hashFiles('libs/caramba-core/**/*.go', 'libs/caramba-core/go.mod', 'libs/caramba-core/go.sum', 'libs/caramba-core/patches/*.patch', 'libs/caramba-core/scripts/*.sh') }}
+
+      # Шаг стоит ДО публикации ассетов намеренно: если Swift-мост разъехался с
+      # биндингом gomobile, релиз не должен уехать «наполовину». Ассета у iOS
+      # нет — это гейт, а не сборка.
+      - name: iOS compile check (simulator, no codesign)
+        env:
+          CARAMBA_SKIP_CORE: ${{ steps.cache-xcframework.outputs.cache-hit == 'true' && '1' || '0' }}
+        run: bash apps/caramba-client/scripts/ci-desktop.sh ios
+
+      - name: Upload artifact (dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: caramba-connect-macos
+          if-no-files-found: error
+          path: apps/caramba-client/build/dist/caramba-connect-macos-arm64.dmg
+
+      - name: Attach DMG to release (tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: apps/caramba-client/build/dist/caramba-connect-macos-arm64.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Windows: ZIP портативной сборки (wintun + libcaramba_core.dll рядом с .exe)
+  # ---------------------------------------------------------------------------
+  windows:
+    name: Windows ZIP
+    runs-on: windows-latest
+    defaults:
+      run:
+        # Тот же bash, что локально и на других раннерах: ci-desktop.sh и
+        # скрипты ядра написаны на bash, а Git Bash на образе есть.
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: libs/caramba-core/go.sum
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      # cgo обязателен (gvisor/sing-tun), значит нужен C-тулчейн. На образе
+      # windows-latest gcc из mingw-w64 обычно уже есть; если образ изменится —
+      # ставим сами, иначе `go build -buildmode=c-shared` упадёт с невнятным
+      # «cgo: C compiler not found».
+      - name: Ensure MinGW gcc
+        run: |
+          set -euo pipefail
+          if command -v gcc >/dev/null 2>&1; then
+            echo "gcc: $(command -v gcc)"
+            exit 0
+          fi
+          echo "gcc не найден — ставлю mingw через choco"
+          choco install mingw -y --no-progress
+          # Пакет менял место установки между версиями (C:\ProgramData\mingw64\...
+          # и .../chocolatey/lib/mingw/tools/install/...), поэтому каталог не
+          # зашиваем, а ищем сам gcc.exe.
+          gcc_exe="$(find /c/ProgramData -maxdepth 8 -name gcc.exe -print -quit 2>/dev/null || true)"
+          if [ -z "$gcc_exe" ]; then
+            echo "::error::gcc.exe не найден после choco install mingw"
+            exit 1
+          fi
+          cygpath -w "$(dirname "$gcc_exe")" >> "$GITHUB_PATH"
+
+      - name: Verify gcc
+        run: gcc --version
+
+      - name: Cache core DLL
+        id: cache-dll
+        uses: actions/cache@v4
+        with:
+          path: libs/caramba-core/build/libcaramba_core.dll
+          key: ${{ runner.os }}-carambacore-dll-${{ hashFiles('libs/caramba-core/**/*.go', 'libs/caramba-core/go.mod', 'libs/caramba-core/go.sum', 'libs/caramba-core/patches/*.patch', 'libs/caramba-core/scripts/*.sh') }}
+
+      - name: Build Windows ZIP
+        env:
+          CARAMBA_SKIP_CORE: ${{ steps.cache-dll.outputs.cache-hit == 'true' && '1' || '0' }}
+        run: bash apps/caramba-client/scripts/ci-desktop.sh windows
+
+      - name: Upload artifact (dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: caramba-connect-windows
+          if-no-files-found: error
+          path: apps/caramba-client/build/dist/caramba-connect-windows-x64.zip
+
+      - name: Attach ZIP to release (tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: apps/caramba-client/build/dist/caramba-connect-windows-x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Linux: tar.gz бандла (запуск туннеля требует CAP_NET_ADMIN)
+  # ---------------------------------------------------------------------------
+  linux:
+    name: Linux tar.gz
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # Набор проверен по FLUTTER_PLUGIN_LIST для linux: caramba_vpn (gtk+-3.0),
+      # flutter_secure_storage_linux (libsecret-1), gtk, url_launcher_linux.
+      # libayatana-appindicator3-dev НЕ нужен — трей-плагинов в проекте нет.
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libsecret-1-dev
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: libs/caramba-core/go.sum
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Cache core shared object
+        id: cache-so
+        uses: actions/cache@v4
+        with:
+          path: libs/caramba-core/build/libcaramba_core.so
+          key: ${{ runner.os }}-carambacore-so-${{ hashFiles('libs/caramba-core/**/*.go', 'libs/caramba-core/go.mod', 'libs/caramba-core/go.sum', 'libs/caramba-core/patches/*.patch', 'libs/caramba-core/scripts/*.sh') }}
+
+      - name: Build Linux tar.gz
+        env:
+          CARAMBA_SKIP_CORE: ${{ steps.cache-so.outputs.cache-hit == 'true' && '1' || '0' }}
+        run: bash apps/caramba-client/scripts/ci-desktop.sh linux
+
+      - name: Upload artifact (dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: caramba-connect-linux
+          if-no-files-found: error
+          path: apps/caramba-client/build/dist/caramba-connect-linux-x64.tar.gz
+
+      - name: Attach tarball to release (tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: apps/caramba-client/build/dist/caramba-connect-linux-x64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

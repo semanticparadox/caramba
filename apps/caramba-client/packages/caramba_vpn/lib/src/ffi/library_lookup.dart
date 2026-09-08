@@ -16,7 +16,12 @@ String carambaCoreLibFileName({
   required bool isWindows,
 }) {
   if (isMacOS) return 'libcaramba_core.dylib';
-  if (isWindows) return 'caramba_core.dll';
+  // Имя с префиксом lib — единственное на Windows: так DLL грузит C++-плагин
+  // (LoadLibraryW(L"libcaramba_core.dll") в windows/caramba_core_ffi.h), так её
+  // бандлит windows/CMakeLists.txt и так её называет
+  // scripts/build-windows-lib.sh. Историческое caramba_core.dll (без lib)
+  // означало бы, что dart:ffi-путь и C++-путь ищут разные файлы.
+  if (isWindows) return 'libcaramba_core.dll';
   return 'libcaramba_core.so';
 }
 

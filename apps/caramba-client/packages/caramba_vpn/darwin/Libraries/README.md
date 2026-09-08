@@ -13,10 +13,10 @@ go mod tidy                       # one time, completes go.sum for mihomo
 scripts/build-desktop-lib.sh      # -> libs/caramba-core/build/libcaramba_core.dylib
 
 cp libs/caramba-core/build/libcaramba_core.dylib \
-   apps/caramba-client/packages/caramba_vpn/macos/Libraries/
+   apps/caramba-client/packages/caramba_vpn/darwin/Libraries/
 ```
 
-`macos/caramba_vpn.podspec` declares
+`darwin/caramba_vpn.podspec` declares
 `s.vendored_libraries = 'Libraries/libcaramba_core.dylib'`, so once the file is
 here CocoaPods embeds it into the built app under
 `Contents/Frameworks/libcaramba_core.dylib` — which is the second entry in the
@@ -42,8 +42,8 @@ above matters for a packaged build.
 
 | Path | Artifact | Lives in | Tunnel mode | Needs Xcode |
 | --- | --- | --- | --- | --- |
-| dart:ffi (this folder) | `libcaramba_core.dylib` | `macos/Libraries/` | `proxy` (mixed inbound on 127.0.0.1:7890) | no |
-| Network Extension | `exarobot.xcframework` | `macos/Frameworks/` | `tun` (system TUN) | yes |
+| dart:ffi (this folder) | `libcaramba_core.dylib` | `darwin/Libraries/` | `proxy` (mixed inbound on 127.0.0.1:7890) | no |
+| Network Extension | `exarobot.xcframework` | `darwin/Frameworks/macos/` | `tun` (system TUN) | yes |
 
 TUN on macOS needs root or a packet-tunnel Network Extension, so the ffi path
 defaults to `TunnelMode.proxy`: the core opens a local SOCKS5 + HTTP inbound and

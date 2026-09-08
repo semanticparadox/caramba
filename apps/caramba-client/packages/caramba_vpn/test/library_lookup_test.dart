@@ -10,7 +10,7 @@ void main() {
       );
       expect(
         carambaCoreLibFileName(isMacOS: false, isWindows: true),
-        'caramba_core.dll',
+        'libcaramba_core.dll',
       );
       expect(
         carambaCoreLibFileName(isMacOS: false, isWindows: false),
@@ -120,7 +120,7 @@ void main() {
           isMacOS: false,
           isWindows: true,
         ),
-        contains('C:/app/caramba_core.dll'),
+        contains('C:/app/libcaramba_core.dll'),
       );
     });
 

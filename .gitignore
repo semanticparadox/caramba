@@ -132,3 +132,8 @@ docs/superpowers/
 
 # Graphify knowledge graph output (local, regenerated on demand)
 graphify-out/
+
+# Сборки клиента Caramba Connect, которые панель раздаёт статикой.
+# Их кладёт туда инсталлятор при установке/апгрейде (и оператор руками);
+# это релизные артефакты, а не исходники — в репозитории им не место.
+apps/caramba-panel/downloads/

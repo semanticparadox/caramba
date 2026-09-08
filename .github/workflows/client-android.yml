@@ -1,0 +1,140 @@
+name: Client Android (APK)
+
+# Релизный APK Caramba Connect.
+#
+# Отдельный workflow, а не шаг в release.yml: сборка Android тянет Go-ядро через
+# gomobile, Android NDK и Flutter — это 20+ минут и совсем другой набор кэшей,
+# и падение мобильной сборки не должно валить выпуск панели/узлов.
+#
+# На теге v* ассеты дописываются в релиз этого тега (softprops/action-gh-release
+# дописывает файлы в существующий релиз, поэтому порядок с release.yml неважен).
+# На workflow_dispatch APK кладутся в артефакты прогона — так ветку можно
+# проверить, ничего не публикуя.
+#
+# Вся логика сборки живёт в apps/caramba-client/scripts/ci-android.sh: шаги здесь
+# — только установка тулчейна и кэши. Отличие «локально» от «в CI» — самый
+# дешёвый способ выпустить APK без нативного ядра или с чужой подписью.
+
+on:
+  push:
+    tags:
+      # Клиент живёт на своей ветке и релизится своими тегами client-v*:
+      # тег панели v* лежит на релизной ветке со СТАРЫМ клиентом, собирать
+      # оттуда нечего. v* оставлен, чтобы общий релиз тоже мог нести клиент,
+      # когда ветки сойдутся.
+      - 'v*'
+      - 'client-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: client-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: Build signed APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Версия из libs/caramba-core/go.mod (go 1.26.0): более старый тулчейн
+      # откажется собирать модуль вовсе.
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: libs/caramba-core/go.sum
+
+      # Версия закреплена намеренно: релизный APK не должен меняться от того,
+      # что stable-канал Flutter уехал вперёд между двумя тегами.
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.2
+          cache: true
+
+      # Версию NDK знает только скрипт сборки (она обязана совпадать с
+      # flutter.ndkVersion), поэтому спрашиваем её у него, а не дублируем здесь.
+      - name: Resolve NDK version
+        id: ndk
+        run: echo "version=$(bash apps/caramba-client/scripts/ci-android.sh --print-ndk)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Android NDK ${{ steps.ndk.outputs.version }}
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;${{ steps.ndk.outputs.version }}"
+
+      # AAR ядра — самый дорогой шаг (gomobile bind mihomo под 4 ABI). Он зависит
+      # только от исходников ядра и патчей, поэтому кэшируется по их хэшу.
+      - name: Cache core AAR
+        id: cache-aar
+        uses: actions/cache@v4
+        with:
+          path: libs/caramba-core/build/exarobot.aar
+          key: ${{ runner.os }}-carambacore-aar-${{ steps.ndk.outputs.version }}-${{ hashFiles('libs/caramba-core/**/*.go', 'libs/caramba-core/go.mod', 'libs/caramba-core/go.sum', 'libs/caramba-core/patches/*.patch', 'libs/caramba-core/scripts/build-mobile.sh') }}
+
+      - name: Build APK
+        env:
+          # Кэш попал — AAR уже на диске, пересобирать 20 минут незачем.
+          CARAMBA_SKIP_AAR: ${{ steps.cache-aar.outputs.cache-hit == 'true' && '1' || '0' }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: bash apps/caramba-client/scripts/ci-android.sh
+
+      # Подпись — не косметика: Android примет обновление поверх установленной
+      # версии только с тем же ключом. Прогон, в котором секрет не доехал и
+      # Gradle подписал debug-ключом, должен упасть здесь, а не у пользователя.
+      - name: Verify release signature
+        run: |
+          set -euo pipefail
+          APKSIGNER=""
+          for cand in "$ANDROID_HOME"/build-tools/*/apksigner; do
+            if [ -x "$cand" ]; then APKSIGNER="$cand"; fi
+          done
+          [ -n "$APKSIGNER" ] || { echo "::error::apksigner не найден"; exit 1; }
+          for apk in caramba-connect-arm64.apk caramba-connect-armv7.apk; do
+            out="$("$APKSIGNER" verify --print-certs "apps/caramba-client/build/dist/$apk")"
+            echo "$out"
+            if echo "$out" | grep -qi 'CN=Android Debug'; then
+              echo "::error::$apk подписан debug-ключом — релизный секрет не доехал"
+              exit 1
+            fi
+          done
+
+      - name: Upload artifacts (dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: caramba-connect-apk
+          if-no-files-found: error
+          path: |
+            apps/caramba-client/build/dist/caramba-connect-arm64.apk
+            apps/caramba-client/build/dist/caramba-connect-armv7.apk
+
+      # Тот же action, что в release.yml: он дописывает ассеты в уже созданный
+      # релиз тега, поэтому гонки с release.yml нет.
+      - name: Attach APKs to release (tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            apps/caramba-client/build/dist/caramba-connect-arm64.apk
+            apps/caramba-client/build/dist/caramba-connect-armv7.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -489,18 +489,23 @@ final class CarambaDeviceKeys {
     }
 }
 
-#if canImport(Caramba)
-import Caramba
+#if CARAMBA_CORE
+import Exarobot
 
 /// The gomobile-facing adapter: the Go core calls these three methods for every
 /// device signature and every key agreement, so the core never holds the private
 /// key and the Secure Enclave tier is real rather than claimed.
 ///
-/// gomobile turns `mobile.DeviceKeyBridge` into the `CarambaDeviceKeyBridge`
+/// gomobile turns `mobile.DeviceKeyBridge` into the `CarambaMobileDeviceKeyBridge`
 /// protocol, whose methods return `(String, Error)`; a Swift implementation
 /// returns the string and writes no error, because every refusal is already a
 /// JSON `{"error":...}` the core understands.
-final class CarambaGoDeviceKeyBridge: NSObject, CarambaDeviceKeyBridge {
+///
+/// Заголовок объявляет и протокол, и одноимённый класс. Импортёр Objective-C
+/// разводит их так же, как NSObject/NSObjectProtocol: в Swift протокол виден
+/// как `CarambaMobileDeviceKeyBridgeProtocol`, класс — под исходным именем.
+/// Соответствовать надо протоколу.
+final class CarambaGoDeviceKeyBridge: NSObject, CarambaMobileDeviceKeyBridgeProtocol {
     private let keys: CarambaDeviceKeys
 
     init(keys: CarambaDeviceKeys) {
@@ -508,15 +513,21 @@ final class CarambaGoDeviceKeyBridge: NSObject, CarambaDeviceKeyBridge {
         super.init()
     }
 
-    func keygen(_ reqJSON: String?) throws -> String {
+    // Хвостовой `error: NSErrorPointer` вместо throws — потому что возврат
+    // помечен _Nonnull, и импортёр Objective-C не переводит такой метод в
+    // throws. Мы в него ничего не пишем: любой отказ уже уехал ядру как JSON
+    // {"error":...}, и второй канал ошибки только развёл бы два разных ответа
+    // на один отказ.
+
+    func keygen(_ reqJSON: String?, error: NSErrorPointer) -> String {
         keys.keygen(reqJSON ?? "{}")
     }
 
-    func sign(_ reqJSON: String?) throws -> String {
+    func sign(_ reqJSON: String?, error: NSErrorPointer) -> String {
         keys.sign(reqJSON ?? "{}")
     }
 
-    func agree(_ reqJSON: String?) throws -> String {
+    func agree(_ reqJSON: String?, error: NSErrorPointer) -> String {
         keys.agree(reqJSON ?? "{}")
     }
 }

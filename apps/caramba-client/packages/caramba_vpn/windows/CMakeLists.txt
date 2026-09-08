@@ -2,14 +2,15 @@
 #
 # Builds the CarambaVpnPluginCApi plugin DLL and bundles the two runtime
 # dependencies next to the host .exe:
-#   * libcaramba_core.dll — the cgo c-shared Go engine (mihomo). Built with
-#     scripts/build-desktop.sh equivalent (CGO_ENABLED=1, -buildmode=c-shared,
-#     -tags mihomo) for GOOS=windows.
+#   * libcaramba_core.dll — the cgo c-shared Go engine (mihomo), built by
+#     libs/caramba-core/scripts/build-windows-lib.sh (CGO_ENABLED=1,
+#     -buildmode=c-shared, -tags mihomo,with_gvisor, GOOS=windows).
 #   * wintun.dll          — the user-mode TUN driver mihomo opens to create the
-#     tunnel interface. Ship the arch-matching build (amd64/arm64).
+#     tunnel interface, fetched with a pinned SHA-256 by
+#     libs/caramba-core/scripts/fetch-wintun.sh. Arch must match the build.
 #
-# Place both DLLs under windows/lib/ before `flutter build windows` (see
-# INTEGRATION.md step 0 vendoring). The host app must run elevated
+# Both scripts drop their output straight into windows/lib/; run them before
+# `flutter build windows` (see lib/README.md). The host app must run elevated
 # (requestedExecutionLevel=requireAdministrator, or a UAC relaunch) so wintun can
 # create the adapter — see INTEGRATION.md.
 

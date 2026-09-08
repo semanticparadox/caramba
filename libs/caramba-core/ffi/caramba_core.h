@@ -2,8 +2,9 @@
  * caramba_core.h — C ABI десктопного ядра caramba (cgo c-shared).
  *
  * Этот заголовок описывает экспортируемую поверхность libcaramba_core
- * (libcaramba_core.so / .dylib / caramba_core.dll), которую десктопный Flutter-
- * плагин (Linux/macOS/Windows) вызывает через dart:ffi. Сигнатуры совпадают с
+ * (libcaramba_core.so / .dylib / .dll — префикс lib на всех трёх платформах),
+ * которую десктопный Flutter-плагин (Linux/macOS/Windows) вызывает через
+ * dart:ffi. Сигнатуры совпадают с
  * //export-функциями в ffi/ffi.go.
  *
  * cgo генерирует собственный заголовок при `-buildmode=c-shared`; этот файл —

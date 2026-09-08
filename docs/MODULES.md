@@ -31,6 +31,33 @@ This document reflects the current workspace layout and runtime responsibilities
 - `apps/caramba-app`
   - Frontend assets (mini app) used by panel/sub.
 
+- `apps/caramba-client`
+  - The end-user VPN client: Flutter UI plus the `caramba_vpn` federated plugin
+    (`packages/caramba_vpn`), which bridges the `com.caramba/vpn` method and
+    event channels to the Go core.
+  - Five platform folders live in the tree (`android/`, `ios/`, `macos/`,
+    `windows/`, `linux/`); the first three are committed, `windows/` and
+    `linux/` were added in this round and land with it. Apple platforms share
+    one `darwin/` source tree via `sharedDarwinSource`.
+  - Native runbook: `apps/caramba-client/INTEGRATION.md`. Per-platform status
+    and build commands: `apps/caramba-client/README.md`.
+
+- `libs/caramba-core`
+  - The Go engine (mihomo, built with `-tags mihomo,with_gvisor`) and every
+    binding the client consumes. Requires `go 1.26.0` and `CGO_ENABLED=1`.
+  - `scripts/build-mobile.sh android|ios|macos` — gomobile bindings
+    (`exarobot.aar`, `exarobot.xcframework`); vendors them into the plugin itself.
+  - `scripts/build-desktop-lib.sh [macos|linux|windows]` — the cgo `c-shared`
+    library `libcaramba_core.{dylib,so,dll}` for the `dart:ffi` / C++ desktop
+    path. macOS is built universal (`arm64 + x86_64`).
+  - `scripts/build-windows-lib.sh`, `scripts/fetch-wintun.sh` — the Windows DLL
+    (cross-buildable with mingw-w64) and the pinned, SHA-256-verified WinTun
+    runtime.
+  - `scripts/build-smoke.sh` — `cmd/caramba-smoke`, a privilege-free proxy-mode
+    smoke test of the core without Flutter.
+  - `scripts/mk-patched-deps.sh` — mihomo needs a patch, or TUN does not start.
+  - All build outputs are gitignored; nothing here is a committed artifact.
+
 - `libs/caramba-db`
   - Shared models, repositories, and migrations.
 
@@ -91,7 +118,49 @@ This document reflects the current workspace layout and runtime responsibilities
 - Guardrail: switching to `v1` is blocked if legacy relay traffic was observed during the last 24 hours.
 - Legacy usage is observed from node heartbeat `user_usage` (`relay_*_legacy` tags).
 
+## Client Platform Status (2026-09-07)
+
+Honest per-platform state. "Verified" means observed on a real machine, not
+described in a workflow file. The long version, with the reasons, is in
+`apps/caramba-client/INTEGRATION.md`.
+
+| Platform | Tunnel path | Build | Signed | Verified on a device |
+| --- | --- | --- | --- | --- |
+| Android | `VpnService` + AAR binding | production, CI-built release APK | yes | yes — served from the panel |
+| macOS | `proxy` via `dart:ffi` on `libcaramba_core.dylib`, mixed inbound `127.0.0.1:7890` | release `.app` + unsigned DMG, universal | no | app launches; no Network Extension |
+| iOS | Network Extension — target does not exist | compiles/links against the real core (simulator) | no | no |
+| Windows | C++ plugin + `libcaramba_core.dll` + `wintun.dll` | defined in CI, never executed | no | no |
+| Linux | C++/GObject plugin + `libcaramba_core.so` | defined in CI, never executed | n/a | no |
+
+Blocked on the owner, not on code: Apple Developer Program membership (macOS
+signing/notarization, the iOS/macOS Network Extension target), a Windows
+code-signing certificate, a physical Windows PC and a Linux machine, and a
+decision on Windows elevation (`requireAdministrator` versus a UAC relaunch).
+
+## Client Build and Distribution
+
+- CI: `.github/workflows/client-android.yml` (signed APK) and
+  `.github/workflows/client-desktop.yml` (three independent jobs: macOS DMG +
+  iOS compile check, Windows ZIP, Linux tar.gz). Both trigger on `v*` tags,
+  appending assets to that tag's release, and on `workflow_dispatch`.
+  Toolchains pinned: Flutter `3.47.2`, Go `1.26`.
+- All build logic lives in `apps/caramba-client/scripts/ci-android.sh` and
+  `ci-desktop.sh`, so a local run and CI take the same path. Each asserts that
+  the native core actually reached the artifact — on desktop a missing core does
+  not fail the build, it silently produces a mock bundle.
+- Release asset names are a contract between CI, `apps/caramba-installer` and
+  `apps/caramba-panel`; renaming one breaks the mini app's download button:
+  `caramba-connect-arm64.apk`, `caramba-connect-armv7.apk`,
+  `caramba-connect-macos-arm64.dmg`, `caramba-connect-windows-x64.zip`,
+  `caramba-connect-linux-x64.tar.gz`.
+- Delivery: the installer copies whichever of those assets exist in the release
+  into `<install_dir>/apps/caramba-panel/downloads/` (a missing asset is not an
+  error); the panel serves that directory at `/downloads`, and
+  `GET /api/client/app/downloads` falls back to `{panel_url}/downloads/<file>`
+  when the `app_download_url_<platform>` setting is empty. The setting, when
+  set, wins.
+
 ## Reference
 
-- `current_state_2026-02-18.md`
+- `docs/CURRENT_STATE.md`
   - Snapshot of implemented features, gaps, and priorities.

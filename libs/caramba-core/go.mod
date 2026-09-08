@@ -185,7 +185,7 @@ require (
 //      * go build -tags mihomo -buildmode=c-shared пакета ffi/ → разделяемая
 //        библиотека libcaramba_core.{so,dylib,dll} + C-заголовок для dart:ffi
 //        (scripts/build-desktop-lib.sh);
-//      * go build -tags mihomo бинарника apps/caramba-cli (scripts/build-desktop.sh).
+//      * go build -tags mihomo бинарника cmd/caramba-smoke (scripts/build-smoke.sh).
 //    Все три требуют CGO (CGO_ENABLED=1 + C-тулчейн целевой платформы). Пакет
 //    ffi/ помечен `//go:build cgo`, поэтому в сборку по умолчанию (без
 //    cgo/тегов) НЕ попадает и её не ломает.

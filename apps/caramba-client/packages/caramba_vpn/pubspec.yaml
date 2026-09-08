@@ -45,4 +45,10 @@ flutter:
       windows:
         pluginClass: CarambaVpnPluginCApi
       linux:
-        pluginClass: caramba_vpn
+        # Имя класса, а не имени пакета: Flutter выводит из pluginClass имя
+        # заголовка и символа регистрации (CarambaVpnPlugin ->
+        # include/caramba_vpn/caramba_vpn_plugin.h,
+        # caramba_vpn_plugin_register_with_registrar). С прежним значением
+        # 'caramba_vpn' генератор просил caramba_vpn/caramba_vpn.h и линковка
+        # раннера падала.
+        pluginClass: CarambaVpnPlugin

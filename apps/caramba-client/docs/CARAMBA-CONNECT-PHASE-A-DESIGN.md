@@ -73,6 +73,13 @@ plus an explicit handoff for what is not.
 
 ### 4.1 Why the CLI, and the gap it has
 
+> **Historical note (2026-09-07).** This section describes the state at the time
+> of the Phase A design. `apps/caramba-cli` and
+> `libs/caramba-core/scripts/build-desktop.sh` no longer exist in the repository.
+> The privilege-free proxy-mode smoke path they describe is now
+> `libs/caramba-core/cmd/caramba-smoke`, built by `scripts/build-smoke.sh`. The
+> reasoning below is kept as a record of how the decision was reached.
+
 The standalone CLI (`apps/caramba-cli`, its own Go module) is built with
 `-tags mihomo` by `libs/caramba-core/scripts/build-desktop.sh`. On macOS, mihomo
 (sing-tun) raises a `utun` device in-process — no Flutter, Xcode, or

@@ -1,6 +1,6 @@
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use console::style;
-use dialoguer::{Input, Password, theme::ColorfulTheme};
+use dialoguer::{theme::ColorfulTheme, Input, Password};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -97,7 +97,11 @@ fn normalize_domain_like(value: &str) -> Option<String> {
         raw = head.to_string();
     }
     raw = raw.trim_end_matches('/').to_string();
-    if raw.is_empty() { None } else { Some(raw) }
+    if raw.is_empty() {
+        None
+    } else {
+        Some(raw)
+    }
 }
 
 fn parse_db_password_from_url(database_url: &str) -> Option<String> {

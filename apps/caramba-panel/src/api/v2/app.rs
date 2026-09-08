@@ -615,7 +615,7 @@ pub async fn list_servers(
                 }
             });
 
-            let inbounds = info.map(|ni| build_inbound_rows(ni));
+            let inbounds = info.map(build_inbound_rows);
 
             AppServer {
                 id: n.id,

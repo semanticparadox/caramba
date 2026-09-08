@@ -86,15 +86,61 @@ typedef struct {
   caramba_free_string_fn FreeString;
 } CarambaCoreFfi;
 
-// caramba_core_ffi_load resolves libcaramba_core.so. The loader relies on the
-// runtime search path (the bundle ships the .so under lib/ next to the host
-// binary, which Flutter adds to the rpath). Returns TRUE once every symbol is
-// bound.
+// caramba_core_open_module — dlopen ядра по списку кандидатов.
+//
+// Зачем не один dlopen("libcaramba_core.so"): плоское имя резолвится через
+// rpath ВЫЗЫВАЮЩЕГО объекта, а вызывающий тут — сам плагин
+// (libcaramba_vpn_plugin.so), который Flutter кладёт в bundle/lib/ обычным
+// копированием файла (install(FILES ...) в generated_plugins.cmake), не
+// переписывая ему rpath. Плюс современный линкер пишет DT_RUNPATH, а он, в
+// отличие от DT_RPATH, не наследуется от исполняемого файла. То есть
+// "$ORIGIN/lib" раннера плагину не поможет, и в собранном бандле ядро
+// нашлось бы только случайно. Поэтому после плоского имени пробуем абсолютные
+// пути от /proc/self/exe — ровно ту же раскладку, что перебирает dart-сторона
+// (packages/caramba_vpn/lib/src/ffi/library_lookup.dart).
+//
+// Порядок: CARAMBA_CORE_LIB (явное переопределение) -> плоское имя (rpath /
+// LD_LIBRARY_PATH / системные каталоги) -> <каталог бинарника>/lib/ ->
+// <каталог бинарника>/.
+static inline void* caramba_core_open_module(void) {
+  const gchar* env = g_getenv("CARAMBA_CORE_LIB");
+  if (env != NULL && env[0] != '\0') {
+    void* module = dlopen(env, RTLD_NOW | RTLD_LOCAL);
+    if (module != NULL) {
+      return module;
+    }
+  }
+  void* module = dlopen("libcaramba_core.so", RTLD_NOW | RTLD_LOCAL);
+  if (module != NULL) {
+    return module;
+  }
+  gchar* exe = g_file_read_link("/proc/self/exe", NULL);
+  if (exe == NULL) {
+    return NULL;
+  }
+  gchar* dir = g_path_get_dirname(exe);
+  // i == 0 — раскладка собранного бандла (<exe>/lib/), i == 1 — «плоская».
+  for (int i = 0; module == NULL && i < 2; i++) {
+    gchar* candidate =
+        (i == 0)
+            ? g_build_filename(dir, "lib", "libcaramba_core.so", NULL)
+            : g_build_filename(dir, "libcaramba_core.so", NULL);
+    module = dlopen(candidate, RTLD_NOW | RTLD_LOCAL);
+    g_free(candidate);
+  }
+  g_free(dir);
+  g_free(exe);
+  return module;
+}
+
+// caramba_core_ffi_load resolves libcaramba_core.so (see the candidate order in
+// caramba_core_open_module) and binds the caramba_core.h C ABI. Returns TRUE
+// once every required symbol is bound.
 static inline gboolean caramba_core_ffi_load(CarambaCoreFfi* ffi) {
   if (ffi->module != NULL) {
     return ffi->New != NULL;
   }
-  ffi->module = dlopen("libcaramba_core.so", RTLD_NOW | RTLD_LOCAL);
+  ffi->module = caramba_core_open_module();
   if (ffi->module == NULL) {
     return FALSE;
   }
