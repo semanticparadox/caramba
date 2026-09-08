@@ -1,179 +1,49 @@
-# Caramba
+<p align="center">
+  <img src="docs/brand/caramba-cover.png" alt="Caramba — a ship sailing toward open water" width="100%">
+</p>
 
-> **DPI-resistant VPN panel with a Telegram Mini App.**
-> Built on [sing-box](https://sing-box.sagernet.org/). Installer-first.
-> Self-hostable. One binary, one command, one systemd unit per role.
+<h1 align="center">Caramba</h1>
+<p align="center"><strong>Your connection. Your course.</strong><br>VPN apps and a self-hosted platform for running your own service.</p>
+<p align="center">
+  <a href="https://github.com/semanticparadox/caramba/releases">Download apps</a> ·
+  <a href="docs/DEPLOYMENT.md">Set up a server</a> ·
+  <a href="docs/README.md">Documentation</a>
+</p>
 
-[![CI](https://github.com/semanticparadox/caramba/actions/workflows/ci.yml/badge.svg)](https://github.com/semanticparadox/caramba/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/semanticparadox/caramba)](https://github.com/semanticparadox/caramba/releases)
+## One service, from server to screen
 
----
+| | |
+| :--- | :--- |
+| **Caramba Connect** | A dedicated VPN app for connecting with your provider's subscription. |
+| **Telegram Mini App** | Manage your subscription, devices, plans and support inside Telegram. |
+| **Admin panel** | Manage servers, users, payments and your service's branding in one place. |
+| **Self-hosted infrastructure** | Run the panel, bot, subscription service and node agents on your own servers. |
 
-## What you get
+## Get connected
 
-A complete VPN service control plane in a single Rust workspace:
+Open [Releases](https://github.com/semanticparadox/caramba/releases) and choose a **Caramba Connect** release for Android, macOS, Windows or Linux. Read its installation notes, then import the subscription supplied by your VPN provider.
 
-- **Admin panel** — Axum, PostgreSQL, Redis. Nodes, plans, promos, payments,
-  analytics, branding. Cookie + CSRF auth, role-based admin groups.
-- **Telegram bot** — Teloxide. User flows, admin commands, payment notifications.
-- **Telegram Mini App** — React + TypeScript. Subscription, plans, devices,
-  servers, store, tickets, referrals.
-- **Node agent** — runs on every VPN node. Sings-box config, SNI rotation,
-  health heartbeats, self-update.
-- **Subscription service** — sing-box / V2Ray / Clash config generation by
-  user, protocol, and country.
-- **Installer** — `caramba` CLI. `install`, `upgrade`, `doctor`, `backup`,
-  `uninstall`. Single entry point for every server.
+Caramba is in beta. Platform capabilities and signing differ; use the release notes for the build you download. There is no public iOS download yet.
 
-**sing-box** is the engine on the wire. The panel generates its config and
-ships sing-box-shaped subscription URLs.
+## Run your own service
 
-### Supported protocols
-
-| Family      | Variants                                                      |
-| ----------- | ------------------------------------------------------------- |
-| VLESS       | Reality, WebSocket, HTTPUpgrade, gRPC                         |
-| Hysteria2   | UDP, congestion control                                        |
-| TUIC        | v5                                                             |
-| Shadowsocks | 2022                                                          |
-| NaiveProxy  | HTTP/3                                                         |
-| VMess       | TCP / WebSocket                                                |
-| Trojan      | TLS / WebSocket                                                |
-| AmneziaWG   | WireGuard with obfuscation (gated, see `docs/`)                |
-
----
-
-## Quick start
-
-The installer is the only thing an operator needs:
+Start with the [deployment guide](docs/DEPLOYMENT.md) for server requirements and configuration. On your server, launch the installer:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/semanticparadox/caramba/main/scripts/install.sh | sudo bash
 ```
 
-It detects the role from flags, downloads the right binary, writes the systemd
-unit, generates `.env`, runs migrations, and starts the service. To upgrade
-later: `sudo caramba upgrade`. To roll back: `sudo caramba upgrade --to v0.9.49`.
+Choose a compact installation or distribute services across several hosts. The installer handles installation and upgrades; the panel handles day-to-day administration.
 
-### Deployment modes
+The server platform uses [sing-box](https://sing-box.sagernet.org/), with VLESS Reality, Hysteria2, TUIC and other supported transports. See the [protocol guide](docs/protocols.md) for configuration details.
 
-| Mode        | Topology                                              | Use case                              |
-| ----------- | ----------------------------------------------------- | ------------------------------------- |
-| **Hub**     | Panel + Sub (+ Bot) on one host                       | Quick start, tests, small installs    |
-| **Distributed** | Panel on a controller, Sub / Bot / Node on separate hosts | Production, isolation, scaling    |
+## Explore
 
-See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full topology and the
-[release workflow](.github/workflows/release.yml) for the supply-chain
-hardening (SHA-256 manifest verified before the installer is executed as root).
-
----
-
-## Architecture
-
-```
-┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
-│  caramba-panel   │◄──►│  caramba-sub     │◄──►│  caramba-node    │
-│  (Axum + pg/redis)│   │  (subscription)  │    │  (sing-box)      │
-└────────┬─────────┘    └──────────────────┘    └──────────────────┘
-         │                                              ▲
-         ▼                                              │
-┌──────────────────┐                          ┌──────────────────┐
-│  caramba-bot     │                          │  caramba-node    │
-│  (Teloxide)      │                          │  (on each node)  │
-└────────┬─────────┘                          └──────────────────┘
-         │
-         ▼
-┌──────────────────┐
-│  caramba-app     │   Telegram Mini App (React + TS)
-└──────────────────┘
-```
-
-Layout:
-
-```
-apps/
-  caramba-panel/         admin UI, APIs, orchestration
-  caramba-node/          node agent (sing-box + heartbeats + self-update)
-  caramba-sub/           subscription edge
-  caramba-bot/           Telegram bot
-  caramba-installer/     `caramba` CLI (install / upgrade / doctor / …)
-  caramba-app/           Telegram Mini App (React + TS)
-libs/
-  caramba-db/            sqlx models, repositories, migrations
-  caramba-shared/        shared types, license verification
-docs/                    user-facing docs + vendored sing-box 1.13 reference
-scripts/                 install.sh
-```
-
----
-
-## Development
-
-```bash
-# Rust check + clippy + test (fast — no live DB required)
-cargo check --workspace
-cargo test --workspace
-cd apps/caramba-app && npm run build
-```
-
-Local run:
-
-```bash
-cargo run -p caramba-panel
-cargo run -p caramba-sub
-cargo run -p caramba-bot
-cargo run -p caramba-node
-```
-
-### Build profile
-
-The release profile is heavy by design — LTO, `opt-level = "z"`, `strip`,
-single codegen unit. **Release builds are slow.** Use `cargo check` for
-dev loops and let CI build the artifacts. `cargo build --release` locally
-is wasteful.
-
-### CI
-
-`.github/workflows/ci.yml` runs on every push and PR:
-
-- `cargo fmt --all --check`
-- `cargo check --workspace --all-targets`
-- `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo test --workspace`
-- `flutter analyze` + `flutter test` for the Mini App (`allow-failure` until
-  the WIP client lands its first end-to-end tunnel)
-
-Release artifacts (`x86_64-unknown-linux-musl`, SHA-256 manifest) are built
-and published by `.github/workflows/release.yml` on `v*` tags.
-
----
-
-## Documentation
-
-| File                                    | What's in it                                      |
-| --------------------------------------- | ------------------------------------------------- |
-| [`docs/API.md`](docs/API.md)            | HTTP API surface (v1 + v2)                        |
-| [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | Environment variables and runtime config |
-| [`docs/DATABASE.md`](docs/DATABASE.md)  | Schema, migrations, key tables                    |
-| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Install, upgrade, backup, multi-host layout   |
-| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Build, test, contribution workflow         |
-| [`docs/MODULES.md`](docs/MODULES.md)    | Per-crate module tour                             |
-| [`docs/protocols.md`](docs/protocols.md) | sing-box protocol mappings                       |
-| [`docs/PAYPALYCH-API-SPEC.md`](docs/PAYPALYCH-API-SPEC.md) | Paypalych (pal24.pro) API reference |
-| [`docs/POST-INCIDENT-ROADMAP.md`](docs/POST-INCIDENT-ROADMAP.md) | Open work + lessons learned       |
-| [`docs/sing-box/`](docs/sing-box)       | Vendored sing-box 1.13 reference (en + zh)        |
-
-`AGENTS.md` (in this repo root) is the operator runbook for AI agents: ship
-flow, payment-provider checklist, sing-box safety, etc.
-
----
-
-## Status
-
-Beta. ~20 real users in production. The active maintainer ships from
-`main` via `v*` tags; `sudo caramba upgrade` is the deploy on every host.
+- [Install and operate](docs/DEPLOYMENT.md) — deployment, upgrades and backups.
+- [Configure your service](docs/CONFIGURATION.md) — runtime settings.
+- [Documentation](docs/README.md) — user, operator and developer guides.
+- [Develop Caramba](docs/DEVELOPMENT.md) — build, test and understand the source.
 
 ## License
 
-No `LICENSE` file yet — repository content is source-available, all rights
-reserved by default, until a license is added.
+No project license has been published yet. See the repository for available licensing information.

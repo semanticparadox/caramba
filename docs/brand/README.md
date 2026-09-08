@@ -1,26 +1,17 @@
-# Caramba visual identity exploration
+# Caramba visual identity
 
-Generated with the built-in ChatGPT image-generation tool on 2026-09-08.
-These are reviewable concepts, not yet installed launcher or panel assets.
-Existing application icons and tray status assets remain unchanged.
+A ship heading toward open water represents freedom of connection. The palette is charcoal and ivory; application status colors keep their existing meaning.
 
-## Proposed direction
+| Asset | Use |
+| --- | --- |
+| [Repository cover](caramba-cover.png) | Main repository presentation |
+| [Application icon master](caramba-icon.png) | Launcher icons, panel and application headers |
 
-A substantial two-masted ship represents a refuge of freedom on the internet.
-The product mark uses a strong monochrome silhouette. Repository artwork uses
-nautical engraving and interrupted chart boundaries. The existing application
-palette stays neutral; green, amber and red retain their status meanings.
+Artwork was generated with ChatGPT image generation on 2026-09-08. The canonical files above are the production export sources. Original explorations are retained locally in `.design/archive/`; this directory contains only the selected artwork.
 
-| Asset | File | Intended use |
-| --- | --- | --- |
-| Cover illustration | [Cover](generated/caramba-cover-concept-v1.png) | Repository cover / presentation hero |
-| Ship exploration | [Mark](generated/caramba-ship-mark-concept-v1.png) | Identity reference, transparent PNG |
-| Connect icon concept | [Icon](generated/caramba-connect-app-icon-concept-v1.png) | App icon master proposal |
+Use the high-resolution icon to export platform launcher sizes and smaller web assets. iOS exports must omit alpha. Preserve configured operator branding inside the applications. Application integration is maintained alongside each application's source.
 
-The image tool produced a transparent background for the mark despite a white
-background prompt. This was inspected and preserved. Platform icon sizes,
-monochrome tray derivatives and a vector master still require production export
-and small-size verification before installation.
+Tray connection-state symbols remain separate functional assets. The icon master is raster artwork with antialiased tonal variation, not a two-color vector logo.
 
 ## Prompt set
 
@@ -41,5 +32,4 @@ text. Intended for recognition at 24 px and 1024 px. Requested white background.
 near-black edge-to-edge background, centered off-white ship with generous margins.
 Simplify to two major sails, preserve angular hull and staggered masts. Wide gaps,
 no hairlines, text, baked-in rounded corners, frame, gloss or perspective tile.
-Intended to remain recognizable at 32 px. The current raster is a concept and
-has not yet been certified against the exact two-color production requirement.
+Intended to remain recognizable at 32 px. The raster preserves the generated illustration; native sizes are mechanically exported.
