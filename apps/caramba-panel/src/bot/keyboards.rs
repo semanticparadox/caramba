@@ -95,17 +95,17 @@ pub async fn guide_index_button(
     ]]))
 }
 
-/// Кнопка «Скачать для Android» — к сообщению со ссылкой входа.
+/// Кнопка-ссылка «Скачать для Android».
 ///
 /// Адрес APK задаёт оператор в Settings → «Caramba Connect app — download
 /// links»; пусто или не https — кнопки нет. Требование https не косметическое:
 /// по кнопке человек ставит себе APK, и отдавать его по открытому каналу
 /// значит разрешить подменить установочный файл по дороге. Telegram к тому же
 /// не примет URL-кнопку с посторонней схемой.
-pub async fn app_download_keyboard(
+async fn app_download_url_button(
     settings: &crate::settings::SettingsService,
     lang: Lang,
-) -> Option<InlineKeyboardMarkup> {
+) -> Option<InlineKeyboardButton> {
     let url = settings
         .get_or_default("app_download_url_android", "")
         .await;
@@ -113,9 +113,61 @@ pub async fn app_download_keyboard(
     if parsed.scheme() != "https" {
         return None;
     }
-    Some(InlineKeyboardMarkup::new(vec![vec![
-        InlineKeyboardButton::url(t(lang, "app.download_android_btn"), parsed),
-    ]]))
+    Some(InlineKeyboardButton::url(
+        t(lang, "app.download_android_btn"),
+        parsed,
+    ))
+}
+
+/// Только кнопка-ссылка, без выдачи файла.
+///
+/// Нужна запасному пути в `apk_delivery`: сообщение «файла в Telegram нет» не
+/// может нести кнопку «получить файл в Telegram» — она вернула бы человека в
+/// то же самое сообщение по кругу.
+pub async fn app_download_url_keyboard(
+    settings: &crate::settings::SettingsService,
+    lang: Lang,
+) -> Option<InlineKeyboardMarkup> {
+    let button = app_download_url_button(settings, lang).await?;
+    Some(InlineKeyboardMarkup::new(vec![vec![button]]))
+}
+
+/// Способы забрать приложение — к сообщению со ссылкой входа.
+///
+/// Две строки, обе необязательные: ссылка на домен панели и выдача APK файлом
+/// прямо в Telegram. ПОРЯДОК НЕ СЛУЧАЕН: ссылка отдаёт всегда свежую сборку с
+/// сервера, файл в Telegram — ту, что владелец загрузил руками, поэтому ссылка
+/// остаётся первой, пока работает. Вторая строка — страховка ровно на тот
+/// случай, ради которого всё затевалось: домен заблокирован, а Telegram у
+/// человека очевидно работает, раз он читает это сообщение.
+///
+/// Кнопка выдачи файла появляется только когда `file_id` действительно записан
+/// (см. `apk_delivery`): кнопка, которая отвечает «файла нет», хуже отсутствия
+/// кнопки. Если не настроено ничего — клавиатуры нет вовсе.
+pub async fn app_download_keyboard(
+    settings: &crate::settings::SettingsService,
+    lang: Lang,
+) -> Option<InlineKeyboardMarkup> {
+    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+    if let Some(button) = app_download_url_button(settings, lang).await {
+        rows.push(vec![button]);
+    }
+    let has_file = !settings
+        .get_or_default(crate::bot::apk_delivery::SETTING_APK_FILE_ID, "")
+        .await
+        .trim()
+        .is_empty();
+    if has_file {
+        rows.push(vec![InlineKeyboardButton::callback(
+            t(lang, "app.apk_tg_btn"),
+            "apk_send",
+        )]);
+    }
+    if rows.is_empty() {
+        None
+    } else {
+        Some(InlineKeyboardMarkup::new(rows))
+    }
 }
 
 /// Инлайн-клавиатура «прислать заново» — висит ТОЛЬКО на сообщении с кодом

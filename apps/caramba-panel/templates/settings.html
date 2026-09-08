@@ -172,6 +172,29 @@
                                 placeholder="https://…" class="input-field">
                         </div>
                         </div>
+
+                        <!-- APK, который бот раздаёт по file_id (K1 apk_delivery.rs) в обход блокировки домена.
+                             Ключи хранятся строковыми литералами — общий контракт с ботом, без общего кода. -->
+                        <div class="mt-4 flex items-center justify-between gap-4 p-4 bg-black/20 border border-border-default rounded-2xl">
+                            <div>
+                                <span class="block text-xs text-slate-400 font-medium">Telegram APK (Android)</span>
+                                {% if apk_tg_uploaded_android %}
+                                <span class="block text-[11px] text-slate-500 mt-1">{{ apk_tg_file_name_android }}, {{ apk_tg_file_size_mb_android }} МБ, загружен {{ apk_tg_uploaded_at_display_android }}</span>
+                                {% else %}
+                                <span class="block text-[11px] text-slate-500 mt-1">не загружен — отправьте APK боту от имени админа</span>
+                                {% endif %}
+                            </div>
+                            {% if apk_tg_uploaded_android %}
+                            <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                                <input type="checkbox" form="main-settings-form" name="apk_tg_forget_android"
+                                    value="true" class="sr-only peer">
+                                <div
+                                    class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-500 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand">
+                                </div>
+                                <span class="ml-3 text-[10px] text-slate-500 uppercase tracking-widest font-bold whitespace-nowrap">Забыть файл</span>
+                            </label>
+                            {% endif %}
+                        </div>
                     </div>
 
                     <div class="pt-6 border-t border-border-default">

@@ -4058,19 +4058,114 @@ fn accept_download_url(raw: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
+/// Каталог, из которого панель раздаёт файлы клиента. Тот же относительный
+/// путь, что и у раздачи в `main.rs`
+/// (`.nest_service("/downloads", ServeDir::new("apps/caramba-panel/downloads"))`).
+/// Относительный намеренно: сервис запускается с WorkingDirectory=/opt/caramba,
+/// и если считать наличие файла по абсолютному пути, ответ API и реальная
+/// раздача разъедутся на нестандартном каталоге установки.
+const CLIENT_DOWNLOADS_DIR: &str = "apps/caramba-panel/downloads";
+
+/// Имена файлов клиента для платформы в порядке предпочтения — ровно те, что
+/// кладёт инсталлятор при апгрейде. iOS в списке нет: там App Store, файла на
+/// диске панели не бывает никогда.
+fn platform_download_files(platform: &str) -> &'static [&'static str] {
+    match platform {
+        // arm64 первым: armv7 — запасной вариант для старых устройств, и если
+        // лежат оба, ссылку нужно давать на основной.
+        "android" => &["caramba-connect-arm64.apk", "caramba-connect-armv7.apk"],
+        "windows" => &["caramba-connect-windows-x64.zip"],
+        "macos" => &["caramba-connect-macos-arm64.dmg"],
+        "linux" => &["caramba-connect-linux-x64.tar.gz"],
+        _ => &[],
+    }
+}
+
+/// Первый файл клиента этой платформы, реально лежащий в каталоге раздачи.
+fn local_download_file(platform: &str) -> Option<&'static str> {
+    platform_download_files(platform)
+        .iter()
+        .copied()
+        .find(|name| {
+            std::path::Path::new(CLIENT_DOWNLOADS_DIR)
+                .join(name)
+                .is_file()
+        })
+}
+
+/// Origin панели из сырого значения настройки.
+///
+/// Повторяет `app_enroll::connector_origin`: та же настройка `panel_url`, тот
+/// же запасной `PANEL_URL`, тот же отказ на пустом значении и на «localhost».
+/// Это не случайное дублирование: ссылка на APK и ссылка `caramba://connect`
+/// обязаны вести на один хост, иначе человек скачает клиент с одной панели, а
+/// подключится к другой.
+fn panel_origin_from(raw: &str) -> Option<String> {
+    let raw = raw.trim().trim_end_matches('/');
+    if raw.is_empty() || raw == "localhost" {
+        return None;
+    }
+    Some(if raw.starts_with("http") {
+        raw.to_string()
+    } else {
+        format!("https://{raw}")
+    })
+}
+
+async fn panel_origin(state: &AppState) -> Option<String> {
+    let configured = state.settings.get_or_default("panel_url", "").await;
+    if let Some(origin) = panel_origin_from(&configured) {
+        return Some(origin);
+    }
+    panel_origin_from(&env::var("PANEL_URL").unwrap_or_default())
+}
+
+/// Выбор адреса загрузки для одной платформы — чистая функция, чтобы правило
+/// приоритета можно было проверить тестом без БД и без диска.
+///
+/// Настройка сильнее файла на диске: оператор мог намеренно увести загрузку на
+/// зеркало или в магазин. Поэтому заданная, но битая настройка (http, пробел
+/// внутри) НЕ подменяется локальным файлом — иначе опечатка останется
+/// незамеченной, кнопка будет работать и вести не туда, куда просил оператор.
+fn resolve_app_download_url(
+    configured: &str,
+    panel_origin: Option<&str>,
+    local_file: Option<&str>,
+) -> Option<String> {
+    if !configured.trim().is_empty() {
+        return accept_download_url(configured);
+    }
+    // Собранный адрес проходит ту же проверку, что и введённый руками: если
+    // panel_url записан как http, ссылку отдавать нельзя — мини-апп внутри
+    // Telegram её всё равно не откроет.
+    accept_download_url(&format!("{}/downloads/{}", panel_origin?, local_file?))
+}
+
 /// GET /api/client/app/downloads — где скачать Caramba Connect.
 ///
 /// Адреса задаёт оператор в Settings → «Caramba Connect app — download links».
+/// Если адрес не задан, но инсталлятор уже положил файл клиента в каталог
+/// раздачи, отдаём ссылку на саму панель — типовая установка тогда работает
+/// без единой настройки.
+///
 /// Отсутствие ключа — не ошибка: по такой платформе мини-апп показывает
 /// «скоро», поэтому пустой объект здесь нормальный ответ, а не отказ.
 async fn get_app_downloads(State(state): State<AppState>) -> impl IntoResponse {
+    let origin = panel_origin(&state).await;
     let mut out = serde_json::Map::new();
     for key in APP_DOWNLOAD_PLATFORMS {
         let raw = state
             .settings
             .get_or_default(&format!("app_download_url_{key}"), "")
             .await;
-        if let Some(url) = accept_download_url(&raw) {
+        // Диск трогаем только когда настройка пуста: при заданном адресе
+        // результат от файла не зависит, а обработчик асинхронный.
+        let local = if raw.trim().is_empty() {
+            local_download_file(key)
+        } else {
+            None
+        };
+        if let Some(url) = resolve_app_download_url(&raw, origin.as_deref(), local) {
             out.insert(key.to_string(), Value::String(url));
         }
     }
@@ -4130,7 +4225,10 @@ async fn post_app_connect_link(
 
 #[cfg(test)]
 mod app_download_tests {
-    use super::{APP_DOWNLOAD_PLATFORMS, accept_download_url};
+    use super::{
+        APP_DOWNLOAD_PLATFORMS, accept_download_url, panel_origin_from, platform_download_files,
+        resolve_app_download_url,
+    };
 
     #[test]
     fn accepts_https_url_and_drops_surrounding_spaces() {
@@ -4158,5 +4256,90 @@ mod app_download_tests {
             APP_DOWNLOAD_PLATFORMS,
             ["android", "ios", "windows", "macos", "linux"]
         );
+    }
+
+    #[test]
+    fn setting_beats_the_file_on_disk() {
+        assert_eq!(
+            resolve_app_download_url(
+                " https://mirror.example/app.apk ",
+                Some("https://panel.example"),
+                Some("caramba-connect-arm64.apk"),
+            )
+            .as_deref(),
+            Some("https://mirror.example/app.apk")
+        );
+    }
+
+    #[test]
+    fn broken_setting_is_not_masked_by_the_file_on_disk() {
+        assert_eq!(
+            resolve_app_download_url(
+                "http://mirror.example/app.apk",
+                Some("https://panel.example"),
+                Some("caramba-connect-arm64.apk"),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn empty_setting_falls_back_to_the_panel_downloads_url() {
+        assert_eq!(
+            resolve_app_download_url(
+                "   ",
+                Some("https://panel.exarobot.top"),
+                Some("caramba-connect-arm64.apk"),
+            )
+            .as_deref(),
+            Some("https://panel.exarobot.top/downloads/caramba-connect-arm64.apk")
+        );
+    }
+
+    #[test]
+    fn without_a_file_or_without_an_origin_there_is_no_url() {
+        assert_eq!(
+            resolve_app_download_url("", Some("https://panel.example"), None),
+            None
+        );
+        assert_eq!(
+            resolve_app_download_url("", None, Some("caramba-connect-arm64.apk")),
+            None
+        );
+    }
+
+    #[test]
+    fn http_panel_url_does_not_produce_a_download_link() {
+        assert_eq!(
+            resolve_app_download_url(
+                "",
+                Some("http://panel.example"),
+                Some("caramba-connect-arm64.apk"),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn panel_origin_adds_https_and_strips_the_trailing_slash() {
+        assert_eq!(
+            panel_origin_from(" panel.exarobot.top/ ").as_deref(),
+            Some("https://panel.exarobot.top")
+        );
+        assert_eq!(
+            panel_origin_from("https://panel.exarobot.top/").as_deref(),
+            Some("https://panel.exarobot.top")
+        );
+        assert_eq!(panel_origin_from(""), None);
+        assert_eq!(panel_origin_from("localhost"), None);
+    }
+
+    #[test]
+    fn android_prefers_arm64_and_ios_has_no_local_file() {
+        assert_eq!(
+            platform_download_files("android").first().copied(),
+            Some("caramba-connect-arm64.apk")
+        );
+        assert!(platform_download_files("ios").is_empty());
     }
 }

@@ -792,6 +792,10 @@ translations! {
     "login.get_code_btn" => { ru: "🔁 Прислать заново", en: "🔁 Send again" },
     // Адрес APK задаёт оператор в настройках (`app_download_url_android`).
     "app.download_android_btn" => { ru: "📲 Скачать для Android", en: "📲 Download for Android" },
+    // Выдача установщика файлом прямо в Telegram — путь в обход блокировки
+    // домена панели (см. `bot::apk_delivery`). Кнопка появляется, только когда
+    // владелец загрузил APK боту.
+    "app.apk_tg_btn" => { ru: "📦 Получить APK в Telegram", en: "📦 Get the APK in Telegram" },
 
     // =========================================================================
     // Уведомления: подписка, трафик, баланс

@@ -30,6 +30,7 @@ enum MenuAction {
     Devices,
     Leaderboard,
     Login,
+    Apk,
 }
 
 fn menu_action(text: &str) -> Option<MenuAction> {
@@ -46,6 +47,10 @@ fn menu_action(text: &str) -> Option<MenuAction> {
         "/devices" => return Some(Devices),
         "/leaderboard" => return Some(Leaderboard),
         "/login" => return Some(Login),
+        // Установщик файлом прямо в чат. Кнопки в меню нет намеренно: путь
+        // нужен тем, у кого не открылась ссылка на домен панели, и они приходят
+        // сюда по подсказке из мини-аппа или из подписи в чате.
+        "/apk" => return Some(Apk),
         _ => {}
     }
 
@@ -531,6 +536,18 @@ pub async fn message_handler(
         return Ok(());
     }
 
+    // Приём APK от владельца.
+    //
+    // Ветка стоит ДО разбора текста, потому что у сообщения с документом текста
+    // нет вообще — весь конвейер ниже такое сообщение просто не видит, и до
+    // этой ветки документы молча пропадали. Здесь поведение для посторонних
+    // ровно такое же (ничего), а для админа с файлом `*.apk` — запоминание
+    // `file_id` (подробности и «зачем» — в `bot::apk_delivery`).
+    if msg.document().is_some() {
+        crate::bot::apk_delivery::handle_admin_document(&bot, &msg, &state).await;
+        return Ok(());
+    }
+
     if let Some(text) = msg.text() {
         // 1. Resolve User (Handle /start upsert or fetch existing)
         let user_res = if text.starts_with("/start") {
@@ -803,6 +820,25 @@ pub async fn message_handler(
                         .await;
                 }
 
+                // Диплинк `/start apk` — человек пришёл по кнопке «Получить в
+                // Telegram» из мини-аппа. Обработан здесь, а не отдельной
+                // веткой выше, намеренно: до этой точки уже пройдены все шлюзы
+                // (бан, выбор языка, соглашение) и отправлено обычное
+                // приветствие, так что пришедший по ссылке новичок видит тот же
+                // порядок сообщений, что и все, плюс файл следом.
+                //
+                // Регистрацию параметр не ломает: `resolve_referrer_id` не
+                // находит `apk` ни среди tg_id, ни среди реферальных, ни среди
+                // партнёрских кодов и возвращает None — то же, что и любой
+                // другой неизвестный код.
+                if text
+                    .strip_prefix("/start ")
+                    .map(|param| param.trim().eq_ignore_ascii_case("apk"))
+                    .unwrap_or(false)
+                {
+                    crate::bot::apk_delivery::send_apk(&bot, msg.chat.id, lang, &state).await;
+                }
+
                 return Ok(());
             }
         } else if !text.starts_with("/start") {
@@ -1048,22 +1084,10 @@ pub async fn message_handler(
 
         // Admin Commands
         if text.starts_with("/admin") {
-            // Verify Admin
-            // Admins table stores usernames; resolve Telegram user by tg_id, then match by username.
-            let is_admin: bool = sqlx::query_scalar(
-                r#"
-                SELECT EXISTS(
-                    SELECT 1
-                    FROM admins a
-                    JOIN users u ON u.username = a.username
-                    WHERE u.tg_id = $1
-                )
-                "#,
-            )
-            .bind(tg_id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap_or(false);
+            // Verify Admin. Запрос вынесен в `bot::apk_delivery::is_bot_admin`:
+            // приём установщика гейтится тем же правом, и две копии одного
+            // условия неизбежно разъехались бы.
+            let is_admin = crate::bot::apk_delivery::is_bot_admin(&state.pool, tg_id).await;
 
             if !is_admin {
                 // Silent ignore or "Unknown command"
@@ -1623,6 +1647,10 @@ pub async fn message_handler(
                 // запасным путём: ссылка бесполезна там, где приложение не
                 // перехватывает схему caramba:// (десктоп, старая сборка).
                 send_login_code(&bot, &state, msg.chat.id, tg_id).await;
+            }
+
+            MenuAction::Apk => {
+                crate::bot::apk_delivery::send_apk(&bot, msg.chat.id, lang, &state).await;
             }
         }
     }
