@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIconFile</key>
+	<string></string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<!-- Зачем явное имя, а не $(PRODUCT_NAME): PRODUCT_NAME задаёт имя .app
+	     (caramba_client.app), на него завязаны scripts/build.sh и ci-desktop.sh,
+	     менять его нельзя. А CFBundleName это то, что пользователь видит в
+	     строке меню и в «О программе», и там должно стоять название продукта.
+	     FlutterAppDelegate подставляет его же в пункты меню приложения. -->
+	<key>CFBundleName</key>
+	<string>Caramba Connect</string>
+	<key>CFBundleDisplayName</key>
+	<string>Caramba Connect</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<!-- Встроенный диплинкинг Flutter выключен намеренно — та же причина, что и
+	     в android/app/src/main/AndroidManifest.xml: иначе фреймворк шлёт ссылку
+	     в маршрутизатор второй раз, уже как локацию, и затирает переход
+	     DeepLinkHandler. Разбор схем живёт в Dart. -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
+	<!-- Две схемы намеренно, как и на iOS: caramba://connect это нынешняя
+	     ссылка-приглашение, carambaconnect:// остаётся ради уже разосланных. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.caramba.connect.link</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>caramba</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.caramba.connect.enroll</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>carambaconnect</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>$(PRODUCT_COPYRIGHT)</string>
+	<key>NSMainNibFile</key>
+	<string>MainMenu</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+</dict>
+</plist>

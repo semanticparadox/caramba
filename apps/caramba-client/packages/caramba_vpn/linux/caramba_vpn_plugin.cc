@@ -46,12 +46,27 @@ struct _CarambaVpnPlugin {
   gchar* panel_url;
   gchar* subscription_id;
   gchar* access_token;
+  // Остаток сессии. access живёт ~15 минут, и без refresh ядру нечем его
+  // продлить: через четверть часа каждый его запрос к панели получал 401 без
+  // пути назад. access_expiry_unix — unix-секунды; 0 означает «не знаю», и
+  // тогда ядро берёт срок из claim exp самого JWT.
+  gchar* refresh_token;
+  int64_t access_expiry_unix;
   gboolean configured;
+
+  // ABI v2: политика и способ захвата, заданные до создания ядра. Применяются
+  // в ensure_core (и сразу, если ядро уже есть).
+  gchar* policy_json;   // owned; NULL/"" — политика не задавалась
+  gchar* tunnel_mode;   // owned; NULL/"" — режим по умолчанию (tun)
+  int mixed_port;
 };
 
 G_DEFINE_TYPE(CarambaVpnPlugin, caramba_vpn_plugin, g_object_get_type())
 
 // --- helpers -----------------------------------------------------------------
+
+// Определено ниже: ensure_core зовёт его раньше по тексту файла.
+static gboolean push_seam(CarambaVpnPlugin* self);
 
 // take_string copies an FFI-owned C string and frees it via CarambaFreeString.
 // Returns a newly allocated string (free with g_free), or NULL.
@@ -106,6 +121,31 @@ static void emit_stage(CarambaVpnPlugin* self, const char* stage,
   }
 }
 
+// apply_policy пушит накопленный CorePolicy JSON в ядро (ABI v2). No-op, если
+// политики нет, ядро не создано, или символа нет в библиотеке.
+static void apply_policy(CarambaVpnPlugin* self) {
+  if (self->handle == 0 || self->ffi.SetPolicy == NULL) {
+    return;
+  }
+  if (self->policy_json == NULL || self->policy_json[0] == '\0') {
+    return;
+  }
+  drop_string(self, self->ffi.SetPolicy(self->handle, self->policy_json));
+}
+
+// apply_tunnel_mode пушит способ захвата трафика (ABI v2). No-op при тех же
+// условиях, что и apply_policy.
+static void apply_tunnel_mode(CarambaVpnPlugin* self) {
+  if (self->handle == 0 || self->ffi.SetTunnelMode == NULL) {
+    return;
+  }
+  if (self->tunnel_mode == NULL || self->tunnel_mode[0] == '\0') {
+    return;
+  }
+  drop_string(self, self->ffi.SetTunnelMode(self->handle, self->tunnel_mode,
+                                            self->mixed_port));
+}
+
 // ensure_core dlopens libcaramba_core.so and creates the handle. Emits an error
 // stage and returns FALSE on failure.
 static gboolean ensure_core(CarambaVpnPlugin* self) {
@@ -125,39 +165,68 @@ static gboolean ensure_core(CarambaVpnPlugin* self) {
     emit_stage(self, "error", "exarobot core init failed");
     return FALSE;
   }
-  if (!self->configured && self->ffi.Configure != NULL &&
+  if (!self->configured &&
       ((self->panel_url != NULL && self->panel_url[0] != '\0') ||
        (self->access_token != NULL && self->access_token[0] != '\0'))) {
-    drop_string(self, self->ffi.Configure(
-                          self->handle,
-                          self->panel_url != NULL ? self->panel_url : "",
-                          self->subscription_id != NULL ? self->subscription_id
-                                                        : "",
-                          self->access_token != NULL ? self->access_token
-                                                     : ""));
-    self->configured = TRUE;
+    self->configured = push_seam(self);
   }
+  // ABI v2: политика и режим захвата применяются сразу после создания ядра,
+  // до любого Up. Отсутствующий символ (старый бинарь) молча пропускаем —
+  // ошибку покажет отдельный вызов setPolicy/setTunnelMode из Dart.
+  apply_policy(self);
+  apply_tunnel_mode(self);
   return TRUE;
+}
+
+// push_seam отдаёт сохранённый шов уже существующему ядру.
+//
+// Символ ABI v4 несёт refresh и срок, трёхаргументный — ни того, ни другого.
+// Откатиться на него, держа в руках refresh, значит молча отдать ядру сессию,
+// которую оно не сможет продлить: поломка всплывёт через 15 минут и совсем не
+// здесь. Поэтому откат допустим ТОЛЬКО когда терять нечего.
+static gboolean push_seam(CarambaVpnPlugin* self) {
+  const gchar* panel = self->panel_url != NULL ? self->panel_url : "";
+  const gchar* sub =
+      self->subscription_id != NULL ? self->subscription_id : "";
+  const gchar* access = self->access_token != NULL ? self->access_token : "";
+  const gchar* refresh = self->refresh_token != NULL ? self->refresh_token : "";
+  if (self->ffi.ConfigureSession != NULL) {
+    drop_string(self, self->ffi.ConfigureSession(self->handle, panel, sub,
+                                                 access, refresh,
+                                                 self->access_expiry_unix));
+    return TRUE;
+  }
+  if (self->ffi.Configure != NULL && refresh[0] == '\0') {
+    drop_string(self, self->ffi.Configure(self->handle, panel, sub, access));
+    return TRUE;
+  }
+  if (self->ffi.Configure != NULL) {
+    emit_stage(self, "error",
+               "exarobot core is too old for the session seam (rebuild it)");
+  }
+  return FALSE;
 }
 
 // caramba_configure stores the auth/config seam and pushes it into the core if
 // it already exists (re-configure after a token refresh).
 static void caramba_configure(CarambaVpnPlugin* self, const gchar* panel_url,
                               const gchar* subscription_id,
-                              const gchar* access_token) {
+                              const gchar* access_token,
+                              const gchar* refresh_token,
+                              int64_t access_expiry_unix) {
   g_clear_pointer(&self->panel_url, g_free);
   g_clear_pointer(&self->subscription_id, g_free);
   g_clear_pointer(&self->access_token, g_free);
+  g_clear_pointer(&self->refresh_token, g_free);
   self->panel_url = g_strdup(panel_url != NULL ? panel_url : "");
   self->subscription_id =
       g_strdup(subscription_id != NULL ? subscription_id : "");
   self->access_token = g_strdup(access_token != NULL ? access_token : "");
+  self->refresh_token = g_strdup(refresh_token != NULL ? refresh_token : "");
+  self->access_expiry_unix = access_expiry_unix;
   self->configured = FALSE;
-  if (self->handle != 0 && self->ffi.Configure != NULL) {
-    drop_string(self, self->ffi.Configure(self->handle, self->panel_url,
-                                          self->subscription_id,
-                                          self->access_token));
-    self->configured = TRUE;
+  if (self->handle != 0) {
+    self->configured = push_seam(self);
   }
 }
 
@@ -282,7 +351,7 @@ static void caramba_connect(CarambaVpnPlugin* self, const gchar* server_id) {
 // формата format в mihomo-конфиг и держит его как импортированный источник, после
 // чего Up("") поднимает именно его (у raw-источника узла подписки нет).
 static void caramba_connect_raw(CarambaVpnPlugin* self, const gchar* raw_config,
-                                const gchar* format) {
+                                const gchar* format, const gchar* server_id) {
   emit_stage(self, "connecting", NULL);
   if (!ensure_core(self)) {
     return;
@@ -312,9 +381,11 @@ static void caramba_connect_raw(CarambaVpnPlugin* self, const gchar* raw_config,
   // SetTunFd returns NULL on success or an FFI-owned error string; drop it.
   drop_string(self, self->ffi.SetTunFd(self->handle, -1));
 
-  // Up("") поднимает импортированный конфиг. Как и в caramba_connect, результат
-  // всегда non-NULL JSON — проверяем поле "error", а не NULL.
-  gchar* up_json = take_string(self, self->ffi.Up(self->handle, ""));
+  // Up поднимает импортированный конфиг. serverId (ABI v2) прикрепляет селектор
+  // CARAMBA к конкретному узлу; пусто — автоматический выбор. Как и в
+  // caramba_connect, результат всегда non-NULL JSON — проверяем поле "error".
+  gchar* up_json = take_string(
+      self, self->ffi.Up(self->handle, server_id != NULL ? server_id : ""));
   gchar* up_error =
       up_json != NULL ? caramba_json_get_string(up_json, "error") : NULL;
   if (up_json == NULL || up_error != NULL) {
@@ -338,6 +409,155 @@ static void caramba_disconnect(CarambaVpnPlugin* self) {
 }
 
 // method_call_cb dispatches connect / disconnect / status.
+// lookup_string достаёт строковое поле из карты аргументов канала. NULL, когда
+// поля нет или его тип другой: подставлять пустую строку молча значило бы
+// отправить ядру запрос, которого никто не делал.
+static const gchar* lookup_string(FlValue* args, const gchar* key) {
+  if (args == NULL || fl_value_get_type(args) != FL_VALUE_TYPE_MAP) {
+    return NULL;
+  }
+  FlValue* v = fl_value_lookup_string(args, key);
+  if (v == NULL || fl_value_get_type(v) != FL_VALUE_TYPE_STRING) {
+    return NULL;
+  }
+  return fl_value_get_string(v);
+}
+
+// caramba_csm_call перекладывает один вызов ABI v3 в ядро. Аргумент собирается в
+// строку JSON той же формы, что читает ядро, ответ отдаётся строкой без
+// перекодирования: разбирает его Dart, и вторая точка разбора здесь означала бы
+// вторую версию формы.
+static FlMethodResponse* caramba_csm_call(CarambaVpnPlugin* self,
+                                          const gchar* method, FlValue* args) {
+  if (!ensure_core(self)) {
+    return FL_METHOD_RESPONSE(fl_method_error_response_new(
+        "core_missing", "exarobot core library not found", NULL));
+  }
+  caramba_json_call_fn fn = NULL;
+  const gchar* symbol = NULL;
+  g_autofree gchar* payload = NULL;
+
+  if (g_strcmp0(method, "deviceKeygen") == 0) {
+    fn = self->ffi.DeviceKeygen;
+    symbol = "CarambaDeviceKeygen";
+    payload = g_strdup("{\"purpose\":\"sign\",\"require_hardware\":true}");
+  } else if (g_strcmp0(method, "deviceSign") == 0) {
+    fn = self->ffi.DeviceSign;
+    symbol = "CarambaDeviceSign";
+    // Экранируется, а не склеивается: значение приходит по каналу без
+    // проверки, и одна двойная кавычка закрыла бы литерал, позволив
+    // вызывающему дописать соседние поля в DeviceSignRequest.
+    g_autofree gchar* message =
+        caramba_json_escape(lookup_string(args, "messageB64"));
+    payload = g_strdup_printf("{\"message_b64\":%s}", message);
+  } else if (g_strcmp0(method, "deviceAgree") == 0) {
+    fn = self->ffi.DeviceAgree;
+    symbol = "CarambaDeviceAgree";
+    const gchar* peer = lookup_string(args, "peerPubB64");
+    int rkv = 0;
+    if (args != NULL && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+      FlValue* v = fl_value_lookup_string(args, "rkv");
+      if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_INT) {
+        rkv = (int)fl_value_get_int(v);
+      }
+    }
+    g_autofree gchar* peer_json = caramba_json_escape(peer);
+    payload =
+        g_strdup_printf("{\"rkv\":%d,\"peer_pub_b64\":%s}", rkv, peer_json);
+  } else if (g_strcmp0(method, "csmEnroll") == 0) {
+    fn = self->ffi.CsmEnroll;
+    symbol = "CarambaCsmEnroll";
+    const gchar* json = lookup_string(args, "json");
+    payload = g_strdup(json != NULL ? json : "{}");
+  } else if (g_strcmp0(method, "csmSetLadder") == 0) {
+    fn = self->ffi.CsmSetLadder;
+    symbol = "CarambaCsmSetLadder";
+    const gchar* json = lookup_string(args, "json");
+    payload = g_strdup(json != NULL ? json : "{}");
+  } else if (g_strcmp0(method, "csmAnswerCatalogChange") == 0) {
+    fn = self->ffi.CsmAnswerCatalogChange;
+    symbol = "CarambaCsmAnswerCatalogChange";
+    const gchar* json = lookup_string(args, "json");
+    payload = g_strdup(json != NULL ? json : "{}");
+  } else if (g_strcmp0(method, "csmSelectProfile") == 0) {
+    // 02-SPEC.md 1.2: хранилище состояния профиля ОБЯЗАНО ключеваться по pid.
+    fn = self->ffi.CsmSelectProfile;
+    symbol = "CarambaCsmSelectProfile";
+    const gchar* key = lookup_string(args, "profileKey");
+    payload = g_strdup(key != NULL ? key : "");
+  } else {
+    fn = self->ffi.CsmRequestSettings;
+    symbol = "CarambaCsmRequestSettings";
+    const gchar* json = lookup_string(args, "json");
+    payload = g_strdup(json != NULL ? json : "{}");
+  }
+
+  if (fn == NULL) {
+    g_autofree gchar* message =
+        g_strdup_printf("%s is missing (core predates ABI v3)", symbol);
+    return FL_METHOD_RESPONSE(
+        fl_method_error_response_new("core_missing", message, NULL));
+  }
+  gchar* out = take_string(self, fn(self->handle, payload));
+  g_autoptr(FlValue) value = fl_value_new_string(out != NULL ? out : "");
+  g_free(out);
+  return FL_METHOD_RESPONSE(fl_method_success_response_new(value));
+}
+
+// caramba_csm_read отдаёт то, что ядро уже проверило: ни сокета, ни применения.
+// Снимок состояния несёт проекцию доверенного каталога, без которой клиенту
+// нечем заметить сужение защиты, приходящее в каталоге, а не в настройке
+// (02-SPEC.md 7.7.1); вызов лестницы поднимает ЛОКАЛЬНУЮ историю попыток,
+// которую INV-17 требует показать, а 02-SPEC.md 7.10 запрещает сообщать
+// оператору.
+static FlMethodResponse* caramba_csm_read(CarambaVpnPlugin* self,
+                                          const gchar* method) {
+  if (!ensure_core(self)) {
+    return FL_METHOD_RESPONSE(fl_method_error_response_new(
+        "core_missing", "exarobot core library not found", NULL));
+  }
+  gboolean ladder = g_strcmp0(method, "csmLadder") == 0;
+  caramba_handle_call_fn fn = ladder ? self->ffi.CsmLadder : self->ffi.CsmState;
+  if (fn == NULL) {
+    g_autofree gchar* message = g_strdup_printf(
+        "%s is missing (core predates ABI v3)",
+        ladder ? "CarambaCsmLadder" : "CarambaCsmState");
+    return FL_METHOD_RESPONSE(
+        fl_method_error_response_new("core_missing", message, NULL));
+  }
+  gchar* out = take_string(self, fn(self->handle));
+  g_autoptr(FlValue) value = fl_value_new_string(out != NULL ? out : "");
+  g_free(out);
+  return FL_METHOD_RESPONSE(fl_method_success_response_new(value));
+}
+
+// caramba_csm_refresh выполняет один цикл выборки документов. Отказ НЕ означает
+// потерю конфигурации: профиль остаётся на кешированных документах и продолжает
+// подключать (INV-16).
+static FlMethodResponse* caramba_csm_refresh(CarambaVpnPlugin* self,
+                                             FlValue* args) {
+  if (!ensure_core(self)) {
+    return FL_METHOD_RESPONSE(fl_method_error_response_new(
+        "core_missing", "exarobot core library not found", NULL));
+  }
+  if (self->ffi.CsmRefresh == NULL) {
+    return FL_METHOD_RESPONSE(fl_method_error_response_new(
+        "core_missing", "CarambaCsmRefresh is missing (core predates ABI v3)",
+        NULL));
+  }
+  int timeout = 30;
+  if (args != NULL && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+    FlValue* v = fl_value_lookup_string(args, "timeoutSec");
+    if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_INT) {
+      timeout = (int)fl_value_get_int(v);
+    }
+  }
+  gchar* out = take_string(self, self->ffi.CsmRefresh(self->handle, timeout));
+  g_autoptr(FlValue) value = fl_value_new_string(out != NULL ? out : "");
+  g_free(out);
+  return FL_METHOD_RESPONSE(fl_method_success_response_new(value));
+}
+
 static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
                            gpointer user_data) {
   CarambaVpnPlugin* self = CARAMBA_VPN_PLUGIN(user_data);
@@ -350,6 +570,8 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
     const gchar* panel_url = NULL;
     const gchar* subscription_id = NULL;
     const gchar* access_token = NULL;
+    const gchar* refresh_token = NULL;
+    int64_t access_expiry_unix = 0;
     if (args != NULL && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
       FlValue* v = fl_value_lookup_string(args, "panelUrl");
       if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_STRING) {
@@ -368,8 +590,20 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
       if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_STRING) {
         access_token = fl_value_get_string(v);
       }
+      // Отсутствуют у вызывающего, собранного до сессионного шва: пустой
+      // refresh деградирует к прежнему 15-минутному поведению, а не роняет
+      // вызов.
+      v = fl_value_lookup_string(args, "refreshToken");
+      if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_STRING) {
+        refresh_token = fl_value_get_string(v);
+      }
+      v = fl_value_lookup_string(args, "accessExpiryUnix");
+      if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_INT) {
+        access_expiry_unix = fl_value_get_int(v);
+      }
     }
-    caramba_configure(self, panel_url, subscription_id, access_token);
+    caramba_configure(self, panel_url, subscription_id, access_token,
+                      refresh_token, access_expiry_unix);
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(NULL));
   } else if (g_strcmp0(method, "connect") == 0) {
     const gchar* server_id = NULL;
@@ -384,6 +618,7 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
   } else if (g_strcmp0(method, "connectRaw") == 0) {
     const gchar* raw_config = NULL;
     const gchar* format = NULL;
+    const gchar* server_id = NULL;
     if (args != NULL && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
       FlValue* v = fl_value_lookup_string(args, "rawConfig");
       if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_STRING) {
@@ -393,10 +628,130 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
       if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_STRING) {
         format = fl_value_get_string(v);
       }
+      // ABI v2: serverId прикрепляет селектор CARAMBA к узлу импорта.
+      v = fl_value_lookup_string(args, "serverId");
+      if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_STRING) {
+        server_id = fl_value_get_string(v);
+      }
       // label — только для отображения профиля; ядру не передаётся.
     }
-    caramba_connect_raw(self, raw_config, format);
+    caramba_connect_raw(self, raw_config, format, server_id);
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(NULL));
+  } else if (g_strcmp0(method, "importSubscription") == 0) {
+    // Generic-режим: разобрать подписку и вернуть метаданные БЕЗ поднятия
+    // туннеля. Ядро уже загружено (или создаётся здесь) — тот же handle, что
+    // потом поднимет connectRaw, поэтому импорт остаётся активным конфигом.
+    const gchar* raw_config = NULL;
+    const gchar* format = NULL;
+    if (args != NULL && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+      FlValue* v = fl_value_lookup_string(args, "rawConfig");
+      if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_STRING) {
+        raw_config = fl_value_get_string(v);
+      }
+      v = fl_value_lookup_string(args, "format");
+      if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_STRING) {
+        format = fl_value_get_string(v);
+      }
+    }
+    if (!ensure_core(self)) {
+      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "core_missing", "exarobot core library not found", NULL));
+    } else {
+      gchar* json = take_string(
+          self, self->ffi.ImportSubscription(
+                    self->handle, raw_config != NULL ? raw_config : "",
+                    format != NULL ? format : ""));
+      g_autoptr(FlValue) out = fl_value_new_string(json != NULL ? json : "");
+      g_free(json);
+      response = FL_METHOD_RESPONSE(fl_method_success_response_new(out));
+    }
+  } else if (g_strcmp0(method, "probe") == 0) {
+    int timeout_ms = 5000;
+    if (args != NULL && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+      FlValue* v = fl_value_lookup_string(args, "timeoutMs");
+      if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_INT) {
+        timeout_ms = (int)fl_value_get_int(v);
+      }
+    }
+    if (!ensure_core(self)) {
+      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "core_missing", "exarobot core library not found", NULL));
+    } else if (self->ffi.Probe == NULL) {
+      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "core_missing", "CarambaProbe is missing (core predates ABI v2)",
+          NULL));
+    } else {
+      gchar* json = take_string(self, self->ffi.Probe(self->handle, timeout_ms));
+      g_autoptr(FlValue) out = fl_value_new_string(json != NULL ? json : "");
+      g_free(json);
+      response = FL_METHOD_RESPONSE(fl_method_success_response_new(out));
+    }
+  } else if (g_strcmp0(method, "setPolicy") == 0) {
+    const gchar* json = NULL;
+    if (args != NULL && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+      FlValue* v = fl_value_lookup_string(args, "json");
+      if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_STRING) {
+        json = fl_value_get_string(v);
+      }
+    }
+    g_clear_pointer(&self->policy_json, g_free);
+    self->policy_json = g_strdup(json != NULL ? json : "");
+    if (self->handle != 0 && self->ffi.SetPolicy == NULL) {
+      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "core_missing", "CarambaSetPolicy is missing (core predates ABI v2)",
+          NULL));
+    } else {
+      apply_policy(self);
+      response = FL_METHOD_RESPONSE(fl_method_success_response_new(NULL));
+    }
+  } else if (g_strcmp0(method, "setTunnelMode") == 0) {
+    const gchar* mode = NULL;
+    int port = 7890;
+    if (args != NULL && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+      FlValue* v = fl_value_lookup_string(args, "mode");
+      if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_STRING) {
+        mode = fl_value_get_string(v);
+      }
+      v = fl_value_lookup_string(args, "port");
+      if (v != NULL && fl_value_get_type(v) == FL_VALUE_TYPE_INT) {
+        port = (int)fl_value_get_int(v);
+      }
+    }
+    g_clear_pointer(&self->tunnel_mode, g_free);
+    self->tunnel_mode = g_strdup(mode != NULL ? mode : "tun");
+    self->mixed_port = port;
+    if (self->handle != 0 && self->ffi.SetTunnelMode == NULL) {
+      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "core_missing",
+          "CarambaSetTunnelMode is missing (core predates ABI v2)", NULL));
+    } else {
+      apply_tunnel_mode(self);
+      response = FL_METHOD_RESPONSE(fl_method_success_response_new(NULL));
+    }
+  } else if (g_strcmp0(method, "deviceKeygen") == 0 ||
+             g_strcmp0(method, "deviceSign") == 0 ||
+             g_strcmp0(method, "deviceAgree") == 0 ||
+             g_strcmp0(method, "csmRequestSettings") == 0 ||
+             g_strcmp0(method, "csmEnroll") == 0 ||
+             g_strcmp0(method, "csmSetLadder") == 0 ||
+             g_strcmp0(method, "csmAnswerCatalogChange") == 0 ||
+             g_strcmp0(method, "csmSelectProfile") == 0) {
+    // CSM/1, ABI v3. На десктопе аппаратного хранилища ключей нет, поэтому
+    // ядро держит их программно и ЧЕСТНО докладывает уровень 3. Символы всё
+    // равно поддерживаются: поверхность одна на всех пяти мостах, и приложение
+    // не разветвляется по платформе ради того, чтобы узнать отпечаток своего
+    // устройства.
+    //
+    // Запись настроек идёт ЧЕРЕЗ ЯДРО, а не собственным сокетом отсюда:
+    // управляющий слой со своими сокетами обходит лестницу транспортов, и
+    // приложение вырождается в ступень R0, пока ядро лезет по лестнице за
+    // конфигурацией, которую ему больше нечем изменить (02-SPEC.md 8.9).
+    response = caramba_csm_call(self, method, args);
+  } else if (g_strcmp0(method, "csmState") == 0 ||
+             g_strcmp0(method, "csmLadder") == 0) {
+    response = caramba_csm_read(self, method);
+  } else if (g_strcmp0(method, "csmRefresh") == 0) {
+    response = caramba_csm_refresh(self, args);
   } else if (g_strcmp0(method, "disconnect") == 0) {
     caramba_disconnect(self);
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(NULL));
@@ -466,6 +821,9 @@ static void caramba_vpn_plugin_dispose(GObject* object) {
   g_clear_pointer(&self->panel_url, g_free);
   g_clear_pointer(&self->subscription_id, g_free);
   g_clear_pointer(&self->access_token, g_free);
+  g_clear_pointer(&self->refresh_token, g_free);
+  g_clear_pointer(&self->policy_json, g_free);
+  g_clear_pointer(&self->tunnel_mode, g_free);
   G_OBJECT_CLASS(caramba_vpn_plugin_parent_class)->dispose(object);
 }
 
@@ -485,7 +843,12 @@ static void caramba_vpn_plugin_init(CarambaVpnPlugin* self) {
   self->panel_url = NULL;
   self->subscription_id = NULL;
   self->access_token = NULL;
+  self->refresh_token = NULL;
+  self->access_expiry_unix = 0;
   self->configured = FALSE;
+  self->policy_json = NULL;
+  self->tunnel_mode = NULL;
+  self->mixed_port = 7890;
 }
 
 void caramba_vpn_plugin_register_with_registrar(FlPluginRegistrar* registrar) {

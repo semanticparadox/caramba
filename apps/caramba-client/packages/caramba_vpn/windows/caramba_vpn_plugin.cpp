@@ -45,6 +45,45 @@ std::string ArgString(const flutter::EncodableMap* args, const char* key) {
   return std::string();
 }
 
+// Reads an int argument from a MethodCall argument map; fallback if absent.
+int ArgInt(const flutter::EncodableMap* args, const char* key, int fallback) {
+  if (args == nullptr) {
+    return fallback;
+  }
+  auto it = args->find(flutter::EncodableValue(key));
+  if (it == args->end()) {
+    return fallback;
+  }
+  if (const auto* i = std::get_if<int32_t>(&it->second)) {
+    return *i;
+  }
+  if (const auto* i = std::get_if<int64_t>(&it->second)) {
+    return static_cast<int>(*i);
+  }
+  return fallback;
+}
+
+// Reads a 64-bit int argument. Separate from ArgInt because the one caller is a
+// unix timestamp: truncating it to 32 bits works until 2038 and then quietly
+// reports every session as long expired.
+int64_t ArgInt64(const flutter::EncodableMap* args, const char* key,
+                 int64_t fallback) {
+  if (args == nullptr) {
+    return fallback;
+  }
+  auto it = args->find(flutter::EncodableValue(key));
+  if (it == args->end()) {
+    return fallback;
+  }
+  if (const auto* i = std::get_if<int32_t>(&it->second)) {
+    return *i;
+  }
+  if (const auto* i = std::get_if<int64_t>(&it->second)) {
+    return *i;
+  }
+  return fallback;
+}
+
 }  // namespace
 
 void CarambaVpnPlugin::RegisterWithRegistrar(
@@ -242,7 +281,11 @@ void CarambaVpnPlugin::HandleMethodCall(
       subscription_id = ArgString(args, "subscriptionId");
     }
     const std::string access_token = ArgString(args, "accessToken");
-    Configure(panel_url, subscription_id, access_token);
+    // Absent from a caller built before the session seam: an empty refresh
+    // degrades to the old 15-minute behaviour instead of failing the call.
+    const std::string refresh_token = ArgString(args, "refreshToken");
+    Configure(panel_url, subscription_id, access_token, refresh_token,
+              ArgInt64(args, "accessExpiryUnix", 0));
     result->Success();
     return;
   }
@@ -255,9 +298,197 @@ void CarambaVpnPlugin::HandleMethodCall(
   if (method == "connectRaw") {
     const std::string raw_config = ArgString(args, "rawConfig");
     const std::string format = ArgString(args, "format");
-    // "label" is display-only (profile name); the tunnel has no subscription
-    // node, so it is not forwarded to the core here.
-    ConnectRaw(raw_config, format);
+    // "label" is display-only (profile name) and is not forwarded to the core.
+    // "serverId" (ABI v2) pins the CARAMBA selector to one node of the imported
+    // config; empty keeps the automatic choice.
+    ConnectRaw(raw_config, format, ArgString(args, "serverId"));
+    result->Success();
+    return;
+  }
+  // --- generic mode (ABI v2) -------------------------------------------------
+  if (method == "importSubscription") {
+    // Parse a subscription and return its metadata WITHOUT raising the tunnel.
+    // Uses the same core handle a later connectRaw will raise, so the import
+    // stays the active config.
+    if (!EnsureCore()) {
+      result->Error("core_missing", "exarobot core library not found");
+      return;
+    }
+    const std::string json = core_.TakeString(core_.ImportSubscription(
+        handle_, ArgString(args, "rawConfig").c_str(),
+        ArgString(args, "format").c_str()));
+    result->Success(flutter::EncodableValue(json));
+    return;
+  }
+  if (method == "probe") {
+    if (!EnsureCore()) {
+      result->Error("core_missing", "exarobot core library not found");
+      return;
+    }
+    if (core_.Probe == nullptr) {
+      result->Error("core_missing",
+                    "CarambaProbe is missing (core predates ABI v2)");
+      return;
+    }
+    const std::string json = core_.TakeString(
+        core_.Probe(handle_, ArgInt(args, "timeoutMs", 5000)));
+    result->Success(flutter::EncodableValue(json));
+    return;
+  }
+  // --- CSM/1 device keys and the settings write (ABI v3) ---------------------
+  //
+  // Windows has no hardware key store the core can reach, so the core holds the
+  // device keys in software and reports tier 3 HONESTLY rather than claiming
+  // hardware. The symbols exist anyway: the surface is the same on all five
+  // bridges, and the app does not branch by platform just to learn its own
+  // device thumbprint.
+  //
+  // The settings write goes THROUGH THE CORE, never through a socket opened
+  // here: a control plane with its own sockets bypasses the transport ladder,
+  // and the app degenerates to rung R0 while the core is still climbing for a
+  // configuration it can no longer change (02-SPEC.md 8.9).
+  if (method == "deviceKeygen" || method == "deviceSign" ||
+      method == "deviceAgree" || method == "csmRequestSettings" ||
+      method == "csmEnroll" || method == "csmSetLadder" ||
+      method == "csmAnswerCatalogChange") {
+    if (!EnsureCore()) {
+      result->Error("core_missing", "exarobot core library not found");
+      return;
+    }
+    CarambaCoreFfi::JsonCallFn fn = nullptr;
+    const char* symbol = nullptr;
+    std::string payload;
+    if (method == "deviceKeygen") {
+      fn = core_.DeviceKeygen;
+      symbol = "CarambaDeviceKeygen";
+      payload = R"({"purpose":"sign","require_hardware":true})";
+    } else if (method == "deviceSign") {
+      fn = core_.DeviceSign;
+      symbol = "CarambaDeviceSign";
+      // Escaped, never concatenated raw: the value arrives on the channel
+      // unvalidated, and one double quote would otherwise close the literal
+      // and let the caller write sibling fields into DeviceSignRequest.
+      payload = R"({"message_b64":)" +
+                json::EscapeString(ArgString(args, "messageB64")) + "}";
+    } else if (method == "deviceAgree") {
+      fn = core_.DeviceAgree;
+      symbol = "CarambaDeviceAgree";
+      payload = R"({"rkv":)" + std::to_string(ArgInt(args, "rkv", 0)) +
+                R"(,"peer_pub_b64":)" +
+                json::EscapeString(ArgString(args, "peerPubB64")) + "}";
+    } else if (method == "csmEnroll") {
+      fn = core_.CsmEnroll;
+      symbol = "CarambaCsmEnroll";
+      payload = ArgString(args, "json");
+      if (payload.empty()) {
+        payload = "{}";
+      }
+    } else if (method == "csmSetLadder") {
+      fn = core_.CsmSetLadder;
+      symbol = "CarambaCsmSetLadder";
+      payload = ArgString(args, "json");
+      if (payload.empty()) {
+        payload = "{}";
+      }
+    } else if (method == "csmAnswerCatalogChange") {
+      fn = core_.CsmAnswerCatalogChange;
+      symbol = "CarambaCsmAnswerCatalogChange";
+      payload = ArgString(args, "json");
+      if (payload.empty()) {
+        payload = "{}";
+      }
+    } else {
+      fn = core_.CsmRequestSettings;
+      symbol = "CarambaCsmRequestSettings";
+      payload = ArgString(args, "json");
+      if (payload.empty()) {
+        payload = "{}";
+      }
+    }
+    if (fn == nullptr) {
+      result->Error("core_missing", std::string(symbol) +
+                                        " is missing (core predates ABI v3)");
+      return;
+    }
+    const std::string json = core_.TakeString(fn(handle_, payload.c_str()));
+    result->Success(flutter::EncodableValue(json));
+    return;
+  }
+  // Reads of what the core already verified: no socket, nothing applied. The
+  // state snapshot carries the trusted catalog's resource projection, without
+  // which the client cannot notice the posture narrowing that arrives in the
+  // catalog rather than in a setting (02-SPEC.md 7.7.1); the ladder call lifts
+  // the LOCAL attempt history, which INV-17 requires on screen and 02-SPEC.md
+  // 7.10 forbids reporting to the operator.
+  if (method == "csmRefresh") {
+    if (!EnsureCore()) {
+      result->Error("core_missing", "exarobot core library not found");
+      return;
+    }
+    if (core_.CsmRefresh == nullptr) {
+      result->Error("core_missing",
+                    "CarambaCsmRefresh is missing (core predates ABI v3)");
+      return;
+    }
+    const std::string json = core_.TakeString(core_.CsmRefresh(
+        handle_, static_cast<int>(ArgInt(args, "timeoutSec", 30))));
+    result->Success(flutter::EncodableValue(json));
+    return;
+  }
+  if (method == "csmSelectProfile") {
+    // 02-SPEC.md 1.2: every profile state store MUST be keyed by pid. One
+    // store per app would put the second operator's pinned root, device
+    // registration and monotonic marks on top of the first operator's.
+    if (!EnsureCore()) {
+      result->Error("core_missing", "exarobot core library not found");
+      return;
+    }
+    if (core_.CsmSelectProfile == nullptr) {
+      result->Error("core_missing",
+                    "CarambaCsmSelectProfile is missing (core predates ABI v3)");
+      return;
+    }
+    const std::string json = core_.TakeString(
+        core_.CsmSelectProfile(handle_, ArgString(args, "profileKey").c_str()));
+    result->Success(flutter::EncodableValue(json));
+    return;
+  }
+  if (method == "csmState" || method == "csmLadder") {
+    if (!EnsureCore()) {
+      result->Error("core_missing", "exarobot core library not found");
+      return;
+    }
+    const bool ladder = method == "csmLadder";
+    CarambaCoreFfi::HandleCallFn fn = ladder ? core_.CsmLadder : core_.CsmState;
+    if (fn == nullptr) {
+      result->Error("core_missing",
+                    std::string(ladder ? "CarambaCsmLadder" : "CarambaCsmState") +
+                        " is missing (core predates ABI v3)");
+      return;
+    }
+    result->Success(flutter::EncodableValue(core_.TakeString(fn(handle_))));
+    return;
+  }
+  if (method == "setPolicy") {
+    policy_json_ = ArgString(args, "json");
+    if (handle_ != 0 && core_.SetPolicy == nullptr) {
+      result->Error("core_missing",
+                    "CarambaSetPolicy is missing (core predates ABI v2)");
+      return;
+    }
+    ApplyPolicy();
+    result->Success();
+    return;
+  }
+  if (method == "setTunnelMode") {
+    tunnel_mode_ = ArgString(args, "mode");
+    mixed_port_ = ArgInt(args, "port", 7890);
+    if (handle_ != 0 && core_.SetTunnelMode == nullptr) {
+      result->Error("core_missing",
+                    "CarambaSetTunnelMode is missing (core predates ABI v2)");
+      return;
+    }
+    ApplyTunnelMode();
     result->Success();
     return;
   }
@@ -286,19 +517,45 @@ void CarambaVpnPlugin::HandleMethodCall(
 
 void CarambaVpnPlugin::Configure(const std::string& panel_url,
                                  const std::string& subscription_id,
-                                 const std::string& access_token) {
+                                 const std::string& access_token,
+                                 const std::string& refresh_token,
+                                 int64_t access_expiry_unix) {
   panel_url_ = panel_url;
   subscription_id_ = subscription_id;
   access_token_ = access_token;
+  refresh_token_ = refresh_token;
+  access_expiry_unix_ = access_expiry_unix;
   configured_ = false;  // re-apply on (re)creation / next EnsureCore.
   // If the core already exists (re-configure after a token refresh), push the
   // new seam immediately.
-  if (handle_ != 0 && core_.Configure != nullptr) {
+  if (handle_ != 0) {
+    configured_ = PushSeam();
+  }
+}
+
+bool CarambaVpnPlugin::PushSeam() {
+  // ABI v4 carries the refresh token and the expiry; the 3-arg symbol carries
+  // neither. Falling back to it while holding a refresh token would silently
+  // hand the core a session it cannot renew — the failure would surface fifteen
+  // minutes later as an unrecoverable 401, nowhere near this line — so the
+  // fallback is taken ONLY when there is nothing to lose.
+  if (core_.ConfigureSession != nullptr) {
+    core_.DropString(core_.ConfigureSession(
+        handle_, panel_url_.c_str(), subscription_id_.c_str(),
+        access_token_.c_str(), refresh_token_.c_str(), access_expiry_unix_));
+    return true;
+  }
+  if (core_.Configure != nullptr && refresh_token_.empty()) {
     core_.DropString(core_.Configure(handle_, panel_url_.c_str(),
                                      subscription_id_.c_str(),
                                      access_token_.c_str()));
-    configured_ = true;
+    return true;
   }
+  if (core_.Configure != nullptr) {
+    EmitStage("error",
+              "exarobot core is too old for the session seam (rebuild it)");
+  }
+  return false;
 }
 
 bool CarambaVpnPlugin::EnsureCore() {
@@ -317,14 +574,30 @@ bool CarambaVpnPlugin::EnsureCore() {
     EmitStage("error", "exarobot core init failed");
     return false;
   }
-  if (!configured_ && core_.Configure != nullptr &&
-      (!panel_url_.empty() || !access_token_.empty())) {
-    core_.DropString(core_.Configure(handle_, panel_url_.c_str(),
-                                     subscription_id_.c_str(),
-                                     access_token_.c_str()));
-    configured_ = true;
+  if (!configured_ && (!panel_url_.empty() || !access_token_.empty())) {
+    configured_ = PushSeam();
   }
+  // ABI v2: policy + capture mode go in right after the handle exists, before
+  // any Up. A missing symbol (pre-ABI-v2 core) is skipped silently here; the
+  // explicit setPolicy/setTunnelMode calls surface the error to Dart.
+  ApplyPolicy();
+  ApplyTunnelMode();
   return true;
+}
+
+void CarambaVpnPlugin::ApplyPolicy() {
+  if (handle_ == 0 || core_.SetPolicy == nullptr || policy_json_.empty()) {
+    return;
+  }
+  core_.DropString(core_.SetPolicy(handle_, policy_json_.c_str()));
+}
+
+void CarambaVpnPlugin::ApplyTunnelMode() {
+  if (handle_ == 0 || core_.SetTunnelMode == nullptr || tunnel_mode_.empty()) {
+    return;
+  }
+  core_.DropString(
+      core_.SetTunnelMode(handle_, tunnel_mode_.c_str(), mixed_port_));
 }
 
 void CarambaVpnPlugin::Connect(const std::string& server_id) {
@@ -356,7 +629,8 @@ void CarambaVpnPlugin::Connect(const std::string& server_id) {
 }
 
 void CarambaVpnPlugin::ConnectRaw(const std::string& raw_config,
-                                  const std::string& format) {
+                                  const std::string& format,
+                                  const std::string& server_id) {
   EmitStage("connecting", "");
 
   if (!EnsureCore()) {
@@ -380,9 +654,10 @@ void CarambaVpnPlugin::ConnectRaw(const std::string& raw_config,
   // Desktop: mihomo owns the TUN (wintun). Pass -1, never establish an fd here.
   core_.DropString(core_.SetTunFd(handle_, -1));
 
-  // Empty serverID: the imported config has no subscription node; the core
-  // raises the imported source. CarambaUp always returns non-NULL JSON.
-  std::string up_json = core_.TakeString(core_.Up(handle_, ""));
+  // serverID (ABI v2) pins the CARAMBA selector to one node of the imported
+  // config; empty keeps the automatic choice. CarambaUp always returns non-NULL
+  // JSON.
+  std::string up_json = core_.TakeString(core_.Up(handle_, server_id.c_str()));
   std::string up_error;
   if (up_json.empty() || json::GetString(up_json, "error", &up_error)) {
     EmitStage("error", up_error.empty() ? "tunnel failed to start" : up_error);

@@ -21,6 +21,7 @@
 #include <flutter/plugin_registrar_windows.h>
 
 #include <atomic>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -55,19 +56,36 @@ class CarambaVpnPlugin : public flutter::Plugin {
       const flutter::MethodCall<flutter::EncodableValue>& call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
 
-  // configure(panelUrl, subscriptionUuid|subscriptionId, accessToken): store
-  // the auth/config seam and push it into the core (CarambaConfigure). Called
-  // before the first connect; idempotent.
+  // configure(panelUrl, subscriptionUuid|subscriptionId, accessToken,
+  // refreshToken, accessExpiryUnix): store the auth/config seam and push it into
+  // the core (CarambaConfigureSession). Called before the first connect;
+  // idempotent.
+  //
+  // The refresh token is part of the seam because the access token is good for
+  // ~15 minutes and the core is what has to keep working afterwards; without it
+  // every panel call the core makes after that window gets an unrecoverable 401.
   void Configure(const std::string& panel_url,
                  const std::string& subscription_id,
-                 const std::string& access_token);
+                 const std::string& access_token,
+                 const std::string& refresh_token,
+                 int64_t access_expiry_unix);
+  // Pushes the stored seam into the existing core handle, preferring the ABI v4
+  // symbol and falling back to the 3-arg one only when there is no refresh token
+  // to lose. Returns false when the core exports neither.
+  bool PushSeam();
   // connect(serverId, serverName, countryCode): ensure the core handle, set
   // tunFd = -1, bring the tunnel up, and start the poll loop.
   void Connect(const std::string& server_id);
-  // connectRaw(rawConfig, format, label): ensure the core handle, import the
-  // raw subscription, set tunFd = -1, bring the tunnel up with an empty
-  // serverId, and start the poll loop. Mirrors Connect for the rawSub path.
-  void ConnectRaw(const std::string& raw_config, const std::string& format);
+  // connectRaw(rawConfig, format, label, serverId): ensure the core handle,
+  // import the raw subscription, set tunFd = -1, bring the tunnel up (serverId
+  // is the ABI v2 pin of the CARAMBA selector to one node of the imported
+  // config; empty means automatic), and start the poll loop.
+  void ConnectRaw(const std::string& raw_config, const std::string& format,
+                  const std::string& server_id);
+  // ABI v2 policy + capture mode. Stored on the plugin and pushed into the core
+  // in EnsureCore (and immediately when the core already exists).
+  void ApplyPolicy();
+  void ApplyTunnelMode();
   // disconnect(): bring the tunnel down and stop the poll loop.
   void Disconnect();
 
@@ -131,7 +149,16 @@ class CarambaVpnPlugin : public flutter::Plugin {
   std::string panel_url_;
   std::string subscription_id_;
   std::string access_token_;
+  std::string refresh_token_;
+  int64_t access_expiry_unix_ = 0;
   bool configured_ = false;
+
+  // ABI v2 seam captured from setPolicy() / setTunnelMode() before the core
+  // exists. Empty policy_json_ means "not set"; tunnel_mode_ empty means the
+  // core default (tun).
+  std::string policy_json_;
+  std::string tunnel_mode_;
+  int mixed_port_ = 7890;
 };
 
 }  // namespace caramba_vpn

@@ -11,6 +11,11 @@
 // channel names and stage strings are the cross-platform federation contract
 // consumed unchanged by apps/caramba-client/lib/vpn/vpn_service.dart.
 
+#if os(iOS)
+import Flutter
+#elseif os(macOS)
+import FlutterMacOS
+#endif
 import Foundation
 
 /// Channel and key names shared across the Apple implementation.
@@ -37,12 +42,33 @@ enum CarambaVpnKeys {
     static let downTotal = "caramba.vpn.downTotal"       // Int64
     static let upTotal = "caramba.vpn.upTotal"           // Int64
 
+    // The loopback service inbound of the current raise, credential included
+    // (socks5://user:pass@127.0.0.1:port). Written by the extension after `up`,
+    // read by the plugin and handed straight to the CSM core's rung R4. Never
+    // forwarded to a Flutter sink.
+    static let loopbackProxy = "caramba.vpn.loopbackProxy"
+
+    // The `api.RouteReport` JSON of the LAST raise, written by the extension
+    // (the process whose core actually raised) and read by the plugin. Verbatim
+    // core output: nothing on this side parses or reshapes it.
+    static let routeReport = "caramba.vpn.routeReport"
+
     // Configuration handed from the app to the extension via providerConfiguration.
-    // The first three mirror the `configure` method-channel args; the rest carry
+    // The first five mirror the `configure` method-channel args; the rest carry
     // the connect args + optional policy.
     static let panelUrl = "panelUrl"            // Configure(panelURL, ...)
     static let subscriptionUuid = "subscriptionUuid" // Configure(_, subscriptionID, _)
     static let accessToken = "accessToken"      // Configure(_, _, accessToken) — JWT
+    // The rest of the session. The access token is good for ~15 minutes and the
+    // tunnel core lives in the network extension — a SEPARATE PROCESS with no
+    // Dart in it — so it cannot ask the app for a fresh one when that runs out.
+    // Without the refresh half every authenticated call the core makes fifteen
+    // minutes after connect gets a 401 it cannot recover from.
+    static let refreshToken = "refreshToken"    // Configure(_, _, _, refreshToken, _)
+    // Unix seconds; carried as a String because providerConfiguration is a
+    // plist (same as mixedPort). "" / "0" means "unknown" and lets the core read
+    // the JWT's own exp claim.
+    static let accessExpiryUnix = "accessExpiryUnix"
     static let serverId = "serverId"
     static let serverName = "serverName"
     static let countryCode = "countryCode"
@@ -59,6 +85,34 @@ enum CarambaVpnKeys {
     static let rawFormat = "format"
     static let rawLabel = "label"
     static let rawMode = "rawMode"
+
+    // ABI v2. `policyJson` is the CorePolicy JSON the extension feeds to
+    // `setPolicyJSON` before `up`; `tunnelMode` / `mixedPort` mirror
+    // `SetTunnelMode(mode, port)`. All three ride providerConfiguration, so they
+    // are stored as plist-safe values (String, String, String).
+    static let policyJson = "policyJson"
+    static let tunnelMode = "tunnelMode"
+    static let mixedPort = "mixedPort"
+
+    // Legacy alias for the subscription uuid. The app's VpnConfig.toArgs() and
+    // the plugin facade both send `subscriptionUuid`; older callers sent
+    // `subscriptionId`. Accept either on the `configure` channel.
+    static let subscriptionId = "subscriptionId"
+
+    // probe(timeoutMs) argument name on the method channel.
+    static let timeoutMs = "timeoutMs"
+
+    // CSM/1 device key arguments (ABI v3). The device key lives in the Secure
+    // Enclave and never crosses this channel: only the message to sign, the peer
+    // point and the results do.
+    static let messageB64 = "messageB64"
+    static let peerPubB64 = "peerPubB64"
+    static let rkv = "rkv"
+
+    // csmEnroll / csmSetLadder / csmAnswerCatalogChange carry one JSON string;
+    // csmRefresh a timeout; csmSelectProfile a local profile key.
+    static let timeoutSec = "timeoutSec"
+    static let csmProfileKey = "profileKey"
 }
 
 /// Tunnel stage strings. These MUST stay identical to the Dart `VpnStage` names
@@ -180,9 +234,64 @@ enum CarambaSharedState {
             upTotal: n(CarambaVpnKeys.upTotal))
     }
 
+    /// The loopback service inbound address, credential included, of the raise
+    /// that is up right now. Empty while the tunnel is down.
+    ///
+    /// It crosses the App Group for the same reason status does: the tunnel core
+    /// lives in the network extension and the CSM core lives in the plugin
+    /// process, and `up` is never called on the CSM core. Without the handoff,
+    /// that core's rung R4 is permanently `not_configured` and the ladder
+    /// silently degrades to R1 and R5 (02-SPEC.md 8.2).
+    ///
+    /// The value is a per-raise credential. It never reaches a Flutter sink: the
+    /// plugin reads it only to hand it straight back to the core.
+    static func writeLoopbackProxy(_ url: String) {
+        let d = CarambaAppGroup.defaults
+        if url.isEmpty {
+            d.removeObject(forKey: CarambaVpnKeys.loopbackProxy)
+        } else {
+            d.set(url, forKey: CarambaVpnKeys.loopbackProxy)
+        }
+    }
+
+    static func readLoopbackProxy() -> String {
+        CarambaAppGroup.defaults.string(forKey: CarambaVpnKeys.loopbackProxy) ?? ""
+    }
+
+    /// The routing report of the LAST raise, as the core produced it.
+    ///
+    /// It crosses the App Group for the same reason the loopback address does:
+    /// the core that raised lives in the network extension, the plugin that is
+    /// asked for the report lives in the app, and `up` is never called on the
+    /// app-process core. Asking that core would answer "no tunnel has been
+    /// raised by this core instance" for the life of the install — true of that
+    /// core, a lie about the device.
+    ///
+    /// The extension is the sole writer and refreshes it whenever the core's
+    /// answer changes, teardown included, so the `tunnel_up` inside the payload
+    /// stays the core's own reading rather than a frozen one.
+    static func writeRouteReport(_ json: String) {
+        let d = CarambaAppGroup.defaults
+        // An empty answer is NOT written over a real one: on the Dart side an
+        // empty string means "this build has no bridge", and the last raise
+        // having happened is a better answer than that.
+        guard !json.isEmpty else { return }
+        d.set(json, forKey: CarambaVpnKeys.routeReport)
+    }
+
+    static func readRouteReport() -> String {
+        CarambaAppGroup.defaults.string(forKey: CarambaVpnKeys.routeReport) ?? ""
+    }
+
     /// Resets shared state to the disconnected baseline (called on stop).
+    ///
+    /// The route report is deliberately NOT reset: it answers "what did the last
+    /// raise apply", which is exactly what is asked after the tunnel comes down.
+    /// The extension rewrites it during teardown so the payload's own
+    /// `tunnel_up` goes false with the tunnel.
     static func reset() {
         writeStatus(.disconnected)
         writeTraffic(.zero)
+        writeLoopbackProxy("")
     }
 }

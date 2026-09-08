@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:caramba_client/atmosphere/atmosphere_tokens.dart';
 import 'package:caramba_client/theme/colors.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
@@ -88,7 +89,12 @@ class AppTheme {
       canvasColor: c.bgCanvas,
       splashFactory: InkSparkle.splashFactory,
       textTheme: textTheme,
-      extensions: <ThemeExtension<dynamic>>[tokens],
+      extensions: <ThemeExtension<dynamic>>[
+        tokens,
+        b == Brightness.dark
+            ? AtmosphereTokens.dark()
+            : AtmosphereTokens.light(),
+      ],
 
       dividerTheme: DividerThemeData(
         color: c.borderSubtle,

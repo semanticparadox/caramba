@@ -1486,6 +1486,23 @@ impl StoreService {
         plan_id: i64,
         duration_days: i32,
     ) -> Result<Subscription> {
+        self.admin_gift_subscription_with_note(user_id, plan_id, duration_days, None)
+            .await
+    }
+
+    /// То же самое, но с пометкой в `subscriptions.note`.
+    ///
+    /// Пометка нужна тем выдачам, которые потом придётся отличать от ручного
+    /// подарка админа: сейчас это подарок при регистрации
+    /// (`welcome_gift::NOTE`). Отдельный метод, а не новый аргумент у старого,
+    /// чтобы не переписывать существующие вызовы ради `None`.
+    pub async fn admin_gift_subscription_with_note(
+        &self,
+        user_id: i64,
+        plan_id: i64,
+        duration_days: i32,
+        note: Option<&str>,
+    ) -> Result<Subscription> {
         let mut tx = self.pool.begin().await?;
         let active_nodes = self.node_repo.get_active_node_ids().await?;
         let node_id = active_nodes
@@ -1499,12 +1516,12 @@ impl StoreService {
 
         let sub = sqlx::query_as::<_, Subscription>(
             r#"
-            INSERT INTO subscriptions (user_id, plan_id, node_id, vless_uuid, expires_at, status, subscription_uuid, created_at)
-            VALUES ($1, $2, $3, $4, $5, 'active', $6, CURRENT_TIMESTAMP)
+            INSERT INTO subscriptions (user_id, plan_id, node_id, vless_uuid, expires_at, status, subscription_uuid, note, created_at)
+            VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, CURRENT_TIMESTAMP)
             RETURNING *
             "#
         )
-        .bind(user_id).bind(plan_id).bind(node_id).bind(vless_uuid).bind(expires_at).bind(sub_uuid)
+        .bind(user_id).bind(plan_id).bind(node_id).bind(vless_uuid).bind(expires_at).bind(sub_uuid).bind(note)
         .fetch_one(&mut *tx)
         .await?;
 

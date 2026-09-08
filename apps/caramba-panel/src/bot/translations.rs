@@ -173,7 +173,7 @@ translations! {
     "guides.linux" => { ru: "Linux", en: "Linux" },
     "guides.tv" => { ru: "Android TV", en: "Android TV" },
     "guides.router" => { ru: "Роутер и ручная настройка", en: "Router and manual setup" },
-    "menu.open_app" => { ru: "🔑 Войти в приложение", en: "🔑 Open in app" },
+    "menu.open_app" => { ru: "🔑 Войти в приложение", en: "🔑 Sign in to the app" },
     "menu.launch_app" => { ru: "🚀 Запустить", en: "🚀 Launch" },
 
     // =========================================================================
@@ -198,38 +198,64 @@ translations! {
     // {0} = имя пользователя (уже экранировано под HTML)
     "welcome.start" => {
         ru: "👋 <b>Привет, {0}!</b>\n\n\
-             Добро пожаловать в EXA ROBOT — ваш персональный VPN-сервис.\n\n\
-             📱 <b>Как подключиться:</b>\n\
-             1. Откройте Mini App кнопкой «Запустить» ниже\n\
-             2. Выберите и оплатите подходящий тариф\n\
-             3. Нажмите «Подключить в Hiddify» или «Подключить в Happ» — конфигурация импортируется автоматически\n\
-             4. Также вы можете нажать «Скопировать ссылку» и вставить её вручную в любое совместимое VPN-приложение (Hiddify, Happ, Streisand, V2rayNG, Koala Clash и др.)\n\n\
-             🌍 <b>Обход блокировок (Relay):</b>\n\
-             Если в вашей стране действуют интернет-блокировки или белые списки — \
-             откройте раздел «Выбрать сервер» и включите Relay для вашей страны. \
-             Relay направит трафик через промежуточный сервер в вашем регионе, \
-             что позволяет обойти ограничения.\n\
-             После любых изменений настроек обновите подписку в VPN-приложении \
-             (потяните вниз или удалите и добавьте профиль заново).\n\n\
-             📲 <b>Скачать приложение:</b>\n\
-             • Android/iOS — <a href=\"https://hiddify.com\">Hiddify</a>\n\
-             • Windows/macOS/Linux — <a href=\"https://github.com/coolcoala/koala-clash\">Koala Clash</a>",
+             <b>EXA ROBOT</b> — VPN, который подключается одной кнопкой и работает там, где другие молчат.\n\n\
+             <b>Что у нас есть</b>\n\
+             🚀 <b>Своё приложение Caramba Connect</b> — без ручных настроек: бот даёт ссылку, \
+             приложение открывает её и настраивает всё само.\n\
+             🧠 <b>Автоподбор</b> — приложение проверяет серверы, протоколы и маршруты \
+             и выбирает то, что работает прямо сейчас.\n\
+             🇷🇺 <b>Режимы для России, Беларуси и Ирана</b> и вход через relay в Москве — \
+             против белых списков и DPI.\n\
+             🌍 Выходы в 🇩🇪 Германии и 🇨🇦 Канаде, 15 входов: VLESS Reality, Hysteria2, TUIC, NaïveProxy.\n\
+             🛡 Блокировка рекламы и трекеров, правила по сайтам (что через VPN, а что напрямую), kill-switch.\n\
+             📦 Привычное приложение тоже подойдёт: Hiddify, Happ, Streisand, v2rayNG, Koala Clash — \
+             ссылка подписки универсальная.\n\n\
+             <b>Тарифы</b>\n\
+             🆓 Бесплатный — навсегда, 200 МБ в день.\n\
+             💎 Gold — безлимит и все серверы: от $4 за 30 дней, $6 за 60. Оплата: Telegram Stars и криптовалюта.\n\
+             🤝 Приведите друга — вам 20 % с его оплат, ему скидка 15 %.\n\n\
+             <b>Как начать</b>\n\
+             1. Нажмите «🔑 Войти в приложение» — бот пришлёт ссылку.\n\
+             2. Установите Caramba Connect (Android; iOS и десктоп — скоро) и откройте ссылку.\n\
+             3. Нажмите «Подключить». Всё.\n\n\
+             Тарифы, устройства и инструкции для других приложений — в приложении бота \
+             (кнопка меню слева от поля ввода).",
         en: "👋 <b>Hi, {0}!</b>\n\n\
-             Welcome to EXA ROBOT — your personal VPN service.\n\n\
-             📱 <b>How to connect:</b>\n\
-             1. Open the Mini App with the «Launch» button below\n\
-             2. Pick a plan and pay for it\n\
-             3. Tap «Connect in Hiddify» or «Connect in Happ» — the config is imported automatically\n\
-             4. You can also tap «Copy link» and paste it manually into any compatible VPN app (Hiddify, Happ, Streisand, V2rayNG, Koala Clash and others)\n\n\
-             🌍 <b>Bypassing blocks (Relay):</b>\n\
-             If your country filters the internet or uses allow-lists — open «Choose server» \
-             and enable Relay for your country. Relay routes traffic through an intermediate \
-             server in your region, which gets around the restrictions.\n\
-             After changing any settings, refresh the subscription in your VPN app \
-             (pull down, or remove and re-add the profile).\n\n\
-             📲 <b>Download the app:</b>\n\
-             • Android/iOS — <a href=\"https://hiddify.com\">Hiddify</a>\n\
-             • Windows/macOS/Linux — <a href=\"https://github.com/coolcoala/koala-clash\">Koala Clash</a>"
+             <b>EXA ROBOT</b> — a VPN that connects with one tap and keeps working where others go quiet.\n\n\
+             <b>What's inside</b>\n\
+             🚀 <b>Our own app, Caramba Connect</b> — no manual setup: the bot gives you a link, \
+             the app opens it and configures everything itself.\n\
+             🧠 <b>Autopilot</b> — the app probes servers, protocols and routes and picks what works right now.\n\
+             🇷🇺 <b>Modes for Russia, Belarus and Iran</b> plus a relay entry in Moscow — \
+             built for allow-lists and DPI.\n\
+             🌍 Exits in 🇩🇪 Germany and 🇨🇦 Canada, 15 entry points: VLESS Reality, Hysteria2, TUIC, NaïveProxy.\n\
+             🛡 Ad and tracker blocking, per-site rules (what goes through VPN and what goes direct), kill-switch.\n\
+             📦 Your usual app works too: Hiddify, Happ, Streisand, v2rayNG, Koala Clash — \
+             the subscription link is universal.\n\n\
+             <b>Plans</b>\n\
+             🆓 Free — forever, 200 MB a day.\n\
+             💎 Gold — unlimited, every server: from $4 for 30 days, $6 for 60. Pay with Telegram Stars or crypto.\n\
+             🤝 Bring a friend — you get 20% of their payments, they get 15% off.\n\n\
+             <b>Getting started</b>\n\
+             1. Tap «🔑 Sign in to the app» — the bot sends you a link.\n\
+             2. Install Caramba Connect (Android; iOS and desktop coming soon) and open the link.\n\
+             3. Tap «Connect». Done.\n\n\
+             Plans, devices and guides for other apps live in the bot's mini app \
+             (menu button left of the input field)."
+    },
+
+    // Строка акции для приветствия. НАМЕРЕННО отдельный ключ, а не часть
+    // `welcome.start`: акция управляется настройками `welcome_gift_*` и кончается
+    // по дате, а приветствие живёт вечно — вшитая в него строка врала бы
+    // каждому, кто нажмёт /start после окончания акции. Дописывается в command.rs.
+    //
+    // {0} = название плана (подставляется уже экранированным — оно из БД),
+    // {1} = срок подарка в днях.
+    "welcome.start_promo" => {
+        ru: "🎁 <b>Новым пользователям — {0} на {1} дней в подарок.</b> Безлимит и все серверы \
+             включаются сразу после регистрации, платить ничего не нужно.",
+        en: "🎁 <b>New users get {0} for {1} days as a gift.</b> Unlimited traffic and every server \
+             switch on right after signup — nothing to pay."
     },
     // Первое уведомление в инбокс Mini App после регистрации. {0} = имя.
     // Отправляется через notifications_svc.create → DM в MarkdownV2, поэтому
@@ -244,8 +270,45 @@ translations! {
     },
 
     "welcome.after_terms" => {
-        ru: "👋 <b>Добро пожаловать!</b>\n\nВыберите пункт меню ниже, чтобы управлять подписками и покупками.",
-        en: "👋 <b>Welcome!</b>\n\nUse the menu below to manage your VPN subscriptions and digital goods."
+        ru: "🎉 <b>Добро пожаловать в EXA ROBOT!</b>\n\n\
+             Самый короткий путь: нажмите «🔑 Войти в приложение», установите Caramba Connect \
+             и откройте ссылку — приложение само подберёт рабочий сервер и маршрут.\n\n\
+             Что ещё умеет сервис — /start. Вопросы — «❓ Поддержка».",
+        en: "🎉 <b>Welcome to EXA ROBOT!</b>\n\n\
+             The shortest path: tap «🔑 Sign in to the app», install Caramba Connect and open the link — \
+             the app finds a working server and route on its own.\n\n\
+             Everything else the service can do — /start. Questions — «❓ Support»."
+    },
+
+    // Подарок при регистрации (акция, см. `services::welcome_gift`). Уходит
+    // ОТДЕЛЬНЫМ сообщением сразу после `welcome.after_terms`: приветствие несёт
+    // клавиатуру меню, и подарок не должен зависеть от того, дошло ли оно.
+    //
+    // {0} = название плана (подставляется уже экранированным — оно из БД),
+    // {1} = срок подарка в днях, {2} = суточная квота бесплатного тарифа в МБ.
+    "welcome.gift_granted" => {
+        ru: "🎁 <b>Вам подарена подписка {0} на {1} дней</b>\n\n\
+             Безлимитный трафик и все серверы — уже включены, ничего оплачивать не нужно. \
+             Когда {1} дней закончатся, вы автоматически перейдёте на бесплатный тариф: {2} МБ в день.\n\n\
+             Если купите подписку раньше — оплаченные дни прибавятся к подарочным.",
+        en: "🎁 <b>You've received {0} for {1} days</b>\n\n\
+             Unlimited traffic and every server are already on — nothing to pay. \
+             When the {1} days are over, you'll switch to the free plan automatically: {2} MB per day.\n\n\
+             If you buy a subscription earlier, the paid days are added on top."
+    },
+    // Тот же текст, когда суточная квота бесплатного тарифа неизвестна
+    // (`WelcomeGift::free_daily_mb == None`): фраза без числа честнее, чем
+    // обещание «0 МБ в день». Отдельный ключ, а не пустая подстановка в {2},
+    // иначе в тексте осталось бы висячее двоеточие.
+    "welcome.gift_granted_nofree" => {
+        ru: "🎁 <b>Вам подарена подписка {0} на {1} дней</b>\n\n\
+             Безлимитный трафик и все серверы — уже включены, ничего оплачивать не нужно. \
+             Когда {1} дней закончатся, вы автоматически перейдёте на бесплатный тариф.\n\n\
+             Если купите подписку раньше — оплаченные дни прибавятся к подарочным.",
+        en: "🎁 <b>You've received {0} for {1} days</b>\n\n\
+             Unlimited traffic and every server are already on — nothing to pay. \
+             When the {1} days are over, you'll switch to the free plan automatically.\n\n\
+             If you buy a subscription earlier, the paid days are added on top."
     },
 
     // =========================================================================
@@ -719,13 +782,20 @@ translations! {
     "support.not_configured" => { ru: "❌ Контакт поддержки ещё не настроен.", en: "❌ Support contact is not configured yet." },
     "support.prompt" => { ru: "Нужна помощь? Нажмите кнопку ниже:", en: "Need help? Click the button below to contact support:" },
     "support.contact_btn" => { ru: "💬 Написать в поддержку", en: "💬 Contact support" },
-    "login.code_failed" => { ru: "⚠️ Не удалось создать код. Попробуйте чуть позже.", en: "⚠️ Could not generate a code. Please try again later." },
+    "login.code_failed" => { ru: "⚠️ Не получилось создать код. Попробуйте через минуту.", en: "⚠️ Couldn't create a code. Try again in a minute." },
     // {0} = шестизначный код
     "login.code" => {
-        ru: "🔑 <b>Ваш код для входа</b>\n\n<code>{0}</code>\n\nВведите его в приложении. Код действует 5 минут и срабатывает один раз.",
-        en: "🔑 <b>Your login code</b>\n\n<code>{0}</code>\n\nEnter it in the app. The code is valid for 5 minutes and works once."
+        ru: "🔑 <b>Код для входа</b>\n\n<code>{0}</code>\n\nЭто запасной способ — если ссылка не сработала. Введите код в приложении. Он действует 5 минут и только один раз.",
+        en: "🔑 <b>Sign-in code</b>\n\n<code>{0}</code>\n\nA fallback in case the link didn't work. Type the code in the app. It lasts 5 minutes and works once."
     },
-    "login.get_code_btn" => { ru: "🔑 Получить код для входа", en: "🔑 Get login code" },
+    // Кнопка под сообщением с кодом: присылает заново и ссылку, и код.
+    "login.get_code_btn" => { ru: "🔁 Прислать заново", en: "🔁 Send again" },
+    // Адрес APK задаёт оператор в настройках (`app_download_url_android`).
+    "app.download_android_btn" => { ru: "📲 Скачать для Android", en: "📲 Download for Android" },
+    // Выдача установщика файлом прямо в Telegram — путь в обход блокировки
+    // домена панели (см. `bot::apk_delivery`). Кнопка появляется, только когда
+    // владелец загрузил APK боту.
+    "app.apk_tg_btn" => { ru: "📦 Получить APK в Telegram", en: "📦 Get the APK in Telegram" },
 
     // =========================================================================
     // Уведомления: подписка, трафик, баланс
@@ -1003,6 +1073,42 @@ mod tests {
                 t(Lang::Ru, key),
                 t(Lang::En, key),
                 "key `{key}` has identical RU and EN text — untranslated?"
+            );
+        }
+    }
+
+    // ----- содержание приветствия -------------------------------------------
+
+    /// Приветствие обязано рассказывать про то, что мы продаём сегодня —
+    /// собственное приложение. Прежний текст был построен вокруг раздела
+    /// «Обход блокировок (Relay)» и сторонних клиентов; capital-`Relay`
+    /// встречался только как заголовок этого раздела, поэтому его отсутствие —
+    /// дешёвый признак, что старый текст не вернулся копипастом. Строчный
+    /// `relay` (вход в Москве) — деталь внутри списка и остаётся разрешённым.
+    #[test]
+    fn welcome_start_sells_the_app_not_the_relay_section() {
+        for lang in [Lang::Ru, Lang::En] {
+            let text = t(lang, "welcome.start");
+            assert!(
+                text.contains("Caramba Connect"),
+                "welcome.start ({lang:?}) must mention Caramba Connect: {text}"
+            );
+            assert!(
+                !text.contains("Relay"),
+                "welcome.start ({lang:?}) still carries the old `Relay` section: {text}"
+            );
+        }
+    }
+
+    /// Строку акции собирает `command.rs` через [`tf`] с двумя аргументами:
+    /// потерянный плейсхолдер молча съел бы название плана или срок.
+    #[test]
+    fn welcome_start_promo_keeps_both_placeholders() {
+        for lang in [Lang::Ru, Lang::En] {
+            let text = t(lang, "welcome.start_promo");
+            assert!(
+                text.contains("{0}") && text.contains("{1}"),
+                "welcome.start_promo ({lang:?}) lost a placeholder: {text}"
             );
         }
     }

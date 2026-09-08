@@ -1,32 +1,48 @@
 # Windows native runtime libraries go here
 
 This directory must contain the two Windows runtime DLLs. They are gitignored as
-build artifacts; the plugin `CMakeLists.txt` bundles them next to
-`caramba_client.exe` via `caramba_vpn_bundled_libraries`.
+build artifacts (`packages/caramba_vpn/.gitignore`: `windows/lib/*.dll`); the
+plugin `CMakeLists.txt` bundles them next to `caramba_client.exe` via
+`caramba_vpn_bundled_libraries`. Both are produced by scripts, so the same two
+commands work locally and in CI — nothing here is fetched by hand.
+
+Both DLLs must match the host build architecture (`--arch amd64` by default;
+`arm64` on both scripts for an ARM Windows build).
 
 ## libcaramba_core.dll
 
 The Go engine built as a cgo c-shared library for `GOOS=windows`, exporting the
-`Caramba*` C ABI from `../include/caramba_core.h`. Build on a machine with the Go
-toolchain + mingw-w64, then vendor it here (see INTEGRATION.md step 0):
+`Caramba*` C ABI from `../include/caramba_core.h`. The name carries the `lib`
+prefix everywhere: the plugin loads it with
+`LoadLibraryW(L"libcaramba_core.dll")` (`../caramba_core_ffi.h`), the dart:ffi
+path looks up the same name (`lib/src/ffi/library_lookup.dart`), and the build
+script writes exactly that.
 
 ```bash
-# from the repo root
-cd libs/caramba-core
-scripts/build-desktop-lib.sh    # -> libs/caramba-core/build/libcaramba_core.dll
-cp build/libcaramba_core.dll \
-   ../../apps/caramba-client/packages/caramba_vpn/windows/lib/
+# from the repo root — works on macOS/Linux (mingw-w64 cross) and on Windows
+libs/caramba-core/scripts/build-windows-lib.sh
 ```
 
-Build the Go side with the `mihomo` build tag so the real engine (not the stub)
-is linked, so packets actually flow.
+The script builds with the `mihomo,with_gvisor` tags against the patched mihomo
+copy (`mk-patched-deps.sh`) — without that patch the TUN adapter does not start
+— and copies the result here itself. Cross-compiling needs mingw-w64
+(`brew install mingw-w64`, or `apt-get install gcc-mingw-w64`); on a Windows
+runner the stock `gcc` is used.
 
 ## wintun.dll
 
-The user-mode TUN driver mihomo opens to create the tunnel adapter. Download the
-signed release from https://www.wintun.net and copy the arch-matching DLL
-(`wintun/bin/amd64/wintun.dll` or `arm64`) here.
+The user-mode TUN driver mihomo opens to create the tunnel adapter. It is not
+built from source (the shipped DLL is WHQL-signed), it is downloaded from
+wintun.net and checked against a pinned SHA-256:
 
-Both DLLs must match the host build architecture. The app must run elevated
-(`requestedExecutionLevel=requireAdministrator`) so wintun can create the
-adapter — see INTEGRATION.md step 2 (Windows).
+```bash
+libs/caramba-core/scripts/fetch-wintun.sh
+```
+
+## Running
+
+The app must run elevated (`requestedExecutionLevel=requireAdministrator`, or a
+UAC relaunch) so wintun can create the adapter. The generated
+`windows/runner/runner.exe.manifest` is still the Flutter default
+(`asInvoker`) — elevation is a packaging decision that has not been made yet;
+see INTEGRATION.md step 2 (Windows).

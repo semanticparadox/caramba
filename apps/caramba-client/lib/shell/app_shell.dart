@@ -8,11 +8,11 @@ import 'package:caramba_client/theme/tokens.dart';
 import 'package:caramba_client/theme/typography.dart';
 import 'package:caramba_client/widgets/lucide.dart';
 
-/// Пункты нижней навигации: Главная / Серверы / Профиль / Настройки.
-/// Lucide-глифы, порядок совпадает с ветками [StatefulShellRoute].
-const List<({String glyph, String label})> _destinations = [
-  (glyph: Lucide.power, label: 'Главная'),
-  (glyph: Lucide.globe, label: 'Серверы'),
+/// Пункты нижней навигации: Подключение / Профиль / Настройки. Порядок
+/// совпадает с ветками [StatefulShellRoute]; тест shell_tabs_test сверяет оба
+/// конца.
+const List<({String glyph, String label})> kShellDestinations = [
+  (glyph: Lucide.power, label: 'Подключение'),
   (glyph: Lucide.user, label: 'Профиль'),
   (glyph: Lucide.sliders, label: 'Настройки'),
 ];
@@ -46,7 +46,7 @@ class AppShell extends StatelessWidget {
               labelType: NavigationRailLabelType.all,
               backgroundColor: c.surface1,
               destinations: [
-                for (final d in _destinations)
+                for (final d in kShellDestinations)
                   NavigationRailDestination(
                     icon: LucideIcon(d.glyph, color: c.textLow, size: 22),
                     selectedIcon: LucideIcon(
@@ -111,11 +111,11 @@ class _BottomNav extends StatelessWidget {
             height: 64,
             child: Row(
               children: [
-                for (var i = 0; i < _destinations.length; i++)
+                for (var i = 0; i < kShellDestinations.length; i++)
                   Expanded(
                     child: _NavCell(
-                      glyph: _destinations[i].glyph,
-                      label: _destinations[i].label,
+                      glyph: kShellDestinations[i].glyph,
+                      label: kShellDestinations[i].label,
                       selected: i == currentIndex,
                       onTap: () => onTap(i),
                     ),

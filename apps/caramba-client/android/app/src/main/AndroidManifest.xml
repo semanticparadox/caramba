@@ -1,0 +1,118 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- INTEGRATION.md step 2 (Android): the tunnel permissions
+         (FOREGROUND_SERVICE, FOREGROUND_SERVICE_SPECIAL_USE,
+         POST_NOTIFICATIONS) and the <service> declaration for
+         com.caramba.caramba_vpn.CarambaVpnService are contributed by the
+         caramba_vpn plugin manifest and merged in by the manifest merger,
+         so they are deliberately NOT duplicated here. Verify after a build
+         in build/app/intermediates/merged_manifests/debug/.
+         VPN consent (VpnService.prepare) is raised by the plugin on the
+         first connect; step 2.4 (minSdk >= 21) holds via
+         flutter.minSdkVersion == 24 in app/build.gradle.kts. -->
+    <!-- Auto Backup is OFF, and that is a protocol requirement, not a
+         preference. The CSM/1 device identity (02-SPEC.md 9.4) is what the
+         panel binds a device row to; on Android 11 and below the agreement key
+         cannot live in the keystore at all (PURPOSE_AGREE_KEY landed in
+         Android 12) and is an honest tier-3 blob in app storage. With backup
+         on by default, that blob is copied off the device and restored onto a
+         DIFFERENT handset, which makes tier 3 mean something weaker than the
+         same tier means in every other implementation. The two rule files are
+         kept as a second line of defence for any build that turns backup back
+         on. -->
+    <application
+        android:label="Caramba Connect"
+        android:name="${applicationName}"
+        android:allowBackup="false"
+        android:fullBackupContent="@xml/caramba_backup_rules"
+        android:dataExtractionRules="@xml/caramba_data_extraction_rules"
+        android:icon="@mipmap/ic_launcher">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+
+            <!-- ВСТРОЕННЫЙ ДИПЛИНКИНГ FLUTTER ВЫКЛЮЧЕН НАМЕРЕННО, И ЭТО НЕ
+                 УКРАШЕНИЕ. Со времени, когда флаг стал по умолчанию включённым
+                 (FlutterActivityLaunchConfigs.deepLinkEnabled: нет meta-data =
+                 true), embedding на КАЖДЫЙ VIEW-интент шлёт в фреймворк
+                 pushRouteInformation(<вся ссылка целиком>). go_router приводит
+                 `caramba://connect?d=...` к пустому пути, то есть к `/`, гейт
+                 со сплеша уводит на `/home` — и эта навигация приходит ПОСЛЕ
+                 нашей, затирая переход, который сделал DeepLinkHandler.
+                 Наружу это выглядело так: ссылка из бота при уже открытом
+                 приложении не делает НИЧЕГО (холодный старт при этом работал,
+                 потому что там ссылку доставляет getInitialLink, и наш переход
+                 случается последним). Разбор ссылок живёт в Dart
+                 (lib/router/deep_links.dart), и второй, ничего не знающий о
+                 схемах маршрутизатор здесь лишний. -->
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+
+            <!-- INTEGRATION.md step 3b: custom-scheme deep links. Parsed and
+                 routed in Dart (lib/router/deep_links.dart on app_links); the OS
+                 only delivers the URI if the scheme is registered here.
+
+                 Two schemes on purpose. `caramba://connect?d=<armor>` is the
+                 self-describing invite the panel bot hands out now; it is what
+                 removes the invite-code screen nobody could complete. The older
+                 `carambaconnect://` actions stay registered forever beside it:
+                 links already sent to people must keep opening the app, and a
+                 dead deep link is indistinguishable from a hung app. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="caramba" android:host="connect" />
+            </intent-filter>
+            <!-- carambaconnect://enroll?panel=<https-url>&code=<invite> -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="carambaconnect" android:host="enroll" />
+            </intent-filter>
+            <!-- carambaconnect://import?url=<subscription-url> -> /connections/import -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="carambaconnect" android:host="import" />
+            </intent-filter>
+        </activity>
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
+</manifest>

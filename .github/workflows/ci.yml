@@ -6,8 +6,7 @@ name: CI
 #
 # Release build is its own workflow (release.yml); it only runs on `v*` tags.
 #
-# Caramba Connect / exa_robot code lives in a separate repo, so its Go core,
-# Go CLI and standalone license server are no longer built here.
+# Native platform builds and Go-core packaging run in the client release workflows.
 #
 # Rust notes:
 #   - `caramba-panel` uses sqlx at runtime (sqlx::query / sqlx::query_as), not
@@ -17,10 +16,8 @@ name: CI
 #     Postgres. SQLX_OFFLINE is set just in case (no-op without `query!`
 #     macros / .sqlx cache) and harmless.
 #
-# Flutter notes:
-#   - Native VPN core is not yet wired in CI; the client runs on Mock and the
-#     real tunnel path is behind a dart-define. `flutter analyze` and
-#     `flutter test` are allow-failure until the first real end-to-end tunnel.
+# Flutter tests exercise the application with mocked platform boundaries.
+# Native packaging is checked separately by the client workflows.
 
 on:
   push:
@@ -103,23 +100,51 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.47.2
           cache: true
 
       - name: flutter pub get
         run: flutter pub get
 
-      # Allow-failure while the client is WIP: the native VPN core is not yet
-      # wired, some screens still on mocks, and the bundled Flutter stable
-      # version in CI can drift from the local one (false-positive `dart format`
-      # diffs on WIP code).
-      - name: dart format check (allow-failure, WIP client)
-        continue-on-error: true
-        run: dart format --output=none --set-exit-if-changed .
-
-      - name: flutter analyze (allow-failure, WIP client)
-        continue-on-error: true
+      - name: flutter analyze
         run: flutter analyze
 
-      - name: flutter test (allow-failure)
-        continue-on-error: true
+      - name: flutter test
         run: flutter test
+
+  mini-app:
+    name: Telegram Mini App (TypeScript + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/caramba-app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/caramba-app/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+
+  core:
+    name: VPN core (Go tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: libs/caramba-core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: libs/caramba-core/go.mod
+          cache-dependency-path: libs/caramba-core/go.sum
+      - name: Test
+        run: go test ./...

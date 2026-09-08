@@ -11,9 +11,18 @@ When you add the extension target after `flutter create .` (see the repo's
 - `darwin/Extension/PacketTunnelProvider.swift` (this file)
 - `darwin/Classes/CarambaVpnShared.swift` (the App Group IPC + stage/traffic
   types, shared with the app-process plugin)
+- `darwin/Classes/CarambaCoreCalls.swift` (the `throws` wrappers around the
+  gomobile calls that return a non-null string plus an `NSError**`)
 
 And link the same `exarobot.xcframework` the plugin links (the iOS or macOS
 build, matching the extension platform).
+
+Set `SWIFT_ACTIVE_COMPILATION_CONDITIONS = CARAMBA_CORE` on that target. The
+plugin gets this flag from the podspec, which can see whether the framework is
+vendored; an Xcode target you added by hand cannot be inspected that way, so it
+declares the condition itself. Without it `PacketTunnelProvider.swift` stops the
+build with `#error` rather than compiling into an extension that quietly never
+raises a tunnel.
 
 The extension and the app must share the SAME App Group id, declared in each
 target's Info.plist under `CARAMBA_APP_GROUP`, so status + traffic cross the

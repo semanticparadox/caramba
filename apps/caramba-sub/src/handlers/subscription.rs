@@ -153,17 +153,7 @@ async fn proxy_to_panel(
                             // Извлекаем content-type и тело из закешированного blob'а
                             let (ct, body) = split_cached_entry(&cached_raw);
                             let ct_val = ct.unwrap_or("application/json");
-                            return Response::builder()
-                                .status(StatusCode::OK)
-                                .header(header::CONTENT_TYPE, ct_val)
-                                .header(
-                                    header::CACHE_CONTROL,
-                                    "no-store, no-cache, must-revalidate",
-                                )
-                                .header(header::PRAGMA, "no-cache")
-                                .body(axum::body::Body::from(body.to_vec()))
-                                .unwrap()
-                                .into_response();
+                            return build_cached_response(ct_val, body.to_vec());
                         }
                     }
                 }
@@ -188,34 +178,14 @@ async fn proxy_to_panel(
         return (StatusCode::BAD_GATEWAY, "Panel subscription redirect loop").into_response();
     }
 
-    let mut builder = Response::builder().status(status.as_u16());
-
-    // Forward relevant headers from panel response.
-    // content-type не включён здесь — он будет установлен явно ниже
-    // из захваченного значения для согласованности с Redis fallback.
-    for key in &[
-        "profile-title",
-        "profile-update-interval",
-        "subscription-userinfo",
-    ] {
-        if let Some(val) = resp.headers().get(*key) {
-            if let Ok(v) = val.to_str() {
-                builder = builder.header(*key, v);
-            }
-        }
-    }
-
-    builder = builder
-        .header(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate")
-        .header(header::PRAGMA, "no-cache");
-
-    // Собираем content-type ДО потребления тела ответа
+    // Собираем content-type и остальные заголовки ДО потребления тела ответа.
     let content_type = resp
         .headers()
         .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("application/octet-stream")
         .to_string();
+    let panel_headers = resp.headers().clone();
 
     let body_bytes = resp.bytes().await.unwrap_or_default();
 
@@ -236,9 +206,124 @@ async fn proxy_to_panel(
         }
     }
 
+    build_client_response(
+        status.as_u16(),
+        &panel_headers,
+        &content_type,
+        body_bytes.to_vec(),
+    )
+}
+
+/// Заголовки, которые зеркало собирает САМО и потому не переписывает у панели.
+///
+/// Это закрытый список транспортных забот — кадрирование тела, кеширование,
+/// подпись самого соединения. Он не растёт, когда панель заводит очередной
+/// смысловой заголовок, и в этом весь смысл: список ниже описывает работу
+/// зеркала, а не словарь панели.
+///
+/// Обратное правило (белый список из трёх имён) как раз и породило баг, ради
+/// которого написан этот код: панель начала объяснять отказ заголовками
+/// `x-caramba-*`, а до клиентов через RU-зеркало не доехало ни одного, потому
+/// что никто не вспомнил про третий файл в другом сервисе. Зеркало — труба, а
+/// не редактор: всё, что панель сказала клиенту, доезжает до клиента.
+const MIRROR_OWNED_HEADERS: &[&str] = &[
+    // Кадрирование: тело здесь пересобирается, длина и кодировка исходного
+    // ответа к новому телу уже не относятся. Пропустить их — отдать клиенту
+    // ответ, который он не сможет прочитать.
+    "content-length",
+    "content-encoding",
+    "transfer-encoding",
+    "connection",
+    "keep-alive",
+    "upgrade",
+    "te",
+    "trailer",
+    "proxy-authenticate",
+    "proxy-authorization",
+    // Ставится явно ниже — одним значением и на ответе панели, и на отдаче из
+    // кеша, чтобы клиент видел один и тот же content-type на обоих путях.
+    "content-type",
+    // Кеширование — политика зеркала (no-store). Два разных значения в одном
+    // ответе клиент прочитал бы как повезёт.
+    "cache-control",
+    "pragma",
+    "expires",
+    // Проставляются нижним слоем (hyper) и краевым прокси; копия из ответа
+    // панели дала бы дубль с чужим временем.
+    "date",
+    "server",
+];
+
+fn mirror_owns_header(name: &str) -> bool {
+    MIRROR_OWNED_HEADERS
+        .iter()
+        .any(|owned| owned.eq_ignore_ascii_case(name))
+}
+
+/// Переносит заголовки ответа панели в ответ клиенту.
+///
+/// Значения копируются байтами, а не через `to_str()`: имя плана в
+/// `profile-title` задаёт человек в админке, и один кириллический символ не
+/// должен тихо выбрасывать весь заголовок. Повторяющиеся имена сохраняются
+/// всеми значениями — `header()` добавляет, а не замещает.
+fn forward_panel_headers(
+    mut builder: axum::http::response::Builder,
+    panel_headers: &reqwest::header::HeaderMap,
+) -> axum::http::response::Builder {
+    for (name, value) in panel_headers.iter() {
+        if mirror_owns_header(name.as_str()) {
+            continue;
+        }
+        let (Ok(n), Ok(v)) = (
+            axum::http::HeaderName::from_bytes(name.as_str().as_bytes()),
+            axum::http::HeaderValue::from_bytes(value.as_bytes()),
+        ) else {
+            continue;
+        };
+        builder = builder.header(n, v);
+    }
     builder
+}
+
+/// Ответ клиенту на основе ответа панели: код и тело — панели побайтово,
+/// заголовки — панели плюс то, чем распоряжается зеркало.
+fn build_client_response(
+    status: u16,
+    panel_headers: &reqwest::header::HeaderMap,
+    content_type: &str,
+    body: Vec<u8>,
+) -> Response {
+    let builder = forward_panel_headers(Response::builder().status(status), panel_headers);
+    builder
+        .header(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate")
+        .header(header::PRAGMA, "no-cache")
         .header(header::CONTENT_TYPE, content_type)
-        .body(axum::body::Body::from(body_bytes))
+        .body(axum::body::Body::from(body))
+        .unwrap()
+        .into_response()
+}
+
+/// Имя, которым зеркало помечает конфиг, отданный из кеша при недоступной
+/// панели. Единственный заголовок `x-caramba-*`, который печатает зеркало, а не
+/// панель, — держать его здесь константой значит держать имя занятым.
+pub const HDR_MIRROR_CACHE: &str = "x-caramba-mirror-cache";
+
+/// Ответ из кеша: конфиг живой, но цифры расхода и причина отказа устарели или
+/// отсутствуют вовсе.
+///
+/// Заголовки панели сюда НЕ восстанавливаются намеренно. Отдать сохранённый
+/// пять минут назад `subscription-userinfo` значит уверенно сказать «трафик
+/// есть» тому, у кого он мог кончиться минуту назад, — ровно та ложь, от
+/// которой этот круг правок и затевался. Клиент вместо этого получает признак
+/// «ответ из кеша» и волен показать человеку, что данные не свежие.
+fn build_cached_response(content_type: &str, body: Vec<u8>) -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CACHE_CONTROL, "no-store, no-cache, must-revalidate")
+        .header(header::PRAGMA, "no-cache")
+        .header(HDR_MIRROR_CACHE, "1")
+        .body(axum::body::Body::from(body))
         .unwrap()
         .into_response()
 }
@@ -299,6 +384,162 @@ fn get_client_ip(headers: &HeaderMap) -> Option<String> {
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.split(',').find_map(usable_ip))
+}
+
+#[cfg(test)]
+mod panel_header_tests {
+    use super::*;
+    use reqwest::header::{HeaderMap as PanelHeaders, HeaderName as PanelName, HeaderValue};
+
+    /// Ответ панели с отказом по квоте: те заголовки, которые панель печатает
+    /// в `access::refusal_headers` плюс `subscription-userinfo`.
+    fn panel_refusal() -> PanelHeaders {
+        let mut h = PanelHeaders::new();
+        for (k, v) in [
+            ("content-type", "text/plain; charset=utf-8"),
+            ("content-length", "45"),
+            (
+                "subscription-userinfo",
+                "upload=0; download=275775488; total=209715200; expire=253402300799",
+            ),
+            ("x-caramba-state", "quota_exceeded"),
+            ("x-caramba-st", "7"),
+            ("x-caramba-reason", "3003"),
+            ("x-caramba-reason-name", "daily_allowance_exhausted"),
+            ("x-caramba-used", "275775488"),
+            ("x-caramba-limit", "209715200"),
+            ("x-caramba-period", "day"),
+            ("x-caramba-resets-at", "1788652800"),
+            ("x-caramba-reset-lag", "1800"),
+            ("x-caramba-bytes-after-reset", "143654912"),
+        ] {
+            h.insert(PanelName::from_static(k), HeaderValue::from_static(v));
+        }
+        h
+    }
+
+    fn header_values(r: &Response, name: &str) -> Vec<String> {
+        r.headers()
+            .get_all(name)
+            .iter()
+            .filter_map(|v| v.to_str().ok().map(|s| s.to_string()))
+            .collect()
+    }
+
+    /// Правило пересылки, ради которого всё это написано: причина отказа,
+    /// собранная панелью, доезжает до клиента через зеркало ЦЕЛИКОМ. Раньше
+    /// здесь стоял белый список из трёх имён, и все десять `x-caramba-*`
+    /// пропадали молча.
+    #[test]
+    fn every_refusal_header_the_panel_printed_reaches_the_client() {
+        let panel = panel_refusal();
+        let r = build_client_response(
+            403,
+            &panel,
+            "text/plain; charset=utf-8",
+            b"Traffic limit reached. Subscription is expired.".to_vec(),
+        );
+
+        assert_eq!(r.status().as_u16(), 403);
+        for (name, value) in panel.iter() {
+            if mirror_owns_header(name.as_str()) {
+                continue;
+            }
+            assert_eq!(
+                header_values(&r, name.as_str()),
+                vec![value.to_str().unwrap().to_string()],
+                "заголовок {} потерялся по дороге через зеркало",
+                name
+            );
+        }
+    }
+
+    /// Главная гарантия против повторения бага: заголовок, которого сегодня в
+    /// коде зеркала нет ни одной строкой, всё равно доезжает. Правило описывает
+    /// то, чем распоряжается зеркало, а не то, что умеет говорить панель.
+    #[test]
+    fn a_header_this_file_has_never_heard_of_is_forwarded_too() {
+        let mut panel = PanelHeaders::new();
+        panel.insert(
+            PanelName::from_static("x-caramba-invented-after-this-test-was-written"),
+            HeaderValue::from_static("42"),
+        );
+        // Панель уже печатает его на успешном конфиге, а зеркало роняло: ядро
+        // берёт отсюда страну пользователя и без неё уходит в чужой пресет.
+        panel.insert(
+            PanelName::from_static("x-client-country"),
+            HeaderValue::from_static("RU"),
+        );
+        let r = build_client_response(200, &panel, "application/json", b"{}".to_vec());
+
+        assert_eq!(
+            header_values(&r, "x-caramba-invented-after-this-test-was-written"),
+            vec!["42".to_string()]
+        );
+        assert_eq!(
+            header_values(&r, "x-client-country"),
+            vec!["RU".to_string()]
+        );
+    }
+
+    /// Транспортные заголовки панели не переезжают: тело здесь пересобрано, и
+    /// чужая длина или кодировка сделали бы ответ нечитаемым. Каждый из тех,
+    /// которыми зеркало распоряжается само, стоит в ответе ровно один раз.
+    #[test]
+    fn the_framing_headers_belong_to_the_mirror_and_appear_once() {
+        let mut panel = panel_refusal();
+        panel.insert(
+            PanelName::from_static("cache-control"),
+            HeaderValue::from_static("public, max-age=600"),
+        );
+        panel.insert(
+            PanelName::from_static("date"),
+            HeaderValue::from_static("Thu, 01 Jan 1970 00:00:00 GMT"),
+        );
+        let r = build_client_response(403, &panel, "text/plain; charset=utf-8", b"x".to_vec());
+
+        assert_eq!(
+            header_values(&r, "content-type"),
+            vec!["text/plain; charset=utf-8".to_string()]
+        );
+        assert_eq!(
+            header_values(&r, "cache-control"),
+            vec!["no-store, no-cache, must-revalidate".to_string()]
+        );
+        assert!(header_values(&r, "content-length").is_empty());
+        assert!(header_values(&r, "date").is_empty());
+    }
+
+    /// Имя плана задаёт человек в админке. Кириллица в `profile-title` не
+    /// повод выбросить заголовок целиком: копируем байты, а не строку.
+    #[test]
+    fn a_non_ascii_profile_title_survives_instead_of_vanishing() {
+        let mut panel = PanelHeaders::new();
+        let title = "Тариф Free";
+        panel.insert(
+            PanelName::from_static("profile-title"),
+            HeaderValue::from_bytes(title.as_bytes()).unwrap(),
+        );
+        let r = build_client_response(200, &panel, "application/json", b"{}".to_vec());
+
+        assert_eq!(
+            r.headers().get("profile-title").map(|v| v.as_bytes()),
+            Some(title.as_bytes())
+        );
+    }
+
+    /// Отдача из кеша помечена, и цифры расхода из неё НЕ воскрешаются:
+    /// сохранённое пять минут назад «трафик есть» — это та самая уверенная
+    /// ложь, ради которой круг правок и начался.
+    #[test]
+    fn a_cached_config_is_marked_and_carries_no_stale_numbers() {
+        let r = build_cached_response("application/json", b"{}".to_vec());
+
+        assert_eq!(r.status(), StatusCode::OK);
+        assert_eq!(header_values(&r, HDR_MIRROR_CACHE), vec!["1".to_string()]);
+        assert!(header_values(&r, "subscription-userinfo").is_empty());
+        assert!(header_values(&r, "x-caramba-state").is_empty());
+    }
 }
 
 #[cfg(test)]

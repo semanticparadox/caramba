@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <!--
+    ВРЕМЕННЫЙ силуэт иконки трея Caramba Connect (плейсхолдер задачи D2).
+    Квадратная «станция» Open Chart с двумя ортогональными штрихами, читаемая
+    при 16px. Заменяется на tray-template.svg победителя J1 из
+    scratchpad/desktop/icons/<winner>/ БЕЗ изменения render-tray-icons.sh —
+    скрипт зависит только от контракта: viewBox 0 0 16 16 и четыре класса
+    (outline / fill / dot / cross), которые он включает и выключает через
+    подставляемый CSS-stylesheet под каждое из пяти состояний трея.
+  -->
+  <defs>
+    <!-- заливка станции получает те же два штриха, что и контур, но как
+         вырез (cutout), иначе на сплошном чёрном квадрате их не видно -->
+    <mask id="stationCutout" maskUnits="userSpaceOnUse" x="0" y="0" width="16" height="16">
+      <rect x="0" y="0" width="16" height="16" fill="#ffffff"/>
+      <rect x="3.4" y="7.25" width="6.2" height="1.5" fill="#000000"/>
+      <rect x="7.25" y="7.25" width="1.5" height="5.55" fill="#000000"/>
+    </mask>
+  </defs>
+
+  <!-- контур станции: idle, busy, error -->
+  <g class="outline" fill="none" stroke="#000000" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="3" y="3" width="10" height="10" rx="1.6"/>
+    <line x1="3.4" y1="8" x2="9.6" y2="8"/>
+    <line x1="8" y1="8" x2="8" y2="12.8"/>
+  </g>
+
+  <!-- заливка станции (штрихи вырезаны маской): connected, blocked -->
+  <rect class="fill" x="3" y="3" width="10" height="10" rx="1.6" fill="#000000" mask="url(#stationCutout)"/>
+
+  <!-- точка состояния «у носа», 4px: busy, blocked -->
+  <circle class="dot" cx="12.2" cy="3.8" r="2" fill="#000000"/>
+
+  <!-- крест ошибки, 6x6: error -->
+  <g class="cross" stroke="#000000" stroke-width="1.4" stroke-linecap="round">
+    <line x1="9" y1="1" x2="15" y2="7"/>
+    <line x1="15" y1="1" x2="9" y2="7"/>
+  </g>
+</svg>

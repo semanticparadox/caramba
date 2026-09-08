@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Auto Backup rules, Android 11 and below (android:fullBackupContent).
+     Belt and braces beside android:allowBackup="false": if a build ever turns
+     backup back on, the CSM/1 device identity still MUST NOT leave the device.
+
+     02-SPEC.md 9.4 leans on the device signing and agreement keys being bound
+     to ONE handset. On Android 11 and below the agreement key cannot go to the
+     keystore (KeyProperties.PURPOSE_AGREE_KEY landed in Android 12), so it is a
+     PKCS8 blob in app storage: honest tier 3. Tier 3 in the Go implementation
+     is a 0600 file that never leaves the device, and replicating the same key
+     into a cloud backup that restores onto a DIFFERENT handset is not tier 3,
+     it is a second device holding the first device's identity. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="caramba_csm_device.xml" />
+    <exclude domain="sharedpref" path="caramba_vpn_seam.xml" />
+    <exclude domain="file" path="caramba-core-csm/" />
+    <exclude domain="file" path="caramba-core/" />
+</full-backup-content>

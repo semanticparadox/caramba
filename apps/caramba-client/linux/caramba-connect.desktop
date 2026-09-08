@@ -1,0 +1,41 @@
+# caramba-connect.desktop — ШАБЛОН desktop-entry для линуксового пакета.
+#
+# Зачем файл лежит в репозитории, а не генерируется: именно он регистрирует
+# приложение обработчиком схем caramba:// и carambaconnect:// (строка MimeType).
+# Без него xdg-open по ссылке из бота на Linux не найдёт приложение, и весь
+# путь «ссылка из Telegram -> экран подключения» на десктопе не работает.
+#
+# Что делает упаковщик (deb/rpm/AppImage/tar.gz + install.sh):
+#   1. кладёт бандл из build/linux/x64/release/bundle в /opt/caramba-connect/;
+#   2. подставляет реальный путь в Exec= (ниже — путь по умолчанию) и кладёт
+#      этот файл в /usr/share/applications/caramba-connect.desktop;
+#   3. кладёт иконку caramba-connect.png в
+#      /usr/share/icons/hicolor/512x512/apps/ (исходник: linux/icons/);
+#   4. обновляет базы: update-desktop-database и gtk-update-icon-cache.
+#
+# Проверка регистрации схемы после установки:
+#   xdg-mime query default x-scheme-handler/caramba   # -> caramba-connect.desktop
+#   xdg-open 'caramba://connect?d=test'               # -> окно приложения
+#
+# %u в Exec обязателен: без него URI не попадёт в argv, и app_links_linux
+# (через сигнал command-line GApplication, см. runner/my_application.cc)
+# ничего не получит.
+
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Caramba Connect
+GenericName=VPN Client
+Comment=Censorship-resistant VPN client
+Exec=/opt/caramba-connect/caramba_client %u
+Icon=caramba-connect
+Terminal=false
+Categories=Network;Security;
+Keywords=VPN;Proxy;Privacy;Tunnel;
+# StartupWMClass = g_set_prgname() раннера = APPLICATION_ID из linux/CMakeLists.txt.
+# Совпадение нужно, чтобы окно прилипало к иконке в доке, а не висело «неизвестным».
+StartupWMClass=com.caramba.caramba_client
+# Обе схемы, как в AndroidManifest и Info.plist:
+#   caramba://connect?d=<armor>          — самоописывающееся приглашение панели;
+#   carambaconnect://enroll|import?...   — старые ссылки бота.
+MimeType=x-scheme-handler/caramba;x-scheme-handler/carambaconnect;

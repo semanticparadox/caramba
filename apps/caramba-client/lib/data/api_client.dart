@@ -5,8 +5,10 @@ import 'package:dio/dio.dart';
 import 'package:caramba_client/data/models/auth_tokens.dart';
 import 'package:caramba_client/data/models/branding.dart';
 import 'package:caramba_client/data/models/enrollment.dart';
+import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/notification.dart';
 import 'package:caramba_client/data/models/partner.dart';
+import 'package:caramba_client/data/models/plan_catalog.dart';
 import 'package:caramba_client/data/models/relay.dart';
 import 'package:caramba_client/data/models/ticket.dart';
 import 'package:caramba_client/data/models/server.dart';
@@ -16,12 +18,19 @@ import 'package:caramba_client/data/models/traffic_point.dart';
 import 'package:caramba_client/data/models/user.dart';
 import 'package:caramba_client/data/token_store.dart';
 
-/// Базовый URL панели. Переопределяется через `--dart-define=CARAMBA_API_BASE=...`.
-/// По умолчанию — локальная панель в dev (Android-эмулятор: 10.0.2.2).
-const String kApiBaseUrl = String.fromEnvironment(
-  'CARAMBA_API_BASE',
-  defaultValue: 'https://exarobot.top',
-);
+/// Базовый URL панели для СБОРКИ, а не для приложения.
+///
+/// Публичная сборка НЕ знает ни одной панели: Caramba Connect это обычный
+/// клиент, как Happ или Hiddify, и панель появляется только тогда, когда
+/// пользователь подключил её сам (импортом подписки, кодом или ссылкой).
+/// Пустая строка означает «панели нет»: панельные вызовы без профиля с
+/// panelUrl обязаны падать с внятной ошибкой, а не уходить к чужому
+/// оператору.
+///
+/// `--dart-define=CARAMBA_API_BASE=https://panel.example` собирает
+/// брендированную сборку конкретного оператора, где панель известна заранее.
+/// Это единственный законный способ зашить панель в приложение.
+const String kApiBaseUrl = String.fromEnvironment('CARAMBA_API_BASE');
 
 /// Исключение уровня API с человекочитаемым сообщением и HTTP-кодом.
 class ApiException implements Exception {
@@ -35,6 +44,16 @@ class ApiException implements Exception {
 
   @override
   String toString() => 'ApiException($statusCode): $message';
+}
+
+/// Вызов не имеет смысла в текущем режиме приложения.
+///
+/// Отдельный тип, а не обычная ошибка: «панель не подключена» — это не сбой,
+/// который лечится повтором, а отсутствующая возможность. UI обязан показать
+/// названную причину и оставить контрол видимым, а не предлагать «попробуйте
+/// ещё раз» на действие, которого в этом режиме не существует.
+class ApiNotAvailableException extends ApiException {
+  const ApiNotAvailableException(super.message);
 }
 
 /// HTTP-клиент к панели (`/api/v2/app/*`).
@@ -57,13 +76,35 @@ class ApiClient {
   /// Single-flight: текущая операция ротации refresh-токена.
   Future<AuthTokens?>? _refreshing;
 
+  /// Origin панели, к которой привязан этот клиент. Пусто означает, что панели
+  /// нет: приложение работает как обычный клиент подписок, и любой панельный
+  /// вызов обязан отказать понятной ошибкой вместо запроса в никуда.
+  ///
+  /// Считается из фактических настроек Dio, а не из аргумента конструктора:
+  /// подставленный извне Dio (тесты, панельный клиент энроллмента) несёт свой
+  /// baseUrl, и судить о наличии панели надо по нему.
+  String get panelOrigin {
+    final base = _dio.options.baseUrl.trim();
+    if (base.isEmpty) return '';
+    return base.endsWith(_apiSuffix)
+        ? base.substring(0, base.length - _apiSuffix.length)
+        : base;
+  }
+
+  /// Панель подключена и панельные вызовы имеют смысл.
+  bool get hasPanel => panelOrigin.isNotEmpty;
+
+  static const String _apiSuffix = '/api/v2/app';
+
   ApiClient({required TokenStore tokens, Dio? dio, String? baseUrl})
     : _tokens = tokens,
       _dio =
           dio ??
           Dio(
             BaseOptions(
-              baseUrl: '${baseUrl ?? kApiBaseUrl}/api/v2/app',
+              baseUrl: (baseUrl ?? kApiBaseUrl).trim().isEmpty
+                  ? ''
+                  : '${(baseUrl ?? kApiBaseUrl).trim()}$_apiSuffix',
               connectTimeout: const Duration(seconds: 15),
               receiveTimeout: const Duration(seconds: 20),
               contentType: Headers.jsonContentType,
@@ -74,6 +115,22 @@ class ApiClient {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
+          // Панель не подключена: отказываем здесь, а не отправляем запрос с
+          // пустым origin. Иначе пользователь видит сетевую ошибку Dio вместо
+          // единственной настоящей причины.
+          if (panelOrigin.isEmpty) {
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.cancel,
+                error: const ApiException(
+                  'Панель не подключена. Добавьте подключение или введите код приглашения.',
+                ),
+              ),
+              true,
+            );
+            return;
+          }
           if (options.extra['skipAuth'] != true) {
             final access = await _tokens.readAccess();
             if (access != null && access.isNotEmpty) {
@@ -118,7 +175,7 @@ class ApiClient {
     String? fullName,
     String? enrollCode,
   }) async {
-    final res = await _dio.post(
+    final res = await _dio.post<dynamic>(
       '/register',
       data: {
         'email': email,
@@ -141,7 +198,7 @@ class ApiClient {
   /// Этот клиент должен быть нацелен на URL панели из ссылки (см.
   /// `ApiClient(baseUrl: panelUrl)`), а не на дефолтный тенант-1.
   Future<EnrollValidation> validateEnroll(String code) async {
-    final res = await _dio.get(
+    final res = await _dio.get<dynamic>(
       '/enroll/${Uri.encodeComponent(code)}',
       options: Options(extra: {'skipAuth': true}),
     );
@@ -153,7 +210,7 @@ class ApiClient {
     required String email,
     required String password,
   }) async {
-    final res = await _dio.post(
+    final res = await _dio.post<dynamic>(
       '/login/email',
       data: {'email': email, 'password': password},
       options: Options(extra: {'skipAuth': true}),
@@ -174,7 +231,7 @@ class ApiClient {
     int? authDate,
     String? hash,
   }) async {
-    final res = await _dio.post(
+    final res = await _dio.post<dynamic>(
       '/login/telegram',
       data: {
         if (initData != null) 'init_data': initData,
@@ -201,7 +258,7 @@ class ApiClient {
     required String code,
     String? enrollCode,
   }) async {
-    final res = await _dio.post(
+    final res = await _dio.post<dynamic>(
       '/login/code',
       data: {
         'code': code,
@@ -216,7 +273,7 @@ class ApiClient {
   /// POST /logout — отзыв refresh-токена на сервере (идемпотентно).
   Future<void> logout(String refreshToken) async {
     try {
-      await _dio.post(
+      await _dio.post<dynamic>(
         '/logout',
         data: {'refresh_token': refreshToken},
         options: Options(extra: {'skipAuth': true}),
@@ -239,7 +296,7 @@ class ApiClient {
   /// бренд выключен, upsell включён. Брендинг не должен ронять login/connect.
   Future<Branding> getBranding() async {
     try {
-      final res = await _dio.get(
+      final res = await _dio.get<dynamic>(
         '/branding',
         options: Options(extra: {'skipAuth': true}),
       );
@@ -258,26 +315,26 @@ class ApiClient {
 
   /// GET /me — профиль пользователя.
   Future<User> getMe() async {
-    final res = await _dio.get('/me');
+    final res = await _dio.get<dynamic>('/me');
     return User.fromJson(_okMap(res));
   }
 
   /// GET /subscription — активная подписка + URL mihomo/clash-конфига.
   Future<Subscription> getSubscription() async {
-    final res = await _dio.get('/subscription');
+    final res = await _dio.get<dynamic>('/subscription');
     return Subscription.fromJson(_okMap(res));
   }
 
   /// GET /servers — список доступных exit-серверов.
   Future<List<Server>> getServers() async {
-    final res = await _dio.get('/servers');
+    final res = await _dio.get<dynamic>('/servers');
     _ensureOk(res);
     final data = res.data;
     if (data is! List) {
       throw const ApiException('Malformed servers response');
     }
     return data
-        .whereType<Map>()
+        .whereType<Map<dynamic, dynamic>>()
         .map((e) => Server.fromJson(e.cast<String, dynamic>()))
         .toList(growable: false);
   }
@@ -289,21 +346,21 @@ class ApiClient {
   /// GET /devices — все устройства (lease) по подпискам пользователя.
   /// Контракт: `app_account.rs::list_devices` (AppDevice[]).
   Future<List<Device>> getDevices() async {
-    final res = await _dio.get('/devices');
+    final res = await _dio.get<dynamic>('/devices');
     return _list(res, Device.fromJson, 'devices');
   }
 
   /// PATCH /devices/{id} — переименование устройства. Пустое/`null` имя
   /// сбрасывает на авто-имя. Возвращает `true` при успехе.
   Future<bool> renameDevice(int id, String? name) async {
-    final res = await _dio.patch('/devices/$id', data: {'name': name});
+    final res = await _dio.patch<dynamic>('/devices/$id', data: {'name': name});
     _ensureOk(res);
     return true;
   }
 
   /// DELETE /devices/{id} — отзыв (kick) устройства.
   Future<bool> removeDevice(int id) async {
-    final res = await _dio.delete('/devices/$id');
+    final res = await _dio.delete<dynamic>('/devices/$id');
     _ensureOk(res);
     return true;
   }
@@ -311,7 +368,7 @@ class ApiClient {
   /// GET /subscriptions — список подписок пользователя для профиля/Home.
   /// Контракт: `app_account.rs::list_subscriptions` (AppSubscription[]).
   Future<List<SubPlan>> getSubscriptions() async {
-    final res = await _dio.get('/subscriptions');
+    final res = await _dio.get<dynamic>('/subscriptions');
     return _list(res, SubPlan.fromJson, 'subscriptions');
   }
 
@@ -320,14 +377,14 @@ class ApiClient {
   /// и список приглашённых. Контракт: `app_account.rs::get_referrals`
   /// (AppReferrals; денежная модель — баланс рефереру, скидка приглашённому).
   Future<ReferralInfo> getReferrals() async {
-    final res = await _dio.get('/referrals');
+    final res = await _dio.get<dynamic>('/referrals');
     return ReferralInfo.fromJson(_okMap(res));
   }
 
   /// GET /family — участники семьи. [subscriptionId] (опц.) валидирует владение
   /// конкретной подпиской. Контракт: `app_account.rs::get_family` (FamilyResponse).
   Future<Family> getFamily({int? subscriptionId}) async {
-    final res = await _dio.get(
+    final res = await _dio.get<dynamic>(
       '/family',
       queryParameters: {
         if (subscriptionId != null) 'subscription_id': subscriptionId,
@@ -343,7 +400,7 @@ class ApiClient {
     int? maxUses,
     int? durationDays,
   }) async {
-    final res = await _dio.post(
+    final res = await _dio.post<dynamic>(
       '/family/invite',
       data: {
         if (subscriptionId != null) 'subscription_id': subscriptionId,
@@ -356,7 +413,7 @@ class ApiClient {
 
   /// DELETE /family/{memberId} — исключить участника из семьи.
   Future<bool> removeFamilyMember(int memberId) async {
-    final res = await _dio.delete('/family/$memberId');
+    final res = await _dio.delete<dynamic>('/family/$memberId');
     _ensureOk(res);
     return true;
   }
@@ -365,8 +422,46 @@ class ApiClient {
   /// `app_account.rs::list_relays` (AppRelay[]). Спец-варианты Выкл/Авто
   /// клиент добавляет сам (см. [Relay.fromCountries]).
   Future<List<Relay>> getRelays() async {
-    final res = await _dio.get('/relays');
+    final res = await _dio.get<dynamic>('/relays');
     return _list(res, Relay.fromApiJson, 'relays');
+  }
+
+  /// PUT /subscriptions/{id}/selection — закрепляет выход и вход подписки.
+  ///
+  /// Тело: `{"node_id": ..., "relay_country": ...}`, где каждое поле имеет три
+  /// состояния (см. [SelectionField]): ключ отсутствует — не менять, `null` —
+  /// сбросить в дефолт, значение — установить. Ответ несёт то, что применилось
+  /// ФАКТИЧЕСКИ (`{node_id, relay_country}`): запрошенный узел мог не подойти
+  /// плану, и локальное состояние подстраивается под ответ, а не под запрос.
+  ///
+  /// Панели нет — [ApiNotAvailableException] вместо сетевой ошибки: в режиме
+  /// импортированной подписки закреплять выбор негде, и это состояние, а не
+  /// сбой.
+  Future<ExitSelection> putSubscriptionSelection({
+    required int subscriptionId,
+    SelectionField<int> nodeId = const SelectionField<int>.unchanged(),
+    SelectionField<String> relayCountry =
+        const SelectionField<String>.unchanged(),
+  }) async {
+    if (!hasPanel) {
+      throw const ApiNotAvailableException(
+        'Выбор страны закрепляется только на панели. В режиме импортированной '
+        'подписки он применяется локально.',
+      );
+    }
+    if (!nodeId.present && !relayCountry.present) {
+      // Оба поля «не трогать» — тело было бы пустым: запрос не отправляем,
+      // потому что менять нечего, и отвечаем «панель ничего не закрепила».
+      return ExitSelection.none;
+    }
+    final res = await _dio.put<dynamic>(
+      '/subscriptions/$subscriptionId/selection',
+      data: <String, dynamic>{
+        if (nodeId.present) 'node_id': nodeId.value,
+        if (relayCountry.present) 'relay_country': relayCountry.value,
+      },
+    );
+    return ExitSelection.fromJson(_okMap(res));
   }
 
   /// GET /traffic — подневная история трафика (~30 дней) для графика.
@@ -377,14 +472,14 @@ class ApiClient {
   /// Берём только `points`; на любую ошибку — пустой список (UI рисует «нет данных»).
   Future<List<TrafficPoint>> getTraffic() async {
     try {
-      final res = await _dio.get('/traffic');
+      final res = await _dio.get<dynamic>('/traffic');
       if ((res.statusCode ?? 0) >= 400) return const [];
       final data = res.data;
       if (data is! Map) return const [];
       final points = data['points'];
       if (points is! List) return const [];
       return points
-          .whereType<Map>()
+          .whereType<Map<dynamic, dynamic>>()
           .map((e) => TrafficPoint.fromJson(e.cast<String, dynamic>()))
           .toList(growable: false);
     } catch (_) {
@@ -392,33 +487,89 @@ class ApiClient {
     }
   }
 
-  /// POST /purchase — чек-аут плана. Контракт: `app_billing.rs::purchase`
-  /// (`{ duration_id, provider? }` -> `{ pay_url, session_id, amount, currency,
-  /// fulfilled }`). [durationId] — это `plan_durations.id`.
+  // ------------------------------------------------------------------
+  // Тарифы и оплата (`/app/plans`, `/app/payment-methods`, `/app/purchase`)
+  // ------------------------------------------------------------------
+
+  /// GET /plans — витрина тарифов оператора с покупаемыми сроками.
   ///
-  /// Возвращает `pay_url` для открытия во внешнем браузере; для оплаты с баланса
-  /// панель отдаёт `"SUCCESS"` + `fulfilled=true` — тогда возвращаем `null`
-  /// (открывать нечего, подписка уже активирована). Текущий путь покупки в UI —
-  /// deeplink в бота (ProfileScreen); этот метод оставлен под in-app pay_url.
-  Future<String?> purchase(int durationId, {String? provider}) async {
-    final res = await _dio.post(
+  /// Ответ — конверт (`{currency, in_app_purchase, pay, plans}`), а не голый
+  /// список: вместе с тарифами приходят валюта, флаг «оплата в приложении
+  /// включена лицензией» и адреса оплаты. [PlanCatalog.fromJson] терпит и голый
+  /// массив — см. комментарий там.
+  ///
+  /// 404 НЕ проглатывается пустым каталогом: панель старее этого маршрута —
+  /// это другое состояние, чем «у оператора нет тарифов», и экран обязан
+  /// сказать разное. Отличать их вызывающий будет по `statusCode`.
+  Future<PlanCatalog> getPlans() async {
+    final res = await _dio.get<dynamic>('/plans');
+    _ensureOk(res);
+    return PlanCatalog.fromJson(res.data);
+  }
+
+  /// GET /payment-methods — способы оплаты для конкретного срока или заказа.
+  ///
+  /// Ровно то, что мини-апп показывает в своём листе оплаты (`provider_names()`
+  /// + `provider_enable_setting()` + цена провайдера), плюс поле `checkout`:
+  /// какие способы проходят через `POST /purchase`, а какие живут только в
+  /// Telegram.
+  Future<List<PaymentMethod>> getPaymentMethods({
+    int? durationId,
+    int? orderId,
+  }) async {
+    final res = await _dio.get<dynamic>(
+      '/payment-methods',
+      queryParameters: <String, dynamic>{
+        if (durationId != null) 'duration_id': durationId,
+        if (orderId != null) 'order_id': orderId,
+      },
+    );
+    _ensureOk(res);
+    return PaymentMethod.listFrom(res.data);
+  }
+
+  /// POST /purchase — чек-аут плана. Контракт: `app_billing.rs::purchase`
+  /// (`{ duration_id | order_id, provider? }` -> `{ pay_url, pay_url_kind,
+  /// session_id, amount, amount_decimal, currency, provider, fulfilled }`).
+  /// [durationId] — это `plan_durations.id`.
+  ///
+  /// Возвращается ВЕСЬ ответ, а не одна ссылка. Прежняя сигнатура (`String?`)
+  /// теряла три вещи, каждая из которых нужна экрану: `pay_url_kind` (иначе
+  /// относительный путь `manual` уехал бы в launchUrl как есть), `session_id`
+  /// (иначе после возврата из браузера не у чего спросить, оплатили ли) и
+  /// `fulfilled` (списание с баланса надо отличать от «ссылки не дали»).
+  ///
+  /// 403 здесь — штатный ответ, а не сбой: `end_user_billing` гейтит оплату из
+  /// приложения по лицензии оператора, и через Telegram она при этом работает.
+  /// Ловится вызывающим по `statusCode == 403`.
+  Future<PurchaseCheckout> purchase({
+    int? durationId,
+    int? orderId,
+    String? provider,
+  }) async {
+    assert(
+      durationId != null || orderId != null,
+      'purchase: нужен duration_id или order_id',
+    );
+    final res = await _dio.post<dynamic>(
       '/purchase',
-      data: {
-        'duration_id': durationId,
+      data: <String, dynamic>{
+        if (durationId != null) 'duration_id': durationId,
+        if (orderId != null) 'order_id': orderId,
         if (provider != null && provider.isNotEmpty) 'provider': provider,
       },
     );
-    if ((res.statusCode ?? 0) >= 400) {
-      throw ApiException(_messageOf(res), statusCode: res.statusCode);
-    }
-    final data = res.data;
-    if (data is Map) {
-      final m = data.cast<String, dynamic>();
-      if (m['fulfilled'] == true) return null;
-      final url = m['pay_url'];
-      if (url is String && url.isNotEmpty && url != 'SUCCESS') return url;
-    }
-    return null;
+    return PurchaseCheckout.fromJson(_okMap(res));
+  }
+
+  /// GET /purchase/{session_id} — состояние платёжной сессии.
+  ///
+  /// Нужен после возврата из внешнего браузера: приложение не получает никакого
+  /// сигнала об оплате, а вебхук провайдера приходит на панель. Единственный
+  /// честный способ показать «Оплачено» — спросить.
+  Future<PurchaseStatus> getPurchaseStatus(String sessionId) async {
+    final res = await _dio.get<dynamic>('/purchase/$sessionId');
+    return PurchaseStatus.fromJson(_okMap(res));
   }
 
   // ------------------------------------------------------------------
@@ -431,7 +582,7 @@ class ApiClient {
   /// обёртки терпим и голый массив, и ключ `items` (см. [_listFlex]); тогда
   /// серверного счётчика нет и клиент считает локально.
   Future<NotificationsPage> getNotifications() async {
-    final res = await _dio.get('/notifications');
+    final res = await _dio.get<dynamic>('/notifications');
     final items = _listFlex(
       res,
       AppNotification.fromJson,
@@ -447,14 +598,14 @@ class ApiClient {
 
   /// POST /notifications/{id}/read — пометить одно уведомление прочитанным.
   Future<bool> markNotificationRead(int id) async {
-    final res = await _dio.post('/notifications/$id/read');
+    final res = await _dio.post<dynamic>('/notifications/$id/read');
     _ensureOk(res);
     return true;
   }
 
   /// POST /notifications/read-all — пометить все уведомления прочитанными.
   Future<bool> markAllNotificationsRead() async {
-    final res = await _dio.post('/notifications/read-all');
+    final res = await _dio.post<dynamic>('/notifications/read-all');
     _ensureOk(res);
     return true;
   }
@@ -465,7 +616,7 @@ class ApiClient {
 
   /// GET /tickets — список тикетов пользователя (`TicketSummary[]`).
   Future<List<TicketSummary>> getTickets() async {
-    final res = await _dio.get('/tickets');
+    final res = await _dio.get<dynamic>('/tickets');
     return _listFlex(
       res,
       TicketSummary.fromJson,
@@ -480,7 +631,7 @@ class ApiClient {
     required String subject,
     required String message,
   }) async {
-    final res = await _dio.post(
+    final res = await _dio.post<dynamic>(
       '/tickets',
       data: {'subject': subject, 'message': message},
     );
@@ -493,14 +644,14 @@ class ApiClient {
 
   /// GET /tickets/{id} — тикет с лентой сообщений (`TicketDetail`).
   Future<TicketDetail> getTicket(int id) async {
-    final res = await _dio.get('/tickets/$id');
+    final res = await _dio.get<dynamic>('/tickets/$id');
     return TicketDetail.fromJson(_okMap(res));
   }
 
   /// POST /tickets/{id}/reply — ответ в тикет. Контракт: `{ message }`.
   /// Возвращает созданное сообщение, если панель его отдаёт (иначе null).
   Future<TicketMessage?> replyTicket(int id, String message) async {
-    final res = await _dio.post(
+    final res = await _dio.post<dynamic>(
       '/tickets/$id/reply',
       data: {'message': message},
     );
@@ -527,7 +678,7 @@ class ApiClient {
   /// `app_partner.rs::list_partner_codes` (PartnerOverview). Не-партнёру панель
   /// отдаёт `{ is_partner: false, codes: [] }` — UI прячет раздел.
   Future<PartnerOverview> getPartnerCodes() async {
-    final res = await _dio.get('/partner/codes');
+    final res = await _dio.get<dynamic>('/partner/codes');
     return PartnerOverview.fromJson(_okMap(res));
   }
 
@@ -535,7 +686,7 @@ class ApiClient {
   /// `{ source_label }` -> созданный объект кода. [sourceLabel] — youtube,
   /// tg-канал, имя блогера.
   Future<PartnerCode> createPartnerCode(String sourceLabel) async {
-    final res = await _dio.post(
+    final res = await _dio.post<dynamic>(
       '/partner/codes',
       data: {'source_label': sourceLabel},
     );
@@ -549,7 +700,7 @@ class ApiClient {
   /// DELETE /partner/codes/{code} — удалить партнёрский код. Возвращает `true`
   /// при успехе.
   Future<bool> deletePartnerCode(String code) async {
-    final res = await _dio.delete('/partner/codes/$code');
+    final res = await _dio.delete<dynamic>('/partner/codes/$code');
     _ensureOk(res);
     return true;
   }
@@ -565,7 +716,7 @@ class ApiClient {
   }) {
     _ensureOk(res);
     final data = res.data;
-    List? list;
+    List<dynamic>? list;
     if (data is List) {
       list = data;
     } else if (data is Map) {
@@ -578,7 +729,7 @@ class ApiClient {
     }
     if (list == null) throw ApiException('Malformed $what response');
     return list
-        .whereType<Map>()
+        .whereType<Map<dynamic, dynamic>>()
         .map((e) => fromJson(e.cast<String, dynamic>()))
         .toList(growable: false);
   }
@@ -595,7 +746,7 @@ class ApiClient {
       throw ApiException('Malformed $what response');
     }
     return data
-        .whereType<Map>()
+        .whereType<Map<dynamic, dynamic>>()
         .map((e) => fromJson(e.cast<String, dynamic>()))
         .toList(growable: false);
   }
@@ -618,7 +769,7 @@ class ApiClient {
       return null;
     }
     try {
-      final res = await _dio.post(
+      final res = await _dio.post<dynamic>(
         '/refresh',
         data: {'refresh_token': refresh},
         options: Options(extra: {'skipAuth': true}),

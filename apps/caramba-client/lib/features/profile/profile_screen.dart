@@ -1,14 +1,22 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart' hide Family;
 
 import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/models/sub_plan.dart';
+import 'package:caramba_client/data/models/subscription.dart'
+    show AccessState, formatBytesRu;
+import 'package:caramba_client/desktop/adaptive_sheet.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
+import 'package:caramba_client/features/profile/panel_required.dart';
+import 'package:caramba_client/features/servers/access_card.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/account_state.dart';
+import 'package:caramba_client/state/branding_state.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/theme/spacing.dart';
@@ -19,12 +27,19 @@ import 'package:caramba_client/widgets/ui.dart';
 
 /// Профиль: подписки (free с недельной квота-баром, платные с метой),
 /// устройства, рефералы, семейный доступ. Все данные — из `/api/v2/app/*`.
+///
+/// Весь экран панельный. В generic-режиме (своя подписка, аккаунта панели нет)
+/// показывать нечего, а протянутые провайдеры ушли бы в 401 — поэтому без
+/// сессии рендерим пустое состояние с приглашением подключить панель.
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
+    if (ref.watch(authProvider).stage != AuthStage.authenticated) {
+      return const PanelRequiredScreen(title: 'Профиль');
+    }
     final user = ref.watch(currentUserProvider);
     final subsAsync = ref.watch(subscriptionsProvider);
     final devicesAsync = ref.watch(devicesProvider);
@@ -63,7 +78,7 @@ class ProfileScreen extends ConsumerWidget {
               AppSpace.s20 + AppSpace.s6,
             ),
             children: [
-              ScreenHead('Профиль', trailing: const NotificationBell()),
+              const ScreenHead('Профиль', trailing: NotificationBell()),
               Row(
                 children: [
                   Container(
@@ -102,7 +117,7 @@ class ProfileScreen extends ConsumerWidget {
               ),
 
               // ---- Баланс кошелька (money-модель: пополняется рефералами).
-              SectionTitle('Баланс'),
+              const SectionTitle('Баланс'),
               RowsGroup(
                 children: [
                   CRow(
@@ -118,14 +133,14 @@ class ProfileScreen extends ConsumerWidget {
               ),
 
               // ---- Подписки
-              SectionTitle('Подписки'),
+              const SectionTitle('Подписки'),
               subsAsync.when(
                 data: (subs) => subs.isEmpty
                     ? const InlineEmpty(message: 'Активных подписок нет')
                     : Column(
                         children: [
                           for (var i = 0; i < subs.length; i++)
-                            _SubCard(sub: subs[i]),
+                            SubscriptionCard(sub: subs[i]),
                         ],
                       ),
                 loading: () => const InlineLoading(),
@@ -135,18 +150,22 @@ class ProfileScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: AppSpace.s2),
+              // Раньше эта кнопка звала openExternal со ссылкой из брендинга —
+              // и у оператора, который бота не опубликовал, отдавала пустую
+              // строку: нажатие показывало «Ссылка недоступна» и всё. Теперь
+              // она ведёт на витрину тарифов, а решение «оплатить здесь или
+              // уйти в Telegram» принимается там, где для него есть данные.
               GhostButton(
                 label: 'Купить или продлить',
                 icon: Lucide.creditCard,
-                onPressed: () =>
-                    openExternal(context, 'https://t.me/exarobot?start=plans'),
+                onPressed: () => context.push(AppRoute.plans),
               ),
 
               // ---- Устройства
               devicesAsync.when(
                 data: (devices) => _DevicesSection(devices: devices),
-                loading: () => Column(
-                  children: const [SectionTitle('Устройства'), InlineLoading()],
+                loading: () => const Column(
+                  children: [SectionTitle('Устройства'), InlineLoading()],
                 ),
                 error: (_, __) => Column(
                   children: [
@@ -160,7 +179,7 @@ class ProfileScreen extends ConsumerWidget {
               ),
 
               // ---- Рефералы
-              SectionTitle('Рефералы'),
+              const SectionTitle('Рефералы'),
               referralAsync.when(
                 data: (r) => _ReferralSection(referral: r),
                 loading: () => const InlineLoading(),
@@ -172,7 +191,7 @@ class ProfileScreen extends ConsumerWidget {
 
               // ---- Партнёрам (только при подтверждённой партнёрской роли)
               if (isPartner) ...[
-                SectionTitle('Партнёрам'),
+                const SectionTitle('Партнёрам'),
                 RowsGroup(
                   children: [
                     CRow(
@@ -186,7 +205,7 @@ class ProfileScreen extends ConsumerWidget {
               ],
 
               // ---- Поддержка
-              SectionTitle('Поддержка'),
+              const SectionTitle('Поддержка'),
               RowsGroup(
                 children: [
                   CRow(
@@ -324,9 +343,14 @@ class _ReferralSection extends StatelessWidget {
   }
 }
 
-class _SubCard extends ConsumerWidget {
+/// Карточка одной подписки в списке профиля. Публичный класс (а не приватный
+/// `_SubCard`) намеренно: это позволяет тестам монтировать карточку саму по
+/// себе, без всего auth-стека `ProfileScreen`, и проверять на РЕНДЕРЕ, что
+/// сырой статус панели («throttled», «expired», ...) никогда не долетает до
+/// текста на экране.
+class SubscriptionCard extends ConsumerWidget {
   final SubPlan sub;
-  const _SubCard({required this.sub});
+  const SubscriptionCard({required this.sub, super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -353,22 +377,41 @@ class _SubCard extends ConsumerWidget {
                   style: AppType.bodyMd.copyWith(color: c.textHi),
                 ),
               ),
-              Tag(sub.isActive ? 'Активна' : sub.status, ok: sub.isActive),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 130),
+                child: Tag(_statusLabel(sub), ok: sub.isActive),
+              ),
             ],
           ),
           const SizedBox(height: AppSpace.s3),
-          if (sub.kind == SubKind.free && sub.quotaGb > 0) ...[
+          // Панель считает бесплатную норму СУТКАМИ (`plans.daily_traffic_mb`,
+          // `quota_period == "day"`), а не неделями — `weekly_free_refill_gb`
+          // ниже лишь домножает суточную цифру на 7 для другой витрины. Читать
+          // отсюда нужно `access.usedBytes`/`access.limitBytes`: это ровно те
+          // байты, которые enforcement считает за сегодня.
+          if (sub.kind == SubKind.free && sub.access.limitBytes > 0) ...[
             Text(
-              '${_gb(sub.usedGb)} из ${_gb(sub.quotaGb)} ГБ в неделю',
+              '${formatBytesRu(sub.access.usedBytes)} из '
+              '${formatBytesRu(sub.access.limitBytes)} в день',
               style: AppType.bodySm.copyWith(color: c.textMed),
             ),
             const SizedBox(height: AppSpace.s3),
-            QuotaMeter(fraction: sub.quotaFraction, low: sub.quotaLow),
+            QuotaMeter(
+              fraction: _dailyFraction(sub.access),
+              low: _dailyFraction(sub.access) > 0.8,
+            ),
           ] else
             Text(
               [sub.meta, sub.expiresLabel].where((s) => s != null).join(' · '),
               style: AppType.bodySm.copyWith(color: c.textMed),
             ),
+          // Причина отказа и путь к оплате — тот же виджет, что на экранах
+          // серверов/дома: второй копии этого текста в приложении быть не
+          // должно (см. комментарий в access_card.dart).
+          if (!sub.isActive) ...[
+            const SizedBox(height: AppSpace.s3),
+            AccessCard(access: sub.access),
+          ],
           const SizedBox(height: AppSpace.s3),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -401,17 +444,8 @@ class _SubCard extends ConsumerWidget {
     );
   }
 
-  String _gb(double v) =>
-      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
-
   void _openFamily(BuildContext context, WidgetRef ref, SubPlan sub) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: context.c.surface1,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (ctx) => _FamilySheet(sub: sub),
-    );
+    showAdaptiveSheet<void>(context, builder: (ctx) => _FamilySheet(sub: sub));
   }
 }
 
@@ -524,15 +558,37 @@ class _FamilySheet extends ConsumerWidget {
       final invite = await ref
           .read(apiClientProvider)
           .inviteFamily(subscriptionId: sub.id);
-      Clipboard.setData(ClipboardData(text: invite.inviteLink));
+      final link = invite.inviteLinkFor(ref.read(activeBrandingProvider).botUrl);
+      unawaited(Clipboard.setData(ClipboardData(text: link)));
       ref.invalidate(familyProvider(sub.id));
       if (context.mounted) {
         Navigator.of(context).pop();
         showCarambaToast(context, 'Ссылка-приглашение скопирована');
-        await openExternal(context, invite.inviteLink);
+        if (link.startsWith('http')) await openExternal(context, link);
       }
     } on ApiException catch (e) {
       if (context.mounted) showCarambaToast(context, e.message);
     }
   }
+}
+
+/// Человеческая метка статуса подписки для бейджа в карточке.
+///
+/// НИКОГДА не показывает сырое значение `sub.status` панели («throttled»,
+/// «expired», «pending», «banned» — внутренние слова, которых пользователь не
+/// должен видеть ни разу). Активная подписка — фиксированное «Активна»; для
+/// любого заблокированного состояния текст берётся из [AccessState.shortReason]
+/// — готового человеческого предложения, которое уже знает разницу между
+/// «сгорела дневная норма» (сама вернётся) и «подписка кончилась» (нужна
+/// оплата). Второй словарь строк здесь не заводится: непризнанный статус
+/// панели [AccessState.fromLegacy] уже относит к `AccessKind.unknown`, и
+/// `shortReason` для него тоже человеческий, а не сырой.
+String _statusLabel(SubPlan sub) =>
+    sub.isActive ? 'Активна' : sub.access.shortReason;
+
+/// Доля израсходованной дневной нормы 0..1, для полосы прогресса.
+double _dailyFraction(AccessState access) {
+  final limit = access.limitBytes;
+  if (limit <= 0) return 0;
+  return (access.usedBytes / limit).clamp(0.0, 1.0);
 }

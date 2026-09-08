@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:caramba_client/data/models/exit_location.dart';
+import 'package:caramba_client/data/models/server.dart';
+import 'package:caramba_client/data/safe_url.dart';
+import 'package:caramba_client/desktop/desktop_platform.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
 import 'package:caramba_client/theme/typography.dart';
@@ -21,11 +25,15 @@ class SectionTitle extends StatelessWidget {
           padding ?? const EdgeInsets.fromLTRB(0, AppSpace.s6, 0, AppSpace.s3),
       child: Row(
         children: [
-          Text(
-            text.toUpperCase(),
-            style: AppType.caption.copyWith(
-              color: c.textLow,
-              letterSpacing: 1.0,
+          // Заголовок переносится, а не обрезается: раздел, у которого не
+          // видно конца названия, хуже раздела в две строки.
+          Flexible(
+            child: Text(
+              text.toUpperCase(),
+              style: AppType.caption.copyWith(
+                color: c.textLow,
+                letterSpacing: 1.0,
+              ),
             ),
           ),
           if (trailing != null) ...[
@@ -50,8 +58,9 @@ class RowsGroup extends StatelessWidget {
     final c = context.c;
     final rows = <Widget>[];
     for (var i = 0; i < children.length; i++) {
-      if (i > 0)
+      if (i > 0) {
         rows.add(Divider(height: 1, thickness: 1, color: c.borderSubtle));
+      }
       rows.add(children[i]);
     }
     return Container(
@@ -304,6 +313,119 @@ class CodeChip extends StatelessWidget {
   }
 }
 
+/// Страна на строке: ФЛАГ и код рядом.
+///
+/// Код не убран в пользу флага намеренно. Флаг просили показывать, и он теперь
+/// первый — но идентификатор страны во всём приложении это ISO-2: по нему
+/// группируется список, ищется имя и уходит выбор. Флаг без кода превратил бы
+/// строку в картинку, которую нельзя ни назвать, ни сверить с тостом, а
+/// нейтральный глиф (страна не названа твёрдо) без кода не сказал бы вообще
+/// ничего.
+///
+/// [flag] сюда приходит уже решённым (`flagOf` / `flagOfGuessedCountry`);
+/// виджет ничего не выводит сам. [code] пустой — страна неизвестна, и вместо
+/// кода стоит `··`, как и раньше.
+class FlagChip extends StatelessWidget {
+  final String flag;
+  final String code;
+
+  const FlagChip({required this.flag, required this.code, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final label = code.isEmpty ? '··' : code;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      constraints: const BoxConstraints(minWidth: 40),
+      decoration: BoxDecoration(
+        color: c.surfaceInset,
+        borderRadius: AppRadius.r8,
+        border: Border.all(color: c.borderSubtle),
+      ),
+      alignment: Alignment.center,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(flag, style: const TextStyle(fontSize: 14, height: 1.2)),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: AppType.monoSm.copyWith(color: c.textHi, letterSpacing: 0.5),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Значение задержки С УКАЗАНИЕМ АВТОРА.
+///
+/// Без подписи «42 мс» — это утверждение о расстоянии до пользователя, а панель
+/// такого числа не производит: её `latency_ms` меряет узел до своей цели раз в
+/// ~30 с. Поэтому число оператора показывается, но подписано оператором, а
+/// собственный замер — своим именем. Прочерк означает «никто не мерил», и он
+/// честнее нуля.
+class LatencyReadout extends StatelessWidget {
+  final Latency latency;
+
+  const LatencyReadout(this.latency, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final color = switch (latency.bucket) {
+      PingBucket.good => c.success,
+      PingBucket.fair => c.warning,
+      PingBucket.poor => c.danger,
+      PingBucket.timeout => c.danger,
+      null => c.textLow,
+    };
+    final caption = switch (latency.source) {
+      LatencySource.client => 'ваш пинг',
+      LatencySource.operator => 'от оператора',
+      LatencySource.measuring => 'меряю',
+      LatencySource.none => null,
+    };
+
+    final Widget value;
+    if (latency.source == LatencySource.measuring) {
+      value = SizedBox(
+        width: 12,
+        height: 12,
+        child: CircularProgressIndicator(strokeWidth: 1.5, color: c.textLow),
+      );
+    } else if (latency.isTimeout) {
+      // Таймаут — точка цвета danger: числа тут нет, а «-1 мс» врал бы.
+      value = Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      );
+    } else {
+      value = Text(
+        latency.ms == null ? '-' : '${latency.ms} мс',
+        style: AppType.monoSm.copyWith(color: color),
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        value,
+        if (caption != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            caption,
+            style: AppType.bodySm.copyWith(color: c.textLow, fontSize: 10),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 /// Тег-плашка (демо `.tag`): mono uppercase в обводке. [ok] = зелёный.
 class Tag extends StatelessWidget {
   final String text;
@@ -540,7 +662,10 @@ void showCarambaToast(BuildContext context, String message) {
 /// Открывает внешнюю ссылку (deeplink в бота / страница оплаты). При неуспехе
 /// показывает тост. Используется для purchase pay_url и share-ссылок.
 Future<void> openExternal(BuildContext context, String url) async {
-  final uri = Uri.tryParse(url);
+  // Схема проверяется по списку допустимых: pay_url и share-ссылки приходят с
+  // сервера, а launchUrl без такой проверки открывает javascript:, file: и
+  // любую схему стороннего приложения по значению, которое выбрали не мы.
+  final uri = csmSafeExternalUri(url);
   if (uri == null) {
     if (context.mounted) showCarambaToast(context, 'Ссылка недоступна');
     return;
@@ -640,8 +765,31 @@ Future<int?> showPickerSheet({
   required String subtitle,
   required List<({String name, String desc, String? icon})> options,
   required int selected,
+
+  /// Индексы, которые видны, но не выбираемы, и подпись причины к каждому.
+  ///
+  /// 02-SPEC.md 7.2 и 7.9: значение, которого оператор не предлагает или
+  /// которого не умеет эта версия приложения, ОБЯЗАНО отрисоваться видимым и
+  /// выключенным с названной причиной, а не исчезнуть из списка. Пропавшая
+  /// строка неотличима от «такого не бывает», и пользователь ищет её в
+  /// обновлении, которого ему не нужно.
+  Map<int, String> disabled = const <int, String>{},
 }) {
   final c = context.c;
+  // Десктоп: тот же список, но диалогом по центру. Ветка стоит первой строкой
+  // и уводит целиком, а не подменяет куски ниже: у листа и диалога разные
+  // корневые виджеты, и «общая» реализация с парой `if` внутри читалась бы
+  // хуже двух коротких.
+  if (isDesktopPlatform) {
+    return _showPickerDialog(
+      context: context,
+      title: title,
+      subtitle: subtitle,
+      options: options,
+      selected: selected,
+      disabled: disabled,
+    );
+  }
   return showModalBottomSheet<int>(
     context: context,
     backgroundColor: c.surface1,
@@ -677,14 +825,20 @@ Future<int?> showPickerSheet({
                     itemCount: options.length,
                     itemBuilder: (_, i) {
                       final o = options[i];
-                      return ListItemCard(
-                        leading: o.icon != null
-                            ? IBox(o.icon!)
-                            : const SizedBox(width: 0, height: 40),
-                        title: o.name,
-                        subtitle: o.desc,
-                        selected: i == selected,
-                        onTap: () => Navigator.of(ctx).pop(i),
+                      final off = disabled[i];
+                      return Opacity(
+                        opacity: off == null ? 1 : 0.45,
+                        child: ListItemCard(
+                          leading: o.icon != null
+                              ? IBox(o.icon!)
+                              : const SizedBox(width: 0, height: 40),
+                          title: o.name,
+                          subtitle: off ?? o.desc,
+                          selected: off == null && i == selected,
+                          onTap: off == null
+                              ? () => Navigator.of(ctx).pop(i)
+                              : null,
+                        ),
                       );
                     },
                   ),
@@ -696,4 +850,388 @@ Future<int?> showPickerSheet({
       );
     },
   );
+}
+
+/// Десктопная форма [showPickerSheet]: тот же список в центрированном диалоге.
+///
+/// Отличий от листа ровно три, и все вынужденные. Первое: крестик в заголовке —
+/// у диалога нет ни ручки перетаскивания, ни жеста вниз, и без явной кнопки
+/// закрыть его мышью можно только мимо окна, что угадывается не всеми. Второе:
+/// `FocusScope(autofocus: true)` — без фокуса внутри диалога Esc не доходит до
+/// `DismissAction`, поставленного `ModalRoute`. Третье: ширина ограничена
+/// [AppBreakpoints.dialogMaxWidth], иначе список опций растянулся бы на всё
+/// окно 1120 и строки перестали бы читаться как строки.
+Future<int?> _showPickerDialog({
+  required BuildContext context,
+  required String title,
+  required String subtitle,
+  required List<({String name, String desc, String? icon})> options,
+  required int selected,
+  required Map<int, String> disabled,
+}) {
+  final c = context.c;
+  return showDialog<int>(
+    context: context,
+    barrierColor: c.overlayScrim,
+    builder: (ctx) => Dialog(
+      backgroundColor: c.surface1,
+      surfaceTintColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: AppRadius.r22),
+      insetPadding: const EdgeInsets.all(40),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: AppBreakpoints.dialogMaxWidth,
+          maxHeight: MediaQuery.sizeOf(ctx).height * 0.85,
+        ),
+        child: FocusScope(
+          autofocus: true,
+          child: SizedBox(
+            width: double.infinity,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpace.s5,
+                AppSpace.s5,
+                AppSpace.s5,
+                AppSpace.s5,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: AppType.titleLg.copyWith(color: c.textHi),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpace.s2),
+                      IconBtn(
+                        Lucide.x,
+                        size: 36,
+                        onTap: () => Navigator.of(ctx).pop(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpace.s1),
+                  Text(
+                    subtitle,
+                    style: AppType.bodyMd.copyWith(color: c.textMed),
+                  ),
+                  const SizedBox(height: AppSpace.s3),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: options.length,
+                      itemBuilder: (_, i) {
+                        final o = options[i];
+                        final off = disabled[i];
+                        return Opacity(
+                          opacity: off == null ? 1 : 0.45,
+                          child: ListItemCard(
+                            leading: o.icon != null
+                                ? IBox(o.icon!)
+                                : const SizedBox(width: 0, height: 40),
+                            title: o.name,
+                            subtitle: off ?? o.desc,
+                            selected: off == null && i == selected,
+                            onTap: off == null
+                                ? () => Navigator.of(ctx).pop(i)
+                                : null,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+// ------------------------------------------------- пустое / загрузка / ошибка
+//
+// DESIGN.md 5.9. Экраны проверки CSM/1 показывают эти три состояния целиком, а
+// не полосой поверх пустоты: пользователь, пришедший проверять оператора,
+// обязан отличать «ещё читаем с диска» от «профиль ничего не закреплял».
+
+/// Скелет-блок загрузки: shimmer по [AppColors.shimmerBase] со светлой
+/// протяжкой [AppColors.shimmerHi], ~1.2 с. Голого спиннера на полном экране
+/// не бывает.
+class SkeletonBlock extends StatefulWidget {
+  final double height;
+  final double? width;
+  final BorderRadius radius;
+
+  const SkeletonBlock({
+    this.height = 16,
+    this.width,
+    this.radius = AppRadius.r8,
+    super.key,
+  });
+
+  @override
+  State<SkeletonBlock> createState() => _SkeletonBlockState();
+}
+
+class _SkeletonBlockState extends State<SkeletonBlock>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return SizedBox(
+      height: widget.height,
+      width: widget.width,
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) {
+          final t = _c.value;
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: widget.radius,
+              gradient: LinearGradient(
+                begin: Alignment(-1 - 2 * (1 - t), 0),
+                end: Alignment(1 - 2 * (1 - t), 0),
+                colors: [c.shimmerBase, c.shimmerHi, c.shimmerBase],
+                stops: const [0.0, 0.5, 1.0],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Скелет карточки-группы строк: рамка на месте, содержимое мерцает.
+class SkeletonRows extends StatelessWidget {
+  final int rows;
+  const SkeletonRows({this.rows = 3, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Container(
+      decoration: BoxDecoration(
+        color: c.surface1,
+        borderRadius: AppRadius.r16,
+        border: Border.all(color: c.borderSubtle),
+      ),
+      padding: const EdgeInsets.all(AppSpace.s4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < rows; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpace.s4),
+            Row(
+              children: [
+                const SkeletonBlock(height: 14, width: 96),
+                const Spacer(),
+                SkeletonBlock(height: 14, width: 64 + (i % 3) * 24),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Полноэкранное пустое состояние: линейный глиф, заголовок, одна строка
+/// объяснения и один первичный CTA.
+class ScreenEmpty extends StatelessWidget {
+  final String glyph;
+  final String title;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  const ScreenEmpty({
+    required this.glyph,
+    required this.title,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpace.s12),
+      child: Column(
+        children: [
+          LucideIcon(glyph, color: c.textMed, size: 32),
+          const SizedBox(height: AppSpace.s4),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: AppType.titleMd.copyWith(color: c.textHi),
+          ),
+          const SizedBox(height: AppSpace.s2),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppType.bodyMd.copyWith(color: c.textMed),
+          ),
+          if (actionLabel != null) ...[
+            const SizedBox(height: AppSpace.s5),
+            GhostButton(label: actionLabel!, onPressed: onAction),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Полноэкранная ошибка: danger-глиф, причина простыми словами, «Повторить»
+/// и раскрываемые «Подробности» с сырым текстом в mono-блоке.
+class ScreenError extends StatefulWidget {
+  final String message;
+  final String? details;
+  final VoidCallback? onRetry;
+
+  const ScreenError({
+    required this.message,
+    this.details,
+    this.onRetry,
+    super.key,
+  });
+
+  @override
+  State<ScreenError> createState() => _ScreenErrorState();
+}
+
+class _ScreenErrorState extends State<ScreenError> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpace.s10),
+      child: Column(
+        children: [
+          LucideIcon(Lucide.alert, color: c.danger, size: 30),
+          const SizedBox(height: AppSpace.s4),
+          Text(
+            widget.message,
+            textAlign: TextAlign.center,
+            style: AppType.bodyMd.copyWith(color: c.textHi),
+          ),
+          if (widget.onRetry != null) ...[
+            const SizedBox(height: AppSpace.s5),
+            GhostButton(
+              label: 'Повторить',
+              icon: Lucide.refresh,
+              onPressed: widget.onRetry,
+            ),
+          ],
+          if (widget.details != null) ...[
+            const SizedBox(height: AppSpace.s2),
+            QuietButton(
+              label: _open ? 'Скрыть подробности' : 'Подробности',
+              color: c.textMed,
+              onPressed: () => setState(() => _open = !_open),
+            ),
+            if (_open) ...[
+              const SizedBox(height: AppSpace.s2),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSpace.s3),
+                decoration: BoxDecoration(
+                  color: c.surfaceInset,
+                  borderRadius: AppRadius.r12,
+                  border: Border.all(color: c.borderSubtle),
+                ),
+                child: Text(
+                  widget.details!,
+                  style: AppType.monoSm.copyWith(color: c.textMed),
+                ),
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Inline-баннер (DESIGN.md 5.10): тонированный фон, глиф, одна строка.
+/// [tone] выбирает семейство: info (нейтральный), warning, danger.
+enum BannerTone { info, warning, danger }
+
+class InlineBanner extends StatelessWidget {
+  final String text;
+  final BannerTone tone;
+  final String? glyph;
+  final Widget? trailing;
+
+  const InlineBanner({
+    required this.text,
+    this.tone = BannerTone.info,
+    this.glyph,
+    this.trailing,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final (Color fg, Color bg) = switch (tone) {
+      BannerTone.info => (c.textMed, c.surface1),
+      BannerTone.warning => (c.warning, c.warningSubtle),
+      BannerTone.danger => (c.danger, c.dangerSubtle),
+    };
+    return Container(
+      padding: const EdgeInsets.all(AppSpace.s4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: AppRadius.r12,
+        border: Border.all(
+          color: tone == BannerTone.info
+              ? c.borderSubtle
+              : fg.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LucideIcon(glyph ?? Lucide.alert, color: fg, size: 18),
+          const SizedBox(width: AppSpace.s3),
+          Expanded(
+            child: Text(
+              text,
+              style: AppType.bodySm.copyWith(
+                color: tone == BannerTone.info ? c.textMed : c.textHi,
+              ),
+            ),
+          ),
+          if (trailing != null) ...[
+            const SizedBox(width: AppSpace.s3),
+            trailing!,
+          ],
+        ],
+      ),
+    );
+  }
 }

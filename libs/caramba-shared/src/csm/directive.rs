@@ -352,6 +352,49 @@ impl ReasonCode {
     pub const FLEET_UNAVAILABLE: ReasonCode = ReasonCode(5002);
 }
 
+/// Факты о подписке, от которых зависят `st` и `rc`.
+#[derive(Debug, Clone)]
+pub struct StatusFacts<'a> {
+    pub status: &'a str,
+    pub expires_at: i64,
+    pub used_traffic: i64,
+    /// 0 означает «без лимита».
+    pub limit_bytes: i64,
+    /// Бесплатный план: это onboarding-грант панели, регистрация сажает
+    /// человека именно на него, и его исчерпание это исчерпание гранта.
+    pub free_plan: bool,
+    pub banned: bool,
+    pub now: i64,
+}
+
+/// Отображение состояния подписки панели на словарь `st`/`rc`, строка в
+/// строку по таблице `02-SPEC.md` 4.6.2. Отказ едет подписанным полем внутри
+/// 200, а не кодом HTTP (`03-WIRE.md` 13.5).
+pub fn classify(f: &StatusFacts<'_>) -> (Status, ReasonCode) {
+    if f.banned {
+        return (Status::Suspended, ReasonCode::ACCOUNT_SUSPENDED);
+    }
+    let over_quota = f.limit_bytes > 0 && f.used_traffic >= f.limit_bytes;
+    match f.status {
+        "pending" => (Status::PendingApproval, ReasonCode::AWAITING_APPROVAL),
+        // `throttled` это суточная блокировка бесплатного плана и ничего
+        // больше: код причины не зависит от того, как план настроен.
+        "throttled" => (Status::QuotaExceeded, ReasonCode::DAILY_ALLOWANCE_EXHAUSTED),
+        "expired" => (Status::Expired, ReasonCode::TERM_ENDED),
+        "active" if f.expires_at <= f.now => (Status::Expired, ReasonCode::TERM_ENDED),
+        "active" if over_quota && f.free_plan => (
+            Status::QuotaExceeded,
+            ReasonCode::ONBOARDING_GRANT_EXHAUSTED,
+        ),
+        "active" if over_quota => (Status::QuotaExceeded, ReasonCode::TRAFFIC_QUOTA_EXHAUSTED),
+        "active" if f.free_plan => (Status::Onboarding, ReasonCode::NONE),
+        "active" => (Status::Active, ReasonCode::NONE),
+        // Любой статус, который панель ввела вне этого словаря, для клиента
+        // означает «оператор остановил обслуживание».
+        _ => (Status::Suspended, ReasonCode::ACCOUNT_SUSPENDED),
+    }
+}
+
 /// Битовое поле возможностей, `cap` (`03-WIRE.md` 5.1). На проводе это
 /// `bstr(4)` big-endian; биты 12..31 зарезервированы и подписант обязан
 /// выпускать их нулями.

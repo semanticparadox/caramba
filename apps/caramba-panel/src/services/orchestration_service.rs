@@ -1483,6 +1483,13 @@ impl OrchestrationService {
                                 }
                             }
                         }
+                        // Пароль здесь и пароль в подписке обязаны совпадать
+                        // байт в байт — иначе узел пишет «authentication:
+                        // token mismatch», а клиент видит просто мёртвый вход.
+                        // Единственный источник правды —
+                        // `user_tag::node_user_password`; обе половины зовут
+                        // её, чтобы формат нельзя было поменять с одной
+                        // стороны.
                         InboundType::Tuic(tuic) => {
                             for sub in &active_subs {
                                 if let (_sub_id, Some(uuid), client_id, _) =
@@ -1497,7 +1504,9 @@ impl OrchestrationService {
                                     tuic.users.push(caramba_db::models::network::TuicUser {
                                         name: Some(auth_name),
                                         uuid: uuid.clone(),
-                                        password: uuid.replace("-", ""),
+                                        password: crate::services::user_tag::node_user_password(
+                                            uuid,
+                                        ),
                                     });
                                 }
                             }
@@ -1518,7 +1527,9 @@ impl OrchestrationService {
                                     );
                                     naive.users.push(NaiveUser {
                                         username: auth_name,
-                                        password: uuid.replace("-", ""),
+                                        password: crate::services::user_tag::node_user_password(
+                                            uuid,
+                                        ),
                                     });
                                 }
                             }
@@ -1539,7 +1550,9 @@ impl OrchestrationService {
                                     );
                                     ss.users.push(caramba_db::models::network::ShadowsocksUser {
                                         username: auth_name,
-                                        password: uuid.replace("-", ""),
+                                        password: crate::services::user_tag::node_user_password(
+                                            uuid,
+                                        ),
                                     });
                                 }
                             }
@@ -1551,7 +1564,9 @@ impl OrchestrationService {
                                 {
                                     // Assuming ShadowTLS uses password/uuid for auth
                                     stls.users.push(ShadowtlsUser {
-                                        password: uuid.replace("-", ""),
+                                        password: crate::services::user_tag::node_user_password(
+                                            uuid,
+                                        ),
                                     });
                                 }
                             }

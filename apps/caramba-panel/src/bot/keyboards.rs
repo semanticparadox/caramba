@@ -9,17 +9,18 @@ use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton
 /// уже отрисованные клавиатуры не обновляются сами).
 pub fn main_menu(lang: Lang, app_mode: bool, always_support: bool) -> KeyboardMarkup {
     if app_mode {
-        let mut row = Vec::new();
+        // Режим «только приложение» обязан оставлять дорогу В приложение.
+        //
+        // Раньше он прятал всё, кроме поддержки, — включая единственную кнопку,
+        // по которой бот отдаёт ссылку caramba://connect. Выпуск ссылки при этом
+        // работал и был выкачен, но нажать было негде: на боевой панели в этом
+        // режиме за всё время не выдалось ни одного кода. Функция, до которой
+        // нельзя дотянуться, ничем не отличается от отсутствующей.
+        let mut row = vec![KeyboardButton::new(t(lang, "menu.open_app"))];
         if always_support {
             row.push(KeyboardButton::new(t(lang, "menu.support")));
         }
-
-        if row.is_empty() {
-            // Return empty markup or hidden
-            return KeyboardMarkup::new(Vec::<Vec<KeyboardButton>>::new()).resize_keyboard();
-        } else {
-            return KeyboardMarkup::new(vec![row]).resize_keyboard();
-        }
+        return KeyboardMarkup::new(vec![row]).resize_keyboard();
     }
 
     KeyboardMarkup::new(vec![
@@ -95,8 +96,85 @@ pub async fn guide_index_button(
     ]]))
 }
 
-/// Инлайн-клавиатура с кнопкой получения одноразового кода для входа в
-/// standalone-приложение. Используется в приветствии и где удобно.
+/// Кнопка-ссылка «Скачать для Android».
+///
+/// Адрес APK задаёт оператор в Settings → «Caramba Connect app — download
+/// links»; пусто или не https — кнопки нет. Требование https не косметическое:
+/// по кнопке человек ставит себе APK, и отдавать его по открытому каналу
+/// значит разрешить подменить установочный файл по дороге. Telegram к тому же
+/// не примет URL-кнопку с посторонней схемой.
+async fn app_download_url_button(
+    settings: &crate::settings::SettingsService,
+    lang: Lang,
+) -> Option<InlineKeyboardButton> {
+    let url = settings
+        .get_or_default("app_download_url_android", "")
+        .await;
+    let parsed = url.trim().parse::<reqwest::Url>().ok()?;
+    if parsed.scheme() != "https" {
+        return None;
+    }
+    Some(InlineKeyboardButton::url(
+        t(lang, "app.download_android_btn"),
+        parsed,
+    ))
+}
+
+/// Только кнопка-ссылка, без выдачи файла.
+///
+/// Нужна запасному пути в `apk_delivery`: сообщение «файла в Telegram нет» не
+/// может нести кнопку «получить файл в Telegram» — она вернула бы человека в
+/// то же самое сообщение по кругу.
+pub async fn app_download_url_keyboard(
+    settings: &crate::settings::SettingsService,
+    lang: Lang,
+) -> Option<InlineKeyboardMarkup> {
+    let button = app_download_url_button(settings, lang).await?;
+    Some(InlineKeyboardMarkup::new(vec![vec![button]]))
+}
+
+/// Способы забрать приложение — к сообщению со ссылкой входа.
+///
+/// Две строки, обе необязательные: ссылка на домен панели и выдача APK файлом
+/// прямо в Telegram. ПОРЯДОК НЕ СЛУЧАЕН: ссылка отдаёт всегда свежую сборку с
+/// сервера, файл в Telegram — ту, что владелец загрузил руками, поэтому ссылка
+/// остаётся первой, пока работает. Вторая строка — страховка ровно на тот
+/// случай, ради которого всё затевалось: домен заблокирован, а Telegram у
+/// человека очевидно работает, раз он читает это сообщение.
+///
+/// Кнопка выдачи файла появляется только когда `file_id` действительно записан
+/// (см. `apk_delivery`): кнопка, которая отвечает «файла нет», хуже отсутствия
+/// кнопки. Если не настроено ничего — клавиатуры нет вовсе.
+pub async fn app_download_keyboard(
+    settings: &crate::settings::SettingsService,
+    lang: Lang,
+) -> Option<InlineKeyboardMarkup> {
+    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+    if let Some(button) = app_download_url_button(settings, lang).await {
+        rows.push(vec![button]);
+    }
+    let has_file = !settings
+        .get_or_default(crate::bot::apk_delivery::SETTING_APK_FILE_ID, "")
+        .await
+        .trim()
+        .is_empty();
+    if has_file {
+        rows.push(vec![InlineKeyboardButton::callback(
+            t(lang, "app.apk_tg_btn"),
+            "apk_send",
+        )]);
+    }
+    if rows.is_empty() {
+        None
+    } else {
+        Some(InlineKeyboardMarkup::new(rows))
+    }
+}
+
+/// Инлайн-клавиатура «прислать заново» — висит ТОЛЬКО на сообщении с кодом
+/// входа (`command.rs::send_login_code`). По нажатию callback `get_login_code`
+/// присылает заново обе части: ссылку и код, — потому что человек нажимает её
+/// как раз тогда, когда первая пара уже протухла.
 pub fn login_code_keyboard(lang: Lang) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
         t(lang, "login.get_code_btn"),

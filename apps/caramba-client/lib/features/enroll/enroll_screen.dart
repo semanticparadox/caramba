@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/brand.dart';
+import 'package:caramba_client/data/models/enrollment.dart';
+import 'package:caramba_client/features/connections/qr_scan_sheet.dart';
+import 'package:caramba_client/features/enroll/connect_link.dart';
 import 'package:caramba_client/features/enroll/enroll_controller.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/theme/spacing.dart';
@@ -22,10 +25,19 @@ class EnrollScreen extends ConsumerStatefulWidget {
   /// URL панели из deeplink (query `panel`). `null` => ручной ввод.
   final String? initialPanel;
 
+  /// `link_pin` из ссылки энроллмента (query `k`), когда она его несёт.
+  /// Закрепляется профилем при успешной валидации.
+  final String? initialLinkPin;
+
   /// Инвайт-код из deeplink (query `code`). `null` => ручной ввод.
   final String? initialCode;
 
-  const EnrollScreen({this.initialPanel, this.initialCode, super.key});
+  const EnrollScreen({
+    this.initialPanel,
+    this.initialCode,
+    this.initialLinkPin,
+    super.key,
+  });
 
   @override
   ConsumerState<EnrollScreen> createState() => _EnrollScreenState();
@@ -56,7 +68,11 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
         if (mounted) {
           ref
               .read(enrollProvider.notifier)
-              .submitManual(panelUrl: panel, code: code);
+              .submitManual(
+                panelUrl: panel,
+                code: code,
+                linkPin: widget.initialLinkPin,
+              );
         }
       });
     }
@@ -140,22 +156,40 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
     return [
       Text('Энроллмент', style: AppType.headline.copyWith(color: c.textHi)),
       const SizedBox(height: AppSpace.s3),
+      // Обычный путь теперь ссылка, а не код: её выдаёт бот панели, и вводить
+      // по ней ничего не надо. Ручной ввод оставлен ниже как запасной, но он
+      // требует кода, который оператор должен сначала выпустить, и молчать об
+      // этом нельзя: именно на этом экране раньше застревали люди с кодом,
+      // которого никто не выдавал.
       Text(
-        'Введите инвайт-код и адрес панели, либо откройте ссылку приглашения. '
-        'Для входа понадобится аккаунт.',
+        'Обычно оператор присылает ссылку подключения: её достаточно открыть, '
+        'вводить ничего не нужно.',
+        style: AppType.bodyMd.copyWith(color: c.textMed),
+      ),
+      const SizedBox(height: AppSpace.s3),
+      GhostButton(
+        label: 'У меня есть ссылка',
+        icon: Lucide.externalLink,
+        onPressed: () => context.go(AppRoute.connect),
+      ),
+      const SizedBox(height: AppSpace.s6),
+      Text(
+        'Если оператор дал именно инвайт-код, введите его вместе с адресом '
+        'панели. Код должен быть выпущен вашим оператором: придумать его '
+        'нельзя.',
         style: AppType.bodyMd.copyWith(color: c.textMed),
       ),
       const SizedBox(height: AppSpace.s6),
-      SectionTitle('Код', padding: const EdgeInsets.only(bottom: AppSpace.s3)),
+      const SectionTitle('Код', padding: EdgeInsets.only(bottom: AppSpace.s3)),
       TextField(
         controller: _codeController,
         style: AppType.monoMd.copyWith(color: c.textHi),
         decoration: const InputDecoration(hintText: 'INVITE-XXXX'),
       ),
       const SizedBox(height: AppSpace.s5),
-      SectionTitle(
+      const SectionTitle(
         'URL панели',
-        padding: const EdgeInsets.only(bottom: AppSpace.s3),
+        padding: EdgeInsets.only(bottom: AppSpace.s3),
       ),
       TextField(
         controller: _panelController,
@@ -165,11 +199,22 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
         decoration: const InputDecoration(hintText: 'https://panel.example'),
       ),
       const SizedBox(height: AppSpace.s3),
-      GhostButton(
-        label: 'Сканировать QR',
-        icon: Lucide.appWindow,
-        onPressed: _scanQrStub,
-      ),
+      // Кнопка есть только там, где сканировать действительно можно. Раньше она
+      // стояла всегда и показывала тост «появится позже»: кнопка, которая врёт,
+      // хуже отсутствующей, потому что человек считает её своим путём и
+      // перестаёт искать настоящий.
+      if (qrScanSupported)
+        GhostButton(
+          label: 'Сканировать QR',
+          icon: Lucide.appWindow,
+          onPressed: _scanQr,
+        )
+      else
+        Text(
+          'Камеры на этой платформе нет, поэтому QR тут не сканируется. '
+          'Введите код и адрес панели или откройте ссылку приглашения.',
+          style: AppType.bodySm.copyWith(color: c.textLow),
+        ),
       if (s.error != null) ...[
         const SizedBox(height: AppSpace.s4),
         _errorLine(context, s.error!),
@@ -246,9 +291,9 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
       const SizedBox(height: AppSpace.s6),
 
       // Регистрация по email/password (свежий аккаунт расходует enroll-код).
-      SectionTitle(
+      const SectionTitle(
         'Регистрация',
-        padding: const EdgeInsets.only(bottom: AppSpace.s3),
+        padding: EdgeInsets.only(bottom: AppSpace.s3),
       ),
       TextField(
         controller: _emailController,
@@ -278,9 +323,9 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
       FilledButton(onPressed: _register, child: const Text('Создать аккаунт')),
 
       const SizedBox(height: AppSpace.s6),
-      SectionTitle(
+      const SectionTitle(
         'Уже есть аккаунт',
-        padding: const EdgeInsets.only(bottom: AppSpace.s3),
+        padding: EdgeInsets.only(bottom: AppSpace.s3),
       ),
       Text(
         'Войдите по коду из Telegram-бота этой панели.',
@@ -391,6 +436,7 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
         .submitManual(
           panelUrl: _panelController.text,
           code: _codeController.text,
+          linkPin: widget.initialLinkPin,
         );
   }
 
@@ -421,19 +467,53 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
     ref.read(enrollProvider.notifier).loginCodeWithEnroll(botCode: code);
   }
 
-  void _scanQrStub() {
-    showCarambaToast(
-      context,
-      'Сканирование QR появится позже. Пока введите код и URL панели вручную.',
-    );
+  /// Реальный скан. QR может нести три разные вещи, и все три встречаются в
+  /// переписке с оператором, поэтому разбираются здесь, а не сваливаются одной
+  /// строкой в поле кода:
+  ///   * `caramba://connect?d=...` — самоописывающееся приглашение, ему тут
+  ///     делать нечего: уводим на экран подтверждения, где вводить не нужно;
+  ///   * `carambaconnect://enroll?panel=...&code=...` — старая ссылка, из неё
+  ///     заполняем оба поля и сразу валидируем;
+  ///   * всё прочее считаем набранным кодом и кладём в поле кода, не трогая
+  ///     адрес панели.
+  Future<void> _scanQr() async {
+    final value = await showQrScanSheet(context);
+    if (value == null || !mounted) return;
+    final scanned = value.trim();
+
+    if (looksLikeConnectLink(scanned)) {
+      context.go(
+        Uri(
+          path: AppRoute.connect,
+          queryParameters: {'link': scanned},
+        ).toString(),
+      );
+      return;
+    }
+
+    final enroll = EnrollLink.tryParse(scanned);
+    if (enroll != null) {
+      _panelController.text = enroll.panelUrl;
+      _codeController.text = enroll.code;
+      setState(() {});
+      _submitManual();
+      return;
+    }
+
+    _codeController.text = scanned;
+    setState(() {});
   }
 
   void _close() {
     ref.read(enrollProvider.notifier).reset();
+    // Экран накладной (T1): под ним обычно шелл, туда и возвращаемся. Стека
+    // может не быть — холодный старт по ссылке, — тогда уходим на
+    // «Подключение», а не на «Аккаунт панели»: человек закрывает энроллмент,
+    // а не просит ещё одну дверь для входа.
     if (context.canPop()) {
       context.pop();
     } else {
-      context.go(AppRoute.login);
+      context.go(AppRoute.home);
     }
   }
 

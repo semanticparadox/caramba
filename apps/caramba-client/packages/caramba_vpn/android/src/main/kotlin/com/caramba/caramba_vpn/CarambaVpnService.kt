@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -33,14 +34,11 @@ class CarambaVpnService : VpnService() {
         const val NOTIF_ID = 0x6361
         const val POLL_INTERVAL_MS = 1000L
 
-        // TUN interface parameters. The mihomo core terminates the tunnel; these
-        // are the local virtual-interface settings (private CGNAT-range address,
-        // catch-all routes, DNS handled inside the core's fake-ip stack).
-        const val TUN_ADDRESS = "172.19.0.1"
-        const val TUN_PREFIX = 30
-        const val TUN_MTU = 1500
-        const val TUN_DNS = "1.1.1.1"
-        const val TUN_DNS_FALLBACK = "8.8.8.8"
+        // Параметры TUN-интерфейса переехали в CarambaTun (CarambaTunnelWitness.kt).
+        // Их читают ДВОЕ: сервис строит по ним интерфейс, свидетель по ним же его
+        // узнаёт. Вторая копия адреса разошлась бы с первой молча, и свидетель
+        // перестал бы находить живой туннель — то есть начал бы врать в самую
+        // опасную сторону.
     }
 
     private var tunInterface: ParcelFileDescriptor? = null
@@ -85,6 +83,10 @@ class CarambaVpnService : VpnService() {
             // Already up: a second connect replaces the session. Tear down first.
             stopTunnel(CarambaStage.CONNECTING, "Switching server")
         }
+        // Сеанс открыт: с этого момента шина имеет право отдавать «connected».
+        // Открывается ДО первого кадра, потому что закрывается он в stopTunnel, и
+        // пара обязана быть симметричной на всех путях выхода.
+        CarambaVpnBus.openSession()
         publishStatus(CarambaStage.CONNECTING, if (rawMode) "Importing profile" else "Securing tunnel")
 
         // Foreground BEFORE heavy work so the system does not kill us mid-setup.
@@ -102,8 +104,18 @@ class CarambaVpnService : VpnService() {
             stopSelf()
             return
         }
-        tunInterface = pfd
-        val fd = pfd.fd
+        // Дескриптор ОТДАЁТСЯ ядру, а не одалживается.
+        //
+        // Раньше сервис оставлял себе ParcelFileDescriptor и передавал ядру
+        // pfd.fd. Владельцев становилось два: ядро закрывает дескриптор в Down(),
+        // а stopTunnel закрывал его же второй раз — и Android убивал процесс
+        // целиком («fdsan: double-close of file descriptor», SIGABRT). То есть
+        // приложение падало каждый раз, когда человек нажимал «отключить».
+        //
+        // detachFd снимает владение с ParcelFileDescriptor: дальше дескриптор
+        // закрывает ровно тот, кому его отдали.
+        val fd = pfd.detachFd()
+        tunInterface = null
 
         // Hand off to the Go core on a background thread (network + handshake).
         running.set(true)
@@ -140,36 +152,98 @@ class CarambaVpnService : VpnService() {
                     tokenPath = File(workDir(), "tokens.json").absolutePath,
                     subscriptionId = seam.subscriptionId,
                     accessToken = seam.accessToken,
+                    refreshToken = seam.refreshToken,
+                    accessExpiryUnix = seam.accessExpiryUnix,
                 )
             }
             core = c
+            // ABI v2: policy and capture mode are applied BEFORE up() so the
+            // assembled mihomo config already carries them.
+            if (seam.policyJson.isNotEmpty()) {
+                c.setPolicyJson(seam.policyJson)
+            }
+            if (seam.tunnelMode.isNotEmpty() && seam.tunnelMode != "tun") {
+                c.setTunnelMode(seam.tunnelMode, seam.mixedPort)
+            }
             // fd MUST be set before up(); on Android the OS owns routing, so the
             // core leaves auto-route off and uses this descriptor as the TUN.
             c.setTunFd(fd)
-            // Raise the tunnel: panel path uses the selected serverId; the raw path
-            // uses an empty serverId (an imported subscription has no panel node).
-            c.up(if (rawMode) "" else serverId) // blocks until applied; throws on failure.
+            // Raise the tunnel. Both paths pass serverId: on the panel path it is
+            // the subscription node, on the raw path it is the ABI v2 pin of the
+            // CARAMBA selector to one proxy of the imported config (empty = auto).
+            c.up(serverId) // blocks until applied; throws on failure.
+            // The loopback listener exists only while the engine is up, and its
+            // credential is minted per raise. The CSM core lives in the plugin
+            // and never has up() called on it, so the address is handed across
+            // the bus; without it that core's rung R4 is permanently
+            // not_configured (02-SPEC.md 8.2).
+            CarambaVpnBus.publishLoopbackProxy(
+                try {
+                    c.loopbackProxyUrl()
+                } catch (_: Throwable) {
+                    ""
+                }
+            )
             connectedSinceMs = System.currentTimeMillis()
             pollLoop(c)
         } catch (t: Throwable) {
+            // The Go error is otherwise visible only as the UI's `detail`, which
+            // the dial renders as a generic "check your network". A failed raise
+            // has to be diagnosable from `adb logcat` on a device we do not hold.
+            Log.e("CarambaVpnService", "tunnel raise failed", t)
             publishStatus(CarambaStage.ERROR, t.message ?: "tunnel failed to start")
             stopTunnel(CarambaStage.ERROR, t.message)
         }
     }
 
     private fun pollLoop(c: CarambaCore) {
+        // Наблюдение за счётчиками поднятого адаптера. Своё на каждый подъём:
+        // «уже отвечал» и базовый отсчёт отброшенных принадлежат конкретному
+        // TUN, а не сервису.
+        val tun = CarambaTunWatch()
         while (running.get()) {
             try {
                 val status = c.status()
+                // Сеанс свернули, пока читался статус. Этот снимок описывает уже
+                // ПРОШЛОЕ, и опубликовать его — значит оставить в шине «connected»
+                // поверх «disconnected», который stopTunnel вот-вот отправит.
+                // Именно так кэш шины переживал туннель и врал следующему запуску.
+                if (!running.get()) break
                 // Prefer the core's connectedSinceMs; fall back to the local mark
                 // so the UI uptime timer starts even if the core reports 0.
                 val since = if (status.connectedSinceMs > 0) status.connectedSinceMs else connectedSinceMs
-                publishStatusSnapshot(
-                    CarambaStatusSnapshot(status.stage, status.detail, since)
-                )
+                // copy, а не сборка нового снимка из трёх полей: пересборка
+                // роняла activeProxy/mode/mixedPort, и Android оставался без
+                // сверки узла.
+                publishStatusSnapshot(status.copy(connectedSinceMs = since))
 
                 if (status.stage == CarambaStage.CONNECTED) {
                     publishTraffic(c.traffic())
+                    // ПОДНЯЛИСЬ БЕЗ АДАПТЕРА — и это не то состояние, которое
+                    // можно просто не называть защитой.
+                    //
+                    // Проверка на устройстве поймала подъём, у которого не было
+                    // строки «[TUN] Tun adapter listening»: интерфейс создан,
+                    // система гонит в него весь трафик, а mihomo к дескриптору
+                    // не подключился. Сеть на телефоне при этом мертва ЦЕЛИКОМ —
+                    // не «VPN не работает», а «интернета нет», потому что
+                    // маршрут по умолчанию ведёт в трубу без читателя.
+                    //
+                    // Поэтому туннель опускается, а не остаётся висеть молча:
+                    // это возвращает человеку сеть тем же действием, которым
+                    // снимает ложное «Защищено». Автоповтора здесь намеренно
+                    // нет: причина не в сети, а в подъёме, и цикл повторов
+                    // пересоздавал бы ту же чёрную дыру, пока человек смотрит
+                    // на «переподключение». Повтор — решение человека, как и
+                    // всякий обрыв туннеля в этом приложении.
+                    if (tun.unserviced()) {
+                        Log.e(
+                            "CarambaVpnService",
+                            "TUN adapter is not being serviced (no reader on the fd); tearing down",
+                        )
+                        stopTunnel(CarambaStage.ERROR, CarambaFailureReason.TUN_NOT_SERVICED)
+                        break
+                    }
                 } else {
                     publishTraffic(CarambaTrafficSnapshot.ZERO)
                 }
@@ -188,6 +262,11 @@ class CarambaVpnService : VpnService() {
 
     private fun stopTunnel(stage: String, detail: String?) {
         running.set(false)
+        // Сеанс закрывается ПЕРВЫМ действием, до down() и до любых публикаций:
+        // разбор занимает сотни миллисекунд, и всё это время шина не должна
+        // отдавать никому «connected» — ни опоздавшему кадру опроса, ни движку
+        // Flutter, который в этот момент подключился заново.
+        CarambaVpnBus.closeSession()
         pollThread?.interrupt()
         pollThread = null
 
@@ -197,12 +276,12 @@ class CarambaVpnService : VpnService() {
             // Best-effort teardown.
         }
         core = null
+        // The listener is gone with the engine, so R4 has no path again.
+        CarambaVpnBus.publishLoopbackProxy("")
         connectedSinceMs = 0L
 
-        try {
-            tunInterface?.close()
-        } catch (_: Throwable) {
-        }
+        // Закрывать дескриптор здесь НЕЛЬЗЯ: владение ушло вместе с detachFd,
+        // и ядро уже закрыло его в down() выше. Второй close ронял процесс.
         tunInterface = null
 
         publishTraffic(CarambaTrafficSnapshot.ZERO)
@@ -214,9 +293,17 @@ class CarambaVpnService : VpnService() {
 
     override fun onDestroy() {
         // Revoked from settings, swiped away, or system reclaim: tear down cleanly.
-        if (running.get() || tunInterface != null) {
+        // `tunInterface` больше не признак поднятого туннеля: дескриптор отдан
+        // ядру через detachFd и здесь всегда null. Живость определяет `running`.
+        if (running.get() || core != null) {
             stopTunnel(CarambaStage.DISCONNECTED, null)
         }
+        // Безусловно, даже когда поднимать было нечего: сервис уходит, туннеля
+        // в этом процессе больше нет. Процесс же остаётся жить, и открытый
+        // сеанс пережил бы того, кто его открыл, — а именно на этом кэш и
+        // начинал врать. Путь без stopTunnel не гипотетический: подъём, упавший
+        // на buildInterface, уходит сразу в stopSelf().
+        CarambaVpnBus.closeSession()
         super.onDestroy()
     }
 
@@ -231,15 +318,15 @@ class CarambaVpnService : VpnService() {
     private fun buildInterface(serverName: String): ParcelFileDescriptor {
         val builder = Builder()
             .setSession(if (serverName.isNotEmpty()) "exarobot — $serverName" else "exarobot")
-            .setMtu(TUN_MTU)
-            .addAddress(TUN_ADDRESS, TUN_PREFIX)
+            .setMtu(CarambaTun.MTU)
+            .addAddress(CarambaTun.ADDRESS, CarambaTun.PREFIX)
             // Catch-all routes: send all IPv4 (and IPv6) traffic into the tunnel.
             // The mihomo core's rule engine then decides direct vs proxy per the
             // panel config + client policy (split tunnel is applied inside rules).
             .addRoute("0.0.0.0", 0)
             .addRoute("::", 0)
-            .addDnsServer(TUN_DNS)
-            .addDnsServer(TUN_DNS_FALLBACK)
+            .addDnsServer(CarambaTun.DNS)
+            .addDnsServer(CarambaTun.DNS_FALLBACK)
 
         // Keep our own app out of the tunnel so config/subscription fetches and
         // the management plane never loop back through mihomo while connecting.
@@ -335,7 +422,9 @@ class CarambaVpnService : VpnService() {
         // system icon so a fresh `flutter create .` without a custom icon builds.
         val appIcon = applicationInfo.icon
         if (appIcon != 0) return appIcon
-        return android.R.drawable.stat_sys_vpn_ic
+        // Plugin-owned fallback. android.R.drawable.stat_sys_vpn_ic is a hidden
+        // framework id (not in the public SDK), so it cannot be referenced here.
+        return R.drawable.ic_caramba_vpn
     }
 
     private fun stopForegroundCompat() {
@@ -354,6 +443,18 @@ class CarambaVpnService : VpnService() {
         val subUrl: String,
         val subscriptionId: String,
         val accessToken: String,
+        // The rest of the session. The access token is good for ~15 minutes and
+        // this service can outlive the app that handed it over by hours, so
+        // without the refresh half the core is authenticated only until the
+        // first renewal it cannot perform. Expiry is unix seconds; 0 means
+        // "unknown" and lets the core read the JWT's own exp claim.
+        val refreshToken: String,
+        val accessExpiryUnix: Long,
+        // ABI v2 policy + capture mode, written by setPolicy() / setTunnelMode()
+        // on the plugin. Applied to the core BEFORE up().
+        val policyJson: String,
+        val tunnelMode: String,
+        val mixedPort: Int,
     )
 
     private fun readSeam(): Seam {
@@ -363,6 +464,13 @@ class CarambaVpnService : VpnService() {
             subUrl = p.getString(CarambaVpnKeys.SUB_URL, "") ?: "",
             subscriptionId = p.getString(CarambaVpnKeys.SUBSCRIPTION_ID, "") ?: "",
             accessToken = p.getString(CarambaVpnKeys.ACCESS_TOKEN, "") ?: "",
+            refreshToken = p.getString(CarambaVpnKeys.REFRESH_TOKEN, "") ?: "",
+            accessExpiryUnix = p.getLong(CarambaVpnKeys.ACCESS_EXPIRY, 0L),
+            policyJson = p.getString(CarambaVpnKeys.PREF_POLICY_JSON, "") ?: "",
+            // Android owns the TUN fd, so "tun" stays the default here; "proxy"
+            // is honoured for the rare no-TUN debugging case.
+            tunnelMode = p.getString(CarambaVpnKeys.PREF_TUNNEL_MODE, "tun") ?: "tun",
+            mixedPort = p.getInt(CarambaVpnKeys.PREF_MIXED_PORT, 7890),
         )
     }
 

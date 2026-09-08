@@ -1,0 +1,341 @@
+// Гейт навигации: кого и куда пускать.
+//
+// Проверяется чистая [resolveRedirect] — без GoRouter, платформенных каналов и
+// сети. Главное свойство: generic-режим (своя подписка) работает БЕЗ аккаунта
+// панели, а пользователь без подписки и без сессии попадает в шелл, а вход
+// остаётся разделом.
+
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:caramba_client/router/app_router.dart';
+import 'package:caramba_client/router/routes.dart';
+import 'package:caramba_client/state/auth_state.dart';
+
+String? redirect({
+  required AuthStage stage,
+  required String location,
+  bool firstRun = false,
+  bool bootReady = true,
+  bool profilesReady = true,
+  bool guest = false,
+}) => resolveRedirect(
+  stage: stage,
+  firstRun: firstRun,
+  bootReady: bootReady,
+  profilesReady: profilesReady,
+  guest: guest,
+  location: location,
+);
+
+void main() {
+  group('витрина тарифов', () {
+    test('гостя с /plans не выбрасывает: экран объясняет сам', () {
+      // В generic-режиме панели нет, и `/plans` покажет «панель не подключена»
+      // с предложением её подключить. Редирект на /login вместо этого объяснил
+      // бы не то: аккаунт тут ни при чём.
+      expect(
+        redirect(
+          stage: AuthStage.unauthenticated,
+          location: AppRoute.plans,
+          guest: true,
+        ),
+        isNull,
+      );
+    });
+
+    test('без подписки и без сессии /plans тоже не выбрасывает на вход', () {
+      expect(
+        redirect(stage: AuthStage.unauthenticated, location: AppRoute.plans),
+        isNull,
+      );
+    });
+  });
+
+  group('generic-режим (своя подписка, аккаунта панели нет)', () {
+    test('со сплеша ведёт сразу на Home, не дожидаясь auth-пробы', () {
+      expect(
+        redirect(
+          stage: AuthStage.unknown,
+          location: AppRoute.splash,
+          guest: true,
+        ),
+        AppRoute.home,
+      );
+      expect(
+        redirect(
+          stage: AuthStage.unauthenticated,
+          location: AppRoute.splash,
+          guest: true,
+        ),
+        AppRoute.home,
+      );
+    });
+
+    test('шелл и его экраны открыты без входа', () {
+      for (final loc in [
+        AppRoute.home,
+        AppRoute.servers,
+        AppRoute.settings,
+        AppRoute.connections,
+        AppRoute.connectionImport,
+        AppRoute.siteRules,
+        AppRoute.protocol,
+        AppRoute.profile,
+      ]) {
+        expect(
+          redirect(
+            stage: AuthStage.unauthenticated,
+            location: loc,
+            guest: true,
+          ),
+          isNull,
+          reason: 'гость должен попадать на $loc',
+        );
+      }
+    });
+
+    test('вход и энроллмент остаются доступны по своей воле', () {
+      expect(
+        redirect(
+          stage: AuthStage.unauthenticated,
+          location: AppRoute.login,
+          guest: true,
+        ),
+        isNull,
+      );
+      expect(
+        redirect(
+          stage: AuthStage.unauthenticated,
+          location: AppRoute.enroll,
+          guest: true,
+        ),
+        isNull,
+      );
+    });
+
+    test('онбординг гостю не навязывается', () {
+      expect(
+        redirect(
+          stage: AuthStage.unauthenticated,
+          location: AppRoute.autotune,
+          guest: true,
+          firstRun: true,
+        ),
+        AppRoute.home,
+      );
+    });
+  });
+
+  group('без подписки и без сессии — шелл открыт', () {
+    test('холодный старт ведёт в шелл, экраны шелла не трогаются', () {
+      expect(
+        redirect(stage: AuthStage.unauthenticated, location: AppRoute.home),
+        isNull,
+      );
+      expect(
+        redirect(stage: AuthStage.unauthenticated, location: AppRoute.splash),
+        AppRoute.home,
+      );
+      expect(
+        redirect(
+          stage: AuthStage.unauthenticated,
+          location: AppRoute.connections,
+        ),
+        isNull,
+      );
+    });
+
+    test('на самом входе редиректа нет', () {
+      expect(
+        redirect(stage: AuthStage.unauthenticated, location: AppRoute.login),
+        isNull,
+      );
+    });
+
+    test('/connect доступен до входа', () {
+      // Ссылка caramba:// — весь смысл в том, что аккаунт для неё уже есть на
+      // панели, а в приложении сессии ещё нет.
+      expect(
+        redirect(
+          stage: AuthStage.unauthenticated,
+          location: '${AppRoute.connect}?link=x',
+        ),
+        isNull,
+      );
+      expect(
+        redirect(
+          stage: AuthStage.unknown,
+          location: '${AppRoute.connect}?link=x',
+        ),
+        isNull,
+      );
+    });
+
+    test('вход кодом (authenticating) не выдёргивает с /login', () {
+      expect(
+        redirect(stage: AuthStage.authenticating, location: AppRoute.login),
+        isNull,
+      );
+      expect(
+        redirect(stage: AuthStage.authenticating, location: AppRoute.splash),
+        AppRoute.home,
+      );
+    });
+
+    test('энроллмент по deeplink доступен до входа', () {
+      expect(
+        redirect(stage: AuthStage.unauthenticated, location: AppRoute.enroll),
+        isNull,
+      );
+      expect(
+        redirect(stage: AuthStage.unknown, location: AppRoute.enroll),
+        isNull,
+      );
+    });
+
+    test('импорт подписки по deeplink доступен до входа', () {
+      // carambaconnect://import — вход в generic-режим: аккаунт панели для него
+      // не нужен, и увод на /login съедал бы ссылку на холодном старте.
+      expect(
+        redirect(
+          stage: AuthStage.unauthenticated,
+          location: '${AppRoute.connectionImport}?url=x',
+        ),
+        isNull,
+      );
+      expect(
+        redirect(
+          stage: AuthStage.unauthenticated,
+          location: AppRoute.connectionImport,
+        ),
+        isNull,
+      );
+      expect(
+        redirect(
+          stage: AuthStage.unknown,
+          location: '${AppRoute.connectionImport}?url=x',
+        ),
+        isNull,
+      );
+    });
+
+    test('ссылка импорта переживает нечитанные настройки и профили', () {
+      // Гейт «локальное состояние ещё грузится» держит сплеш для всех — кроме
+      // pre-auth потоков, иначе ссылка теряется до того, как её кто-то увидел.
+      expect(
+        redirect(
+          stage: AuthStage.unknown,
+          location: '${AppRoute.connectionImport}?url=x',
+          bootReady: false,
+          profilesReady: false,
+        ),
+        isNull,
+      );
+    });
+
+    test('пока сессия резолвится, держим сплеш', () {
+      expect(
+        redirect(stage: AuthStage.unknown, location: AppRoute.splash),
+        isNull,
+      );
+      expect(
+        redirect(stage: AuthStage.unknown, location: AppRoute.home),
+        AppRoute.splash,
+      );
+    });
+  });
+
+  group('локальное состояние ещё грузится', () {
+    test('решение откладывается на сплеше, а не принимается по дефолтам', () {
+      // Профили лежат в secure storage: без них гость выглядел бы как чужой и
+      // отскакивал бы на /login прямо на холодном старте.
+      expect(
+        redirect(
+          stage: AuthStage.unauthenticated,
+          location: AppRoute.home,
+          profilesReady: false,
+        ),
+        AppRoute.splash,
+      );
+      expect(
+        redirect(
+          stage: AuthStage.unauthenticated,
+          location: AppRoute.splash,
+          bootReady: false,
+        ),
+        isNull,
+      );
+    });
+
+    test('залогиненного не уводим в онбординг до чтения настроек', () {
+      expect(
+        redirect(
+          stage: AuthStage.authenticated,
+          location: AppRoute.home,
+          firstRun: true,
+          bootReady: false,
+        ),
+        AppRoute.splash,
+      );
+    });
+  });
+
+  group('залогиненный пользователь', () {
+    test('первый вход ведёт в автоподбор', () {
+      expect(
+        redirect(
+          stage: AuthStage.authenticated,
+          location: AppRoute.home,
+          firstRun: true,
+        ),
+        AppRoute.autotune,
+      );
+      expect(
+        redirect(
+          stage: AuthStage.authenticated,
+          location: AppRoute.autotune,
+          firstRun: true,
+        ),
+        isNull,
+      );
+    });
+
+    test('уводится из pre-auth экранов, включая энроллмент', () {
+      for (final loc in [
+        AppRoute.splash,
+        AppRoute.login,
+        AppRoute.autotune,
+        AppRoute.enroll,
+      ]) {
+        expect(
+          redirect(stage: AuthStage.authenticated, location: loc),
+          AppRoute.home,
+          reason: 'после входа $loc должен уводить на Home',
+        );
+      }
+    });
+
+    test('внутри приложения не трогаем', () {
+      expect(
+        redirect(stage: AuthStage.authenticated, location: AppRoute.servers),
+        isNull,
+      );
+      // Тарифы — тоже «внутри»: человек, нажавший «Купить», обязан попасть на
+      // витрину, а не на форму входа. Отсутствие объяснения на этом шаге хуже
+      // любого отказа: деньги он собирался платить прямо сейчас.
+      expect(
+        redirect(stage: AuthStage.authenticated, location: AppRoute.plans),
+        isNull,
+      );
+      // Импорт остаётся доступен и с аккаунтом: мульти-профиль разрешает
+      // свою подписку рядом с панельной.
+      expect(
+        redirect(
+          stage: AuthStage.authenticated,
+          location: '${AppRoute.connectionImport}?url=x',
+        ),
+        isNull,
+      );
+    });
+  });
+}

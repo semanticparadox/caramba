@@ -5,13 +5,13 @@
 // extension target after `flutter create .` (see INTEGRATION). It is compiled
 // into the extension binary, links the vendored exarobot.xcframework (gomobile
 // bind of the `mobile` package with -prefix Caramba, so the Swift module is
-// `Caramba`), and runs in its own process.
+// `Exarobot` and the classes are `CarambaMobile*`), and runs in its own process.
 //
 // Flow:
 //   1. startTunnel: read providerConfiguration (serverId + panel/sub URLs etc.)
 //      that the app's CarambaVpnPlugin stored on the NETunnelProviderProtocol.
 //   2. Apply NEPacketTunnelNetworkSettings so the OS routes packets to us.
-//   3. Build the Go core (CarambaNewClient + Configure), hand it the tunnel file
+//   3. Build the Go core (CarambaMobileNewClient + Configure), hand it the tunnel file
 //      descriptor (packetFlow's underlying utun fd) via SetTunFd, then Up(serverId).
 //      mihomo reads/writes that same fd, so packets actually flow through the
 //      AmneziaWG/VLESS/etc. proxy the panel's clash config selects.
@@ -20,24 +20,36 @@
 //
 // CODE IDENTIFIERS stay `caramba`; user-facing strings say `exarobot`.
 
+// Darwin, а не только Foundation: дескриптор utun ищется через ctl_info /
+// sockaddr_ctl / AF_SYS_CONTROL из <sys/kern_control.h>, и они видны Swift
+// только из модуля Darwin.
+import Darwin
 import Foundation
 import NetworkExtension
 import os.log
 
-// The gomobile-bound Go core. `import Caramba` resolves the vendored
-// exarobot.xcframework (gomobile bind of package `mobile` with -prefix Caramba,
-// so the module + class prefix are `Caramba`). Guarded so the file still
-// type-checks in tooling that lacks the framework; the real extension build links it.
-#if canImport(Caramba)
-import Caramba
+// The gomobile-bound Go core. `import Exarobot` resolves the vendored
+// exarobot.xcframework: имя Swift-модуля берётся из имени файла, а префикс
+// классов — из -prefix Caramba плюс имя Go-пакета `mobile`, отсюда
+// CarambaMobileClient / CarambaMobileNewClient.
+//
+// Этот файл компилируется НЕ подом, а целью Network Extension в приложении
+// (её создаёт владелец в Xcode, см. INTEGRATION). Значит условие CARAMBA_CORE
+// должна поставить та цель: SWIFT_ACTIVE_COMPILATION_CONDITIONS = CARAMBA_CORE.
+// Без него расширение собралось бы пустышкой, которая молча не поднимает
+// туннель, — поэтому здесь #error, а не тихая деградация.
+#if CARAMBA_CORE
+import Exarobot
+#else
+#error("PacketTunnelProvider: цель Network Extension должна линковать exarobot.xcframework и объявлять SWIFT_ACTIVE_COMPILATION_CONDITIONS = CARAMBA_CORE")
 #endif
 
 @available(iOS 15.0, macOS 11.0, *)
 final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let log = OSLog(subsystem: "com.caramba.vpn", category: "tunnel")
 
-    #if canImport(Caramba)
-    private var core: CarambaClient?
+    #if CARAMBA_CORE
+    private var core: CarambaMobileClient?
     #endif
 
     private var pollTimer: DispatchSourceTimer?
@@ -103,9 +115,17 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         os_log("stopTunnel reason=%d", log: log, type: .info, reason.rawValue)
         stopPolling()
         pollQueue.async {
-            #if canImport(Caramba)
+            #if CARAMBA_CORE
             // Down() shuts mihomo's listeners (including the TUN inbound).
             try? self.core?.down()
+            // Republished AFTER down and BEFORE the core is dropped: the report
+            // survives teardown (it describes the raise that just ended), and
+            // re-reading it here is what makes the `tunnel_up` inside it follow
+            // the tunnel down instead of freezing on the value it had while the
+            // engine was still up.
+            if let client = self.core {
+                self.publishRouteReport(from: client)
+            }
             self.core = nil
             #endif
             self.connectedSinceMs = 0
@@ -126,25 +146,33 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     // MARK: - Core lifecycle
 
     private func startCore(serverId: String, rawMode: Bool, conf: [String: Any]) throws {
-        #if canImport(Caramba)
+        #if CARAMBA_CORE
         let panelUrl = conf[CarambaVpnKeys.panelUrl] as? String ?? ""
         let subUuid = conf[CarambaVpnKeys.subscriptionUuid] as? String ?? ""
         let accessToken = conf[CarambaVpnKeys.accessToken] as? String ?? ""
+        // The long-lived half of the same session, plus when the access half
+        // dies. This extension is a separate process with no Dart in it: once
+        // the 15-minute access token expires it has nobody to ask for a new one,
+        // so without these the core goes permanently 401 while the tunnel is
+        // still up. Expiry rides the plist as a String; 0 means "unknown" and
+        // the core falls back to the JWT's own exp claim.
+        let refreshToken = conf[CarambaVpnKeys.refreshToken] as? String ?? ""
+        let accessExpiryUnix = Int64(conf[CarambaVpnKeys.accessExpiryUnix] as? String ?? "") ?? 0
 
         // Use the App Group container so the extension and app agree on token
         // store + work dir on disk. The gomobile prefix is `Caramba` (see the
-        // build script -prefix Caramba), so the type is CarambaClient and the
-        // constructor is CarambaNewClient.
+        // build script -prefix Caramba), so the type is CarambaMobileClient and the
+        // constructor is CarambaMobileNewClient.
         let base = CarambaAppGroup.containerURL ?? FileManager.default.temporaryDirectory
         let workDir = base.appendingPathComponent("caramba", isDirectory: true).path
         let tokenPath = base.appendingPathComponent("caramba/token.json").path
 
         var initError: NSError?
         // gomobile maps Go `NewClient(panelURL,subURL,workDir,tokenPath) (*Client, error)`
-        // to `CarambaNewClient(_,_,_,_, error:) -> CarambaClient?`. subURL is left
+        // to `CarambaMobileNewClient(_,_,_,_, error:) -> CarambaMobileClient?`. subURL is left
         // empty so the core uses the panel default. For a raw import panelUrl is
         // empty; NewClient still succeeds (it only wires the client, no network).
-        guard let client = CarambaNewClient(panelUrl, "", workDir, tokenPath, &initError) else {
+        guard let client = CarambaMobileNewClient(panelUrl, "", workDir, tokenPath, &initError) else {
             throw initError ?? carambaError("core init failed")
         }
         self.core = client
@@ -158,12 +186,28 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             // metadata JSON here; a throw aborts to the error stage.
             let raw = conf[CarambaVpnKeys.rawConfig] as? String ?? ""
             let format = conf[CarambaVpnKeys.rawFormat] as? String ?? ""
-            _ = try client.importSubscription(raw, format: format)
+            _ = try carambaCoreCall { client.importSubscription(raw, format: format, error: $0) }
         } else {
             // Configure(panelURL, subscriptionID, accessToken): the binding's single
             // auth entry point. The extension runs in its own process, so the app
             // hands it the JWT + subscription uuid here rather than re-running login.
-            try client.configure(panelUrl, subscriptionID: subUuid, accessToken: accessToken)
+            try client.configure(panelUrl, subscriptionID: subUuid, accessToken: accessToken,
+                                 refreshToken: refreshToken, accessExpiryUnix: accessExpiryUnix)
+        }
+
+        // ABI v2 policy: the whole CoreConfig arrives as one JSON blob and is
+        // applied BEFORE up, so the assembled mihomo config already carries it.
+        if let policyJson = conf[CarambaVpnKeys.policyJson] as? String, !policyJson.isEmpty {
+            try client.setPolicyJSON(policyJson)
+        }
+        // Capture mode. Apple owns the utun fd, so "tun" is the norm here; the
+        // key exists for parity with desktop and for no-TUN debugging.
+        if let mode = conf[CarambaVpnKeys.tunnelMode] as? String, !mode.isEmpty, mode != "tun" {
+            let port = Int(conf[CarambaVpnKeys.mixedPort] as? String ?? "") ?? 7890
+            // Метка аргумента — mixedPort:, как в CarambaMobile.objc.h
+            // (setTunnelMode:mixedPort:error:); `port:` не компилировался бы,
+            // но раньше этого никто не замечал: файл не входит ни в одну цель.
+            try client.setTunnelMode(mode, mixedPort: port)
         }
 
         // Optional routing policy (applies to both paths).
@@ -185,12 +229,26 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         // gomobile maps Go `SetTunFd(fd int) error` to `setTunFd(_ fd: Int) throws`.
         try client.setTunFd(Int(fd))
 
-        // Up raises the tunnel from the active config. On the panel path we pass the
-        // selected serverId; on the raw path serverId is empty ("") since an
-        // imported subscription has no panel node. gomobile maps
+        // Up raises the tunnel from the active config. Both paths pass serverId:
+        // on the panel path it is the subscription node, on the raw path it is the
+        // ABI v2 pin of the CARAMBA selector to one proxy of the imported config
+        // (empty means automatic). gomobile maps
         // `Up(serverID string) (string, error)` to a throwing Swift method returning
         // the UpResult JSON; we only need its success/throw.
-        _ = try client.up(rawMode ? "" : serverId)
+        _ = try carambaCoreCall { client.up(serverId, error: $0) }
+        // The loopback service inbound exists only while the engine is up, and
+        // its credential is minted per raise. The CSM core lives in the app
+        // process and never has `up` called on it, so the address travels the
+        // App Group; without it that core's rung R4 is permanently
+        // not_configured and the ladder degrades to R1 and R5 on the one
+        // platform the listener was added for (02-SPEC.md 8.2).
+        CarambaSharedState.writeLoopbackProxy(client.loopbackProxyURL())
+        // The routing report is taken by the core at the moment the engine
+        // starts, and only this process has that core. Publishing it here is
+        // what lets the app answer "is the ad block actually cutting anything"
+        // at all; without it the app-process core answers "nothing raised" for
+        // the life of the install.
+        publishRouteReport(from: client)
         #else
         _ = serverId
         _ = rawMode
@@ -217,7 +275,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     /// One ~1 Hz sample: read the Go core's stage + traffic and publish them.
     private func tick() {
-        #if canImport(Caramba)
+        #if CARAMBA_CORE
         guard let client = core else { return }
 
         // Stage: prefer the contract-shaped statusJSON() if the binding exposes
@@ -229,22 +287,47 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         if let t = readTraffic(from: client) {
             CarambaSharedState.writeTraffic(t)
         }
+
+        // The report also rides the poll, so a reconnect that re-applies a
+        // different config does not leave the app reading the previous raise.
+        // Written only when the core's answer actually changed: this is a whole
+        // JSON document and the tick is 1 Hz.
+        publishRouteReport(from: client)
         #endif
     }
 
-    #if canImport(Caramba)
+    #if CARAMBA_CORE
+    /// Last report handed to the App Group, so the 1 Hz tick writes only on a
+    /// real change.
+    private var lastRouteReport: String = ""
+
+    /// Publishes the core's routing report into the App Group.
+    ///
+    /// The payload crosses verbatim: nothing here parses or reshapes it, so the
+    /// app reads exactly what `api.RouteReport` produced. A throw or an empty
+    /// answer leaves the previous report standing — the last raise is a better
+    /// answer than the empty string, which the app reads as "no bridge".
+    private func publishRouteReport(from client: CarambaMobileClient) {
+        guard let json = carambaCoreTry({ client.routeReport($0) }), !json.isEmpty else { return }
+        guard json != lastRouteReport else { return }
+        lastRouteReport = json
+        CarambaSharedState.writeRouteReport(json)
+    }
+    #endif
+
+    #if CARAMBA_CORE
     /// Reads the tunnel stage. Prefers the contract-shaped `StatusJSON()` from the
     /// go-binding surface (gomobile selector `statusJSON`), and falls back to the
     /// engine `Status()` JSON (`api.StatusResult`,
     /// engine.state = stopped|starting|connected|error) so the path still works on
     /// an older binding. Either way the result is normalized to a CHANNEL CONTRACT
     /// stage string.
-    private func readStage(from client: CarambaClient) -> String {
-        if let direct = try? client.statusJSON(),
+    private func readStage(from client: CarambaMobileClient) -> String {
+        if let direct = carambaCoreTry({ client.statusJSON($0) }),
            let stage = Self.stageFromContractJSON(direct) {
             return stage
         }
-        if let raw = try? client.status() {
+        if let raw = carambaCoreTry({ client.status($0) }) {
             return Self.stageFromEngineJSON(raw)
         }
         return CarambaStage.error
@@ -253,8 +336,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     /// Reads traffic from the contract-shaped `TrafficJSON()` (gomobile selector
     /// `trafficJSON`). Returns nil when unavailable so the caller leaves the last
     /// counters untouched rather than zeroing a live tunnel.
-    private func readTraffic(from client: CarambaClient) -> CarambaTrafficSnapshot? {
-        guard let raw = try? client.trafficJSON() else { return nil }
+    private func readTraffic(from client: CarambaMobileClient) -> CarambaTrafficSnapshot? {
+        guard let raw = carambaCoreTry({ client.trafficJSON($0) }) else { return nil }
         return Self.trafficFromJSON(raw)
     }
     #endif
@@ -311,31 +394,29 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     // MARK: - Helpers
 
+    /// Уровень протокола и опция сокета utun: SYSPROTO_CONTROL и
+    /// UTUN_OPT_IFNAME из <sys/kern_control.h> и <net/if_utun.h>.
+    ///
+    /// Числа, а не имена: эти заголовки не входят ни в один модуль Swift
+    /// (ни Darwin, ни Foundation их не реэкспортируют), поэтому прежняя версия
+    /// этой функции — со структурами ctl_info / sockaddr_ctl — не
+    /// компилировалась вообще. Заметить это было негде: файл не входит ни в одну
+    /// цель, его собирает только цель Network Extension, которой пока нет.
+    /// Значения зафиксированы в ABI ядра Darwin и не менялись.
+    private static let sysprotoControl: Int32 = 2
+    private static let utunOptIfname: Int32 = 2
+
     /// The packet-tunnel file descriptor. NEPacketTunnelFlow does not publicly
-    /// expose it, so we read the `tunnelFileDescriptor` of the utun socket the
-    /// extension owns by scanning the process file descriptors for the one whose
-    /// protocol is the system's `utun` control. This is the standard technique
-    /// used by WireGuard/sing-box Apple tunnels.
+    /// expose it, so we scan the process file descriptors for the utun socket
+    /// the extension owns: only that socket answers getsockopt(UTUN_OPT_IFNAME)
+    /// with an "utunN" name. This is the technique the WireGuard Apple app uses.
     private func tunnelFileDescriptor() -> Int32 {
-        var ctlInfo = ctl_info()
-        withUnsafeMutablePointer(to: &ctlInfo.ctl_name) { ptr in
-            ptr.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: ptr.pointee)) {
-                _ = strcpy($0, "com.apple.net.utun_control")
-            }
-        }
+        var name = [CChar](repeating: 0, count: Int(IFNAMSIZ))
         for fd: Int32 in 0...1024 {
-            var addr = sockaddr_ctl()
-            var len = socklen_t(MemoryLayout<sockaddr_ctl>.size)
-            let ret = withUnsafeMutablePointer(to: &addr) {
-                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    getpeername(fd, $0, &len)
-                }
-            }
-            if ret != 0 || Int32(addr.sc_family) != AF_SYSTEM { continue }
-            if addr.ss_sysaddr != UInt16(AF_SYS_CONTROL) { continue }
-            var ctlIdInfo = ctlInfo
-            if ioctl(fd, CTLIOCGINFO, &ctlIdInfo) != 0 { continue }
-            if ctlIdInfo.ctl_id == addr.sc_id { return fd }
+            var len = socklen_t(name.count)
+            let ok = getsockopt(fd, Self.sysprotoControl, Self.utunOptIfname, &name, &len) == 0
+            guard ok, String(cString: name).hasPrefix("utun") else { continue }
+            return fd
         }
         return -1
     }

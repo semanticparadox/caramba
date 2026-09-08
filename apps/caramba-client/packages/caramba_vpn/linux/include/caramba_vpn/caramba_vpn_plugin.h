@@ -1,7 +1,8 @@
 // caramba_vpn_plugin.h — public registrant for the Linux caramba_vpn plugin.
 //
 // caramba_vpn_plugin_register_with_registrar is the symbol the Flutter Linux
-// embedder calls (derived from pluginClass: caramba_vpn in pubspec). It creates
+// embedder calls: Flutter snake_cases pluginClass (CarambaVpnPlugin in the
+// plugin pubspec) into both this header path and this symbol. It creates
 // the GObject plugin which registers the com.caramba/vpn MethodChannel and the
 // status + traffic EventChannels and bridges to libcaramba_core.so.
 

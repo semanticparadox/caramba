@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- Зачем: в proxy-режиме ядро само слушает 127.0.0.1:7890 (mixed inbound)
+	     внутри процесса приложения. Под App Sandbox приём входящих соединений
+	     запрещён без network.server, поэтому release-сборка молча не принимала
+	     бы подключения к локальному прокси, хотя debug (DebugProfile) работал. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+</dict>
+</plist>

@@ -25,6 +25,7 @@ pub mod tickets_service;
 pub mod traffic_service; // Added Phase 3
 pub mod unified_log_service;
 pub mod user_tag; // Canonical "user_{tg_id}" auth-tag format (generation + parsing)
+pub mod welcome_gift; // Подарочная подписка при регистрации (акция, настраивается в settings)
 
 // Enterprise Modular Services
 pub mod billing_service;

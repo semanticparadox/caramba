@@ -15,6 +15,7 @@ import { countryName } from '../lib/countries'
 import { useServers } from '../lib/useServers'
 import { availability, serverSpeedMbps } from '../lib/serverLabel'
 import { useToast } from '../lib/useToast'
+import CarambaAppSheet from '../sheets/CarambaAppSheet'
 import ClientPickerSheet from '../sheets/ClientPickerSheet'
 import QrSheet from '../sheets/QrSheet'
 import ServerPickerSheet from '../sheets/ServerPickerSheet'
@@ -33,7 +34,7 @@ export default function Connect() {
     const { servers } = useServers(token, sub?.id ?? null)
     const currentServer = sub?.last_node_id ? servers.find((s) => s.id === sub.last_node_id) ?? null : null
 
-    const [sheet, setSheet] = useState<'server' | 'client' | 'qr' | null>(null)
+    const [sheet, setSheet] = useState<'server' | 'client' | 'qr' | 'caramba' | null>(null)
     const [activating, setActivating] = useState(false)
 
     const copyLink = async () => {
@@ -290,7 +291,13 @@ export default function Connect() {
                 onClose={() => setSheet(null)}
                 onChanged={() => void refreshData()}
             />
-            <ClientPickerSheet open={sheet === 'client'} sub={sub} onClose={() => setSheet(null)} onGuide={() => navigate('/guide')} />
+            <ClientPickerSheet
+                open={sheet === 'client'}
+                sub={sub}
+                onClose={() => setSheet(null)}
+                onGuide={() => navigate('/guide')}
+                onCaramba={() => setSheet('caramba')}
+            />
             <QrSheet
                 open={sheet === 'qr'}
                 value={subscriptionUrl(sub)}
@@ -298,6 +305,7 @@ export default function Connect() {
                 subtitle={t('exa.home.qrHint')}
                 onClose={() => setSheet(null)}
             />
+            <CarambaAppSheet open={sheet === 'caramba'} onClose={() => setSheet(null)} />
         </div>
     )
 }

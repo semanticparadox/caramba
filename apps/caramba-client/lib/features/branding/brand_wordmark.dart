@@ -6,15 +6,8 @@ import 'package:caramba_client/state/branding_state.dart';
 import 'package:caramba_client/theme/tokens.dart';
 import 'package:caramba_client/theme/typography.dart';
 
-/// Бренд-вордмарк активного инстанса (P3, contract E).
-///
-/// Рисует логотип оператора (`logo_url`), если он задан И бренд включён; иначе
-/// текстовый вордмарк `branding.displayName(kBrandName)`. Дефолт = «Caramba
-/// Connect» текстом, когда бренд выключен/не настроен.
-///
-/// АНТИ-СЛОП: текстовый вордмарк нейтральный (textHi), без градиента, без
-/// свечения. Картинка-логотип рисуется как есть, с graceful-фолбэком на текст
-/// при ошибке загрузки. Высота фиксирована, чтобы лого не распирало шапку.
+/// Active operator logo/name, or the bundled Caramba Connect mark.
+/// Custom tenant branding keeps its own logo and text fallback.
 class BrandWordmark extends ConsumerWidget {
   /// Высота строки логотипа/текста.
   final double height;
@@ -36,6 +29,7 @@ class BrandWordmark extends ConsumerWidget {
         branding.logoUrl,
         height: height,
         fit: BoxFit.contain,
+        semanticLabel: name,
         // На ошибке/пока грузится — нейтральный текстовый вордмарк, без мигания
         // на статус-цвет и без «битой картинки».
         errorBuilder: (_, __, ___) => _text(name, style),
@@ -43,7 +37,26 @@ class BrandWordmark extends ConsumerWidget {
             progress == null ? child : _text(name, style),
       );
     }
-    return _text(name, style);
+    final normalizedName = name.trim().toLowerCase();
+    if (normalizedName != 'caramba' && normalizedName != 'caramba connect') {
+      return _text(name, style);
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(height * 0.22),
+          child: Image.asset(
+            'assets/brand/caramba-connect.png',
+            width: height,
+            height: height,
+            excludeFromSemantics: true,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Flexible(child: _text(name, style)),
+      ],
+    );
   }
 
   Widget _text(String name, TextStyle style) =>

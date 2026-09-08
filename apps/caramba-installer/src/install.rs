@@ -477,11 +477,116 @@ async fn try_install_mini_app_assets(version: &str, install_dir: &str) -> Result
     Ok(())
 }
 
+/// Сборки клиента Caramba Connect, которые панель раздаёт статикой из
+/// `apps/caramba-panel/downloads/`. Имена совпадают с ассетами релиза и с тем,
+/// что ищет на диске `GET /api/client/app/downloads` в панели: разъехавшееся
+/// имя означает молчаливое «скоро» в мини-аппе вместо кнопки загрузки.
+const CLIENT_DOWNLOAD_ASSETS: [&str; 5] = [
+    "caramba-connect-arm64.apk",
+    "caramba-connect-armv7.apk",
+    "caramba-connect-windows-x64.zip",
+    "caramba-connect-macos-arm64.dmg",
+    "caramba-connect-linux-x64.tar.gz",
+];
+
+/// Скачивает один ассет клиента в каталог раздачи.
+///
+/// `Ok(None)` — файл на месте, `Ok(Some(status))` — такого ассета в релизе нет
+/// (это нормально: сборки под Windows/Linux/macOS появляются позже Android).
+async fn fetch_client_download(
+    version: &str,
+    asset: &str,
+    dir: &Path,
+) -> Result<Option<reqwest::StatusCode>> {
+    let url = release_asset_url(version, asset);
+    let response = reqwest::get(&url).await?;
+    let status = response.status();
+    if !status.is_success() {
+        return Ok(Some(status));
+    }
+
+    let content = response.bytes().await?;
+
+    // Временный файл создаём РЯДОМ с целью, а не в /tmp: rename атомарен только
+    // в пределах одной файловой системы, а /tmp на серверах часто отдельный
+    // раздел — иначе панель успела бы отдать половину APK.
+    let tmp_path = dir.join(format!(
+        ".{}.tmp.{}",
+        asset,
+        uuid::Uuid::new_v4().to_string().replace('-', "")
+    ));
+
+    let written = (|| -> Result<()> {
+        {
+            let mut tmp_file = std::fs::File::create(&tmp_path)?;
+            tmp_file.write_all(&content)?;
+            tmp_file.sync_all()?;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        // 644, а не 755: файл только раздаётся статикой, исполнять его на
+        // сервере незачем.
+        std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o644))?;
+        std::fs::rename(&tmp_path, dir.join(asset))?;
+        Ok(())
+    })();
+
+    if let Err(e) = written {
+        // Обрывок с точкой в начале имени иначе остался бы в каталоге раздачи
+        // навсегда — ServeDir его отдавать не станет, но мусор копится.
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+
+    Ok(None)
+}
+
+/// Best-effort: кладёт сборки клиента рядом с панелью, чтобы она раздавала их
+/// сама (`/downloads/...`) и мини-апп мог дать кнопку «скачать» без настройки.
+///
+/// Ни одна ошибка здесь не валит установку и апгрейд: клиент — не часть панели,
+/// а релиз может вовсе не содержать сборок под часть платформ. Панель без этих
+/// файлов работает ровно как работала.
+///
+/// Каталог намеренно не чистим: старый файл остаётся доступным, пока его не
+/// перезапишет новая сборка. Апгрейд мини-аппа его тоже не трогает —
+/// `caramba-app-dist.tar.gz` распаковывается в `apps/caramba-app/dist`, tar
+/// перезаписывает только то, что лежит в архиве, и ничего не удаляет.
+async fn try_install_client_downloads(version: &str, install_dir: &str) {
+    let dir = Path::new(install_dir.trim_end_matches('/'))
+        .join("apps")
+        .join("caramba-panel")
+        .join("downloads");
+
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        println!(
+            "ℹ️ Client downloads dir {} is unavailable ({}). Skipping app files.",
+            dir.display(),
+            e
+        );
+        return;
+    }
+
+    for asset in CLIENT_DOWNLOAD_ASSETS {
+        match fetch_client_download(version, asset, &dir).await {
+            Ok(None) => println!("✅ Client build {} placed in {}", asset, dir.display()),
+            Ok(Some(status)) => println!(
+                "ℹ️ Client build {} is not in release {} (status {}). Skipped.",
+                asset, version, status
+            ),
+            Err(e) => println!(
+                "ℹ️ Client build {} could not be fetched ({}). Skipped.",
+                asset, e
+            ),
+        }
+    }
+}
+
 pub async fn install_panel(install_dir: &str, version: &str) -> Result<()> {
     std::fs::create_dir_all(install_dir)?;
     let binary_path = format!("{}/caramba-panel", install_dir.trim_end_matches('/'));
     download_file(&release_asset_url(version, "caramba-panel"), &binary_path).await?;
     try_install_mini_app_assets(version, install_dir).await?;
+    try_install_client_downloads(version, install_dir).await;
     // Панель проверяет каждый сгенерированный конфиг локальным `sing-box check`.
     // Без сборки с with_v2ray_api валидатор отвергает секцию статистики, и узел,
     // заявивший поддержку, получает 500 вместо конфига.
@@ -967,6 +1072,12 @@ pub async fn upgrade_caramba(
     // Mini app assets are shipped as one bundle and can be served by panel or sub.
     if panel_installed || sub_installed {
         try_install_mini_app_assets(version, install_dir).await?;
+    }
+
+    // Сборки клиента раздаёт именно панель (ServeDir по apps/caramba-panel/downloads),
+    // поэтому тянем их только там, где она стоит.
+    if panel_installed {
+        try_install_client_downloads(version, install_dir).await;
     }
 
     // Upgrade installer binary itself (safe atomic rename in download_file()).

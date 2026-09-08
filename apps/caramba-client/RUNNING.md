@@ -74,6 +74,30 @@ at least that version, then add the per-platform toolchain below. Run
 | Windows desktop | Visual Studio (not VS Code) with the "Desktop development with C++" workload, which installs MSVC, the Windows 10/11 SDK and CMake. |
 | Linux desktop | clang, cmake, ninja-build, pkg-config and the GTK 3 dev headers. On Debian or Ubuntu: `sudo apt install clang cmake ninja-build pkg-config libgtk-3-dev`. |
 
+## Build flags you must not forget
+
+Use `scripts/build.sh` instead of calling `flutter build` or `flutter run`
+directly. It injects the dart-defines the client needs:
+
+```bash
+scripts/build.sh run -d macos          # run with the native core
+scripts/build.sh apk --debug           # Android APK
+scripts/build.sh macos --release       # macOS app
+USE_NATIVE_VPN=false scripts/build.sh run -d macos   # mock tunnel
+```
+
+`BUILD_EPOCH` is the one that bites. CSM enrollment anchors its clock
+plausibility window to the build time, so a build without
+`--dart-define=BUILD_EPOCH=<unix seconds>` treats the clock as unset and
+refuses to establish first trust with an operator panel. That is the safe
+direction of failure, and it looks exactly like a bug, so the script always
+passes it. `USE_NATIVE_VPN=true` is the default in the script; pass
+`USE_NATIVE_VPN=false` for a mock build. `CARAMBA_API_BASE` overrides the
+tenant 1 panel when set in the environment.
+
+The commands in the next section are the raw equivalents, kept for when you
+need a flag the script does not pass.
+
 ## Run per platform
 
 All commands run from `apps/caramba-client`. Find your exact device id with

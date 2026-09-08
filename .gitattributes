@@ -12,3 +12,6 @@
 *.woff binary
 *.woff2 binary
 *.mp4 binary
+
+# Unified diffs preserve context prefixes and upstream whitespace.
+*.patch -whitespace

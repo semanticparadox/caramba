@@ -42,6 +42,28 @@ fn is_checkbox_enabled(value: Option<&str>) -> bool {
         .unwrap_or(false)
 }
 
+/// Форматирует размер APK (байты, хранятся строкой) в МБ с одним знаком после
+/// запятой для read-only строки в админке. Пустая/битая строка → "?", чтобы
+/// не ронять рендер настроек из-за мусора в поле.
+fn format_apk_size_mb(bytes_str: &str) -> String {
+    match bytes_str.trim().parse::<f64>() {
+        Ok(bytes) if bytes > 0.0 => format!("{:.1}", bytes / 1_048_576.0),
+        _ => "?".to_string(),
+    }
+}
+
+/// Форматирует RFC3339-дату загрузки APK (пишет K1 при захвате документа) в
+/// человекочитаемый вид для админки. Невалидная/пустая дата → "?".
+fn format_apk_uploaded_at(rfc3339: &str) -> String {
+    DateTime::parse_from_rfc3339(rfc3339.trim())
+        .map(|dt| {
+            dt.with_timezone(&Utc)
+                .format("%Y-%m-%d %H:%M UTC")
+                .to_string()
+        })
+        .unwrap_or_else(|_| "?".to_string())
+}
+
 fn normalize_base_url(raw: &str) -> String {
     let mut value = raw.trim().to_string();
     if value.is_empty() {
@@ -78,6 +100,59 @@ fn join_base_and_path(base_url: &str, path: &str) -> String {
         return format!("https://YOUR_PANEL_DOMAIN{}", normalized_path);
     }
     format!("{}{}", normalize_base_url(base_url), normalized_path)
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Welcome gift (promo) — подарочная подписка при регистрации через Telegram.
+//
+// Три ключа в `settings`: `welcome_gift_plan_id` (пусто = акция выключена),
+// `welcome_gift_days` (пусто = дефолт грант-пути) и `welcome_gift_until`
+// (`YYYY-MM-DD`, UTC; пусто = бессрочно). Нормализуем на записи, потому что
+// грант-путь читает эти значения молча: мусор в них либо тихо выключил бы
+// акцию, либо, наоборот, сделал бы её вечной — и админ узнал бы об этом только
+// по счётчику подарков.
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Один пункт `<select>` с планом-подарком.
+#[derive(Debug, Clone)]
+pub struct WelcomeGiftPlanOption {
+    /// Строкой, чтобы шаблон сравнивал её с сохранённой настройкой как есть.
+    pub id: String,
+    pub name: String,
+    pub selected: bool,
+}
+
+/// Id плана: принимаем только положительное целое, всё остальное — «выключено».
+fn normalize_welcome_gift_plan_id(raw: &str) -> String {
+    match raw.trim().parse::<i64>() {
+        Ok(id) if id > 0 => id.to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Дни подарка: пусто оставляем пустым (грант-путь подставит свой дефолт),
+/// число поднимаем минимум до 1 — подарок на 0 дней это не подарок, а баг.
+fn normalize_welcome_gift_days(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    match trimmed.parse::<i32>() {
+        Ok(days) => days.max(1).to_string(),
+        Err(_) => String::new(),
+    }
+}
+
+/// Дата окончания акции. `None` — значение не распознано, настройку НЕ трогаем:
+/// записать вместо опечатки пустоту значило бы молча сделать акцию бессрочной.
+fn normalize_welcome_gift_until(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Some(String::new());
+    }
+    chrono::NaiveDate::parse_from_str(trimmed, "%Y-%m-%d")
+        .ok()
+        .map(|date| date.format("%Y-%m-%d").to_string())
 }
 
 fn release_asset_url(version: &str, asset_name: &str) -> String {
@@ -332,6 +407,22 @@ pub struct SettingsTemplate {
     pub guide_url_linux: String,
     pub guide_url_tv: String,
     pub guide_url_router: String,
+    pub app_download_url_android: String,
+    pub app_download_url_ios: String,
+    pub app_download_url_windows: String,
+    pub app_download_url_macos: String,
+    pub app_download_url_linux: String,
+    // APK, который бот раздаёт по file_id в обход блокировки домена (K1 apk_delivery.rs).
+    // Ключи настроек — общий контракт с ботом (см. app_apk_tg_file_id_android и др.).
+    pub apk_tg_uploaded_android: bool,
+    pub apk_tg_file_name_android: String,
+    pub apk_tg_file_size_mb_android: String,
+    pub apk_tg_uploaded_at_display_android: String,
+    // Подарок при регистрации (акция). Пустой `welcome_gift_plan_id` = выключено.
+    pub welcome_gift_plan_id: String,
+    pub welcome_gift_days: String,
+    pub welcome_gift_until: String,
+    pub welcome_gift_plans: Vec<WelcomeGiftPlanOption>,
     pub panel_url: String,
     pub panel_url_display: String,
     pub admin_ui_url_display: String,
@@ -530,6 +621,16 @@ pub struct SaveSettingsForm {
     pub guide_url_linux: Option<String>,
     pub guide_url_tv: Option<String>,
     pub guide_url_router: Option<String>,
+    pub app_download_url_android: Option<String>,
+    pub app_download_url_ios: Option<String>,
+    pub app_download_url_windows: Option<String>,
+    pub app_download_url_macos: Option<String>,
+    pub app_download_url_linux: Option<String>,
+    // Чекбокс-действие «Забыть файл»: при true очищаем четыре ключа APK-file_id (не персистится сам).
+    pub apk_tg_forget_android: Option<String>,
+    pub welcome_gift_plan_id: Option<String>,
+    pub welcome_gift_days: Option<String>,
+    pub welcome_gift_until: Option<String>,
     pub panel_url: Option<String>,
     pub bot_username: Option<String>,
     pub brand_name: Option<String>,
@@ -661,6 +762,96 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     let guide_url_linux = state.settings.get_or_default("guide_url_linux", "").await;
     let guide_url_tv = state.settings.get_or_default("guide_url_tv", "").await;
     let guide_url_router = state.settings.get_or_default("guide_url_router", "").await;
+    let app_download_url_android = state
+        .settings
+        .get_or_default("app_download_url_android", "")
+        .await;
+    let app_download_url_ios = state
+        .settings
+        .get_or_default("app_download_url_ios", "")
+        .await;
+    let app_download_url_windows = state
+        .settings
+        .get_or_default("app_download_url_windows", "")
+        .await;
+    let app_download_url_macos = state
+        .settings
+        .get_or_default("app_download_url_macos", "")
+        .await;
+    let app_download_url_linux = state
+        .settings
+        .get_or_default("app_download_url_linux", "")
+        .await;
+    // APK по file_id (K1): читаем те же четыре ключа строковыми литералами,
+    // как условлено в спеке — без общего кода с ботом.
+    let app_apk_tg_file_id_android = state
+        .settings
+        .get_or_default("app_apk_tg_file_id_android", "")
+        .await;
+    let apk_tg_file_name_android = state
+        .settings
+        .get_or_default("app_apk_tg_file_name_android", "")
+        .await;
+    let app_apk_tg_file_size_android = state
+        .settings
+        .get_or_default("app_apk_tg_file_size_android", "")
+        .await;
+    let app_apk_tg_uploaded_at_android = state
+        .settings
+        .get_or_default("app_apk_tg_uploaded_at_android", "")
+        .await;
+    let apk_tg_uploaded_android = !app_apk_tg_file_id_android.trim().is_empty();
+    let apk_tg_file_size_mb_android = format_apk_size_mb(&app_apk_tg_file_size_android);
+    let apk_tg_uploaded_at_display_android =
+        format_apk_uploaded_at(&app_apk_tg_uploaded_at_android);
+    let welcome_gift_plan_id = state
+        .settings
+        .get_or_default("welcome_gift_plan_id", "")
+        .await
+        .trim()
+        .to_string();
+    let welcome_gift_days = state
+        .settings
+        .get_or_default("welcome_gift_days", "")
+        .await
+        .trim()
+        .to_string();
+    let welcome_gift_until = state
+        .settings
+        .get_or_default("welcome_gift_until", "")
+        .await
+        .trim()
+        .to_string();
+    // Дарить бесплатный план бессмысленно (его и так выдают при регистрации),
+    // поэтому в списке только платные. `get_plans_admin` уже отдаёт активные.
+    let mut welcome_gift_plans: Vec<WelcomeGiftPlanOption> = state
+        .catalog_service
+        .get_plans_admin()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|plan| !plan.is_free)
+        .map(|plan| {
+            let id = plan.id.to_string();
+            WelcomeGiftPlanOption {
+                selected: id == welcome_gift_plan_id,
+                id,
+                name: plan.name,
+            }
+        })
+        .collect();
+    // Настроенный план могли деактивировать: без этого пункта форма показала бы
+    // «Off», и первое же сохранение настроек молча выключило бы акцию.
+    if !welcome_gift_plan_id.is_empty() && !welcome_gift_plans.iter().any(|p| p.selected) {
+        welcome_gift_plans.insert(
+            0,
+            WelcomeGiftPlanOption {
+                id: welcome_gift_plan_id.clone(),
+                name: format!("Plan #{} (inactive)", welcome_gift_plan_id),
+                selected: true,
+            },
+        );
+    }
     let panel_url_setting = state.settings.get_or_default("panel_url", "").await;
     let panel_url_env = std::env::var("PANEL_URL").unwrap_or_default();
     let panel_url = if !panel_url_setting.trim().is_empty() {
@@ -1202,6 +1393,19 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         guide_url_linux,
         guide_url_tv,
         guide_url_router,
+        app_download_url_android,
+        app_download_url_ios,
+        app_download_url_windows,
+        app_download_url_macos,
+        app_download_url_linux,
+        apk_tg_uploaded_android,
+        apk_tg_file_name_android,
+        apk_tg_file_size_mb_android,
+        apk_tg_uploaded_at_display_android,
+        welcome_gift_plan_id,
+        welcome_gift_days,
+        welcome_gift_until,
+        welcome_gift_plans,
         panel_url,
         panel_url_display,
         admin_ui_url_display,
@@ -1571,6 +1775,58 @@ pub async fn save_settings(
     }
     if let Some(v) = form.guide_url_router {
         settings.insert("guide_url_router".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.app_download_url_android {
+        settings.insert("app_download_url_android".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.app_download_url_ios {
+        settings.insert("app_download_url_ios".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.app_download_url_windows {
+        settings.insert("app_download_url_windows".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.app_download_url_macos {
+        settings.insert("app_download_url_macos".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.app_download_url_linux {
+        settings.insert("app_download_url_linux".to_string(), v.trim().to_string());
+    }
+    // «Забыть файл»: чистим все четыре ключа, которыми бот (K1) раздаёт APK по
+    // file_id — так админка может закрыть протухший/ошибочный upload без
+    // прямого доступа к БД. Сам чекбокс — разовое действие, не персистится.
+    if is_checkbox_enabled(form.apk_tg_forget_android.as_deref()) {
+        settings.insert("app_apk_tg_file_id_android".to_string(), "".to_string());
+        settings.insert("app_apk_tg_file_name_android".to_string(), "".to_string());
+        settings.insert("app_apk_tg_file_size_android".to_string(), "".to_string());
+        settings.insert("app_apk_tg_uploaded_at_android".to_string(), "".to_string());
+    }
+    if let Some(v) = form.welcome_gift_plan_id {
+        settings.insert(
+            "welcome_gift_plan_id".to_string(),
+            normalize_welcome_gift_plan_id(&v),
+        );
+    }
+    if let Some(v) = form.welcome_gift_days {
+        settings.insert(
+            "welcome_gift_days".to_string(),
+            normalize_welcome_gift_days(&v),
+        );
+    }
+    // Нераспознанную дату не записываем вовсе: пустая строка означала бы
+    // «акция бессрочна», а из-за опечатки в дате раздавать подарки вечно хуже,
+    // чем оставить прежний срок.
+    if let Some(v) = form.welcome_gift_until {
+        match normalize_welcome_gift_until(&v) {
+            Some(normalized) => {
+                settings.insert("welcome_gift_until".to_string(), normalized);
+            }
+            None => {
+                tracing::warn!(
+                    "Ignored welcome_gift_until: expected YYYY-MM-DD, got {:?}",
+                    v.trim()
+                );
+            }
+        }
     }
     if let Some(v) = form.support_url {
         settings.insert("support_url".to_string(), v);
@@ -2967,4 +3223,42 @@ pub async fn queue_worker_update(
         ),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod welcome_gift_settings_tests {
+    use super::*;
+
+    #[test]
+    fn plan_id_keeps_only_positive_integers() {
+        assert_eq!(normalize_welcome_gift_plan_id(" 1 "), "1");
+        // Пустой select = «Off», остальное — мусор из ручного POST.
+        assert_eq!(normalize_welcome_gift_plan_id(""), "");
+        assert_eq!(normalize_welcome_gift_plan_id("0"), "");
+        assert_eq!(normalize_welcome_gift_plan_id("-3"), "");
+        assert_eq!(normalize_welcome_gift_plan_id("gold"), "");
+    }
+
+    #[test]
+    fn days_are_clamped_to_at_least_one() {
+        assert_eq!(normalize_welcome_gift_days("30"), "30");
+        assert_eq!(normalize_welcome_gift_days(" 0 "), "1");
+        assert_eq!(normalize_welcome_gift_days("-5"), "1");
+        // Пусто — грант-путь возьмёт собственный дефолт.
+        assert_eq!(normalize_welcome_gift_days("  "), "");
+        assert_eq!(normalize_welcome_gift_days("много"), "");
+    }
+
+    #[test]
+    fn until_accepts_iso_date_and_rejects_garbage() {
+        assert_eq!(
+            normalize_welcome_gift_until("2026-10-01"),
+            Some("2026-10-01".to_string())
+        );
+        // Пусто = бессрочная акция, это осознанный выбор админа.
+        assert_eq!(normalize_welcome_gift_until(""), Some(String::new()));
+        // Опечатку не превращаем в «бессрочно» — настройку не трогаем.
+        assert_eq!(normalize_welcome_gift_until("01.10.2026"), None);
+        assert_eq!(normalize_welcome_gift_until("2026-13-01"), None);
+    }
 }

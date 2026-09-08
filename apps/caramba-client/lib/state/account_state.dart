@@ -1,4 +1,4 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart' hide Family;
 
 import 'package:caramba_client/data/models/partner.dart';
 import 'package:caramba_client/data/models/relay.dart';

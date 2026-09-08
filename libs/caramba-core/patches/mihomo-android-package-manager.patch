@@ -1,0 +1,25 @@
+--- a/listener/sing_tun/server_android.go	2026-09-02 14:14:02
++++ b/listener/sing_tun/server_android.go	2026-09-02 16:01:38
+@@ -46,10 +46,21 @@
+ 	return globalPM, pmErr
+ }
+ 
++// caramba patch (см. libs/caramba-core/patches/README.md): в исходнике
++// package manager создаётся всегда и читает /data/system/packages.xml, что
++// без root невозможно, поэтому TUN-листенер падал в обычном приложении.
++// Per-app правила на Android делает VpnService.Builder, ядру они нужны только
++// если заданы явно; при недоступном package manager правила пропускаются.
+ func (l *Listener) buildAndroidRules(tunOptions *tun.Options) error {
++	if len(tunOptions.IncludeAndroidUser) == 0 &&
++		len(tunOptions.IncludePackage) == 0 &&
++		len(tunOptions.ExcludePackage) == 0 {
++		return nil
++	}
+ 	packageManager, err := getPackageManager()
+ 	if err != nil {
+-		return err
++		log.Warnln("[TUN] android package manager unavailable, per-app rules skipped: %v", err)
++		return nil
+ 	}
+ 	tunOptions.BuildAndroidRules(packageManager, l.handler)
+ 	return nil

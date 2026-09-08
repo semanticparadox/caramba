@@ -13,8 +13,8 @@ const String kBrandName = String.fromEnvironment(
   defaultValue: 'Caramba Connect',
 );
 
-/// URL логотипа бренда. Пусто по умолчанию — UI использует текстовый wordmark
-/// (анти-слоп: без картинки-логотипа, без градиента, без свечения).
+/// URL логотипа бренда. Пусто по умолчанию: встроенный знак для Caramba,
+/// текстовый wordmark для собственного имени оператора.
 const String kBrandLogoUrl = String.fromEnvironment(
   'CARAMBA_BRAND_LOGO_URL',
   defaultValue: '',
@@ -41,7 +41,7 @@ const String kBrandBotUrl = String.fromEnvironment(
 const String kTenant1PanelUrl = 'https://exarobot.top';
 
 /// Username бота тенанта №1 без `@`. Совпадает с дефолтом `CARAMBA_BOT_USERNAME`.
-const String kTenant1BotUsername = 'exarobot';
+const String kTenant1BotUsername = 'exa_robot';
 
 /// Deep-link бота тенанта №1 в Telegram.
 const String kTenant1BotUrl = 'https://t.me/$kTenant1BotUsername';

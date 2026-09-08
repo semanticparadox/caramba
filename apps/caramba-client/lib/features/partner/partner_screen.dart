@@ -6,8 +6,11 @@ import 'package:go_router/go_router.dart';
 import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/models/partner.dart';
 import 'package:caramba_client/data/models/sub_plan.dart';
+import 'package:caramba_client/features/profile/panel_required.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/account_state.dart';
+import 'package:caramba_client/state/providers.dart';
+import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
 import 'package:caramba_client/theme/typography.dart';
@@ -25,6 +28,11 @@ class PartnerScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
+    // Раздел живёт у аккаунта панели: в generic-режиме показываем, что нужно
+    // сделать, чтобы он заработал, вместо 401 за каждым провайдером.
+    if (ref.watch(authProvider).stage != AuthStage.authenticated) {
+      return const PanelRequiredScreen(title: 'Партнёрам');
+    }
     final async = ref.watch(partnerProvider);
 
     return Scaffold(
@@ -112,7 +120,7 @@ class _PartnerBody extends StatelessWidget {
         ),
 
         // ---- Итоги (минорные единицы для начислено, mono-значения).
-        SectionTitle('Итого'),
+        const SectionTitle('Итого'),
         Row(
           children: [
             Expanded(
@@ -158,7 +166,7 @@ class _PartnerBody extends StatelessWidget {
         ),
 
         // ---- Новый код.
-        SectionTitle('Новый код'),
+        const SectionTitle('Новый код'),
         const _CreateCodeForm(),
 
         // ---- Список кодов.
@@ -374,7 +382,13 @@ class _PartnerCodeCard extends ConsumerWidget {
             icon: Lucide.copy,
             minHeight: 42,
             onPressed: () {
-              Clipboard.setData(ClipboardData(text: code.referralLink));
+              Clipboard.setData(
+                ClipboardData(
+                  text: code.referralLinkFor(
+                    ref.read(apiClientProvider).panelOrigin,
+                  ),
+                ),
+              );
               showCarambaToast(context, 'Ссылка скопирована');
             },
           ),

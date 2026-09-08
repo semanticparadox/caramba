@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:caramba_client/data/brand.dart';
+import 'package:caramba_client/data/safe_url.dart';
 import 'package:caramba_client/data/models/branding.dart';
 import 'package:caramba_client/state/branding_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
@@ -120,7 +121,12 @@ class _LearnMoreLink extends StatelessWidget {
   }
 
   Future<void> _open(String url) async {
-    final uri = Uri.tryParse(url.trim());
+    // GET /api/v2/app/branding не аутентифицирован и не подписан, а support_url
+    // и bot_url приходят именно оттуда. Открывать их без списка допустимых схем
+    // значит запускать javascript:, file:, intent: и любую собственную схему
+    // чужого приложения по значению, которое кто угодно на пути мог заменить
+    // (03-WIRE.md 14.6, INV-10).
+    final uri = csmSafeExternalUri(url);
     if (uri == null) return;
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);

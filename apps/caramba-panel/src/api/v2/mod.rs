@@ -5,6 +5,7 @@ pub mod app_billing;
 pub mod app_branding;
 pub mod app_enroll;
 pub mod app_partner;
+pub mod app_plans;
 pub mod app_support;
 pub mod bot_auth;
 pub mod bot_rate_limit;
@@ -191,6 +192,16 @@ pub fn app_routes(_state: AppState) -> axum::Router<AppState> {
         // Биллинг: история трафика (график) + создание чек-аута покупки.
         .route("/traffic", get(app_billing::get_traffic))
         .route("/purchase", post(app_billing::purchase))
+        // Витрина покупки: каталог планов/сроков, способы оплаты выбранного
+        // срока и статус уже созданной сессии. Всё три — ЧТЕНИЕ, и лицензией
+        // не гейтятся: гейт стоит на `POST /purchase` выше, а сюда приезжает
+        // флагом `in_app_purchase`, чтобы приложение сказало правду до нажатия.
+        .route("/plans", get(app_plans::get_plans))
+        .route("/payment-methods", get(app_plans::get_payment_methods))
+        .route(
+            "/purchase/{session_id}",
+            get(app_plans::get_purchase_status),
+        )
         // Поддержка: уведомления (inbox) + тикеты. Хранилище — notifications_svc
         // и tickets_svc; владение тикетом проверяют сами сервисы по AuthUser.
         .route("/notifications", get(app_support::list_notifications))

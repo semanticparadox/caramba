@@ -1,7 +1,7 @@
 name: caramba_client
 description: "Caramba — censorship-resistant VPN super-app."
 publish_to: "none"
-version: 1.0.0+100
+version: 1.0.0+105
 
 environment:
   sdk: ">=3.6.0 <4.0.0"
@@ -29,6 +29,10 @@ dependencies:
   # Secure storage (JWT access/refresh tokens)
   flutter_secure_storage: ^9.2.2
 
+  # Локальные настройки (CoreConfig, AppSettings, first-run, режим туннеля).
+  # Не секреты: JWT и raw-конфиги по-прежнему живут в secure storage.
+  shared_preferences: ^2.3.3
+
   # Charts (traffic / usage)
   fl_chart: ^0.69.2
 
@@ -45,11 +49,44 @@ dependencies:
   # Vector assets / line illustrations
   flutter_svg: ^2.0.16
 
+  # Импорт подписки: QR-скан (только Android/iOS, на desktop скрыт) и выбор
+  # файла конфига. Оба аффорданса ведут в один и тот же путь импорта.
+  mobile_scanner: ^7.4.0
+  file_picker: ^8.1.4
+
   # Models / serialization (annotations)
   freezed_annotation: ^2.4.4
   json_annotation: ^4.9.0
 
   cupertino_icons: ^1.0.8
+
+  # --- Десктоп (macOS/Windows/Linux) ---
+  # Зачем: на десктопе приложение должно вести себя как обычное приложение
+  # платформы, а не как растянутый мобильный экран. Плагины ниже подключены
+  # ради этого и на мобильных не инициализируются: весь код за ними живёт под
+  # проверкой платформы (isDesktopPlatform), поэтому тесты и Android/iOS-сборки
+  # их каналов не касаются и MissingPluginException не ловят.
+
+  # Скрытый системный заголовок (трафик-лайты внутри нашего тулбара), перенос
+  # окна за тулбар, минимальный размер, память bounds и перехват закрытия
+  # (красная кнопка прячет окно, а не убивает процесс с живым туннелем).
+  window_manager: ^0.5.2
+
+  # Значок в строке меню / трее: приложение остаётся доступным при скрытом окне,
+  # туннель управляется из меню.
+  tray_manager: ^0.5.3
+
+  # Геометрия дисплеев: сохранённые bounds восстанавливаем только если они
+  # пересекаются с видимой областью (монитор могли отключить).
+  screen_retriever: ^0.2.2
+
+  # Автозапуск при входе в систему: Windows (реестр) и Linux (~/.config/autostart)
+  # закрывает сам плагин. На macOS его нативную часть (SPM LaunchAtLogin с
+  # helper-бандлом и run script) намеренно не подключаем — канал
+  # 'launch_at_startup' реализован в macos/Runner/AppDelegate.swift через
+  # SMAppService, см. комментарий там.
+  launch_at_startup: ^0.5.1
+
 
 dev_dependencies:
   flutter_test:
@@ -64,3 +101,13 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Иконки трея: растры, а не SVG, потому что их рисует система (NSStatusItem /
+  # Shell_NotifyIcon), а не Flutter. Разделены по платформам: на macOS нужен
+  # template-PNG (чёрный на прозрачном, система сама инвертирует под тему),
+  # на Windows .ico с несколькими размерами, на Linux PNG 22 px.
+  assets:
+    - assets/brand/
+    - assets/tray/mac/
+    - assets/tray/win/
+    - assets/tray/linux/

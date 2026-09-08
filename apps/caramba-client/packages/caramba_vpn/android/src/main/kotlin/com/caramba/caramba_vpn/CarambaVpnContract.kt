@@ -44,6 +44,30 @@ internal object CarambaVpnKeys {
     const val RAW_LABEL = "label"
     const val RAW_MODE = "rawMode"
 
+    // importSubscription() / probe() args (generic mode, ABI v2). Both run in the
+    // plugin process on a lightweight core client, without the VpnService.
+    const val TIMEOUT_MS = "timeoutMs"
+
+    // deviceSign() / deviceAgree() args (CSM/1, ABI v3). The device key lives in
+    // the AndroidKeyStore and never crosses this channel: only the message to
+    // sign, the peer point, and the results.
+    const val MESSAGE_B64 = "messageB64"
+    const val PEER_PUB_B64 = "peerPubB64"
+    const val RKV = "rkv"
+
+    // csmEnroll() / csmSetLadder() / csmAnswerCatalogChange() carry one JSON
+    // string under POLICY_JSON, the same shape the ABI v3 symbols take on every
+    // one of the five bridges. csmRefresh() takes a timeout, csmSelectProfile()
+    // a local profile key.
+    const val TIMEOUT_SEC = "timeoutSec"
+    const val CSM_PROFILE_KEY = "profileKey"
+
+    // setPolicy() / setTunnelMode() args (ABI v2). Persisted in the seam prefs so
+    // CarambaVpnService applies them to the core before up().
+    const val POLICY_JSON = "json"
+    const val TUNNEL_MODE = "mode"
+    const val MIXED_PORT = "port"
+
     // configure() seam (auth/config handed from the app before connect).
     const val PANEL_URL = "panelUrl"
     const val SUB_URL = "subUrl"
@@ -53,22 +77,87 @@ internal object CarambaVpnKeys {
     const val SUBSCRIPTION_ID = "subscriptionId"
     const val ACCESS_TOKEN = "accessToken"
 
+    // The rest of the session. The access token lives ~15 minutes, and the core
+    // had nothing to renew it with: fifteen minutes after connect every call it
+    // made to the panel got a 401 it could not recover from. The refresh token
+    // has to reach the core because the core is what keeps running once the app
+    // is gone — this service is restartable by the system in a process with no
+    // Flutter engine in it, so "ask Dart for a fresh token" has nobody to ask.
+    // ACCESS_EXPIRY is unix seconds; 0 means "unknown" and lets the core read
+    // the JWT's own exp claim.
+    const val REFRESH_TOKEN = "refreshToken"
+    const val ACCESS_EXPIRY = "accessExpiryUnix"
+
     // SharedPreferences file holding the most recent configure() seam so the
-    // service can read it even if started fresh by the system.
+    // service can read it even if started fresh by the system. It also carries
+    // the policy JSON and tunnel mode written by setPolicy() / setTunnelMode().
+    //
+    // The refresh token joins the access token already stored here, in the app's
+    // private prefs (MODE_PRIVATE). That is a deliberate trade, not an
+    // oversight: the alternative is that a system-restarted service comes back
+    // with no session at all, and the Go core it builds persists the same pair
+    // to its own tokens.json in this same app-private directory anyway — next
+    // to the assembled mihomo config, which carries the subscription's private
+    // keys. Nothing here is readable by another app; everything here is
+    // readable by anyone who has already rooted the device.
     const val PREFS = "caramba_vpn_seam"
+
+    // Seam pref keys for the ABI v2 policy / tunnel mode (namespaced so they do
+    // not collide with the method-call arg names above).
+    const val PREF_POLICY_JSON = "policy.json"
+    const val PREF_TUNNEL_MODE = "tunnel.mode"
+    const val PREF_MIXED_PORT = "tunnel.mixedPort"
 }
 
 // A status snapshot in the exact shape of the com.caramba/vpn/status map.
+//
+// Три последних поля (ABI v2) СЮДА НЕ ДОЕЗЖАЛИ, и это стоило Android всей
+// сверки «что показано» с «к чему подключились». Go отдаёт activeProxy, mode и
+// mixedPort в statusJSON с самого ABI v2, FFI-путь (macOS) разбирает весь этот
+// JSON целиком — а Android-мост пересобирал снимок руками из трёх полей и
+// остальные молча ронял. На Dart-стороне `activeProxyProvider` из-за этого был
+// null ВСЕГДА, и строка «Сейчас в туннеле» не появлялась на Android ни разу:
+// приложение показывало выбранный узел, не имея ни одного способа проверить,
+// тот ли узел держит ядро.
 internal data class CarambaStatusSnapshot(
     val stage: String,
     val detail: String?,
     val connectedSinceMs: Long,
+    // Имя узла, на который ядро указывает селектором CARAMBA. null — ядро поле
+    // не прислало (туннель не поднят либо сборка старее ABI v2).
+    val activeProxy: String? = null,
+    // Способ захвата трафика, О КОТОРОМ ОТЧИТАЛОСЬ ЯДРО ("tun"|"proxy") — не то
+    // же, что выбор пользователя: тот действует лишь со следующего Up.
+    val mode: String? = null,
+    // Порт локального mixed-инбаунда; значим только в proxy-режиме, поэтому 0
+    // означает «поля нет», а не «порт ноль».
+    val mixedPort: Int = 0,
 ) {
-    fun asMap(): Map<String, Any?> {
-        val m = HashMap<String, Any?>(3)
+    /**
+     * Карта канала.
+     *
+     * [witness] — НЕЗАВИСИМОЕ наблюдение системы о том, есть ли сейчас
+     * VPN-транспорт (`present`|`absent`|`unknown`, см. CarambaTunnelWitness).
+     * Оно не входит в снимок как поле, потому что снимок кэшируется шиной и
+     * копируется поллером, а наблюдение обязано быть свежим на момент, когда
+     * кадр уходит в Dart, — иначе вето опиралось бы на память, ровно как то
+     * «Защищено», против которого оно и заведено. Ставит его плагин, у которого
+     * есть Context; значение по умолчанию — «не знаю», и по нему Dart не гасит
+     * ничего.
+     */
+    fun asMap(witness: String = "unknown"): Map<String, Any?> {
+        val m = HashMap<String, Any?>(8)
         m["stage"] = stage
         m["detail"] = detail
         m["connectedSinceMs"] = connectedSinceMs
+        m["activeProxy"] = activeProxy
+        m["mode"] = mode
+        m["tunnelWitness"] = witness
+        // Ключ ставится только когда порт есть: Dart читает его как «адрес
+        // локального прокси», и ноль превратился бы в строку «127.0.0.1:0».
+        if (mixedPort > 0) {
+            m["mixedPort"] = mixedPort
+        }
         return m
     }
 

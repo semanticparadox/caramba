@@ -19,6 +19,14 @@ typedef CarambaHandle (*caramba_new_fn)(const char*, const char*, const char*,
 // ({ "error": ... }) on failure, or NULL on success.
 typedef char* (*caramba_configure_fn)(CarambaHandle, const char*, const char*,
                                       const char*);
+// ABI v4: вся сессия целиком — access, refresh и срок жизни access
+// (unix-секунды; 0 = «не знаю»). РЕЗОЛВИТСЯ ОПЦИОНАЛЬНО, как символы ABI v2:
+// библиотека на диске может быть старее приложения. NULL здесь означает, что
+// ядру можно отдать только 15-минутный access и нечем его продлить, поэтому
+// откат на caramba_configure_fn допустим ТОЛЬКО когда refresh пуст.
+typedef char* (*caramba_configure_session_fn)(CarambaHandle, const char*,
+                                              const char*, const char*,
+                                              const char*, long long);
 // CarambaImportSubscription парсит сырую подписку [raw] формата [format] в
 // mihomo-конфиг и сохраняет её как импортированный источник. Возвращает
 // CarambaFreeString-owned JSON-строку: метаданные при успехе или { "error": ... }
@@ -26,6 +34,23 @@ typedef char* (*caramba_configure_fn)(CarambaHandle, const char*, const char*,
 typedef char* (*caramba_import_subscription_fn)(CarambaHandle, const char*,
                                                 const char*);
 typedef char* (*caramba_set_tun_fd_fn)(CarambaHandle, int);
+// ABI v2. SetTunnelMode/SetPolicy отдают NULL при успехе, Probe — всегда JSON.
+// Все три РЕЗОЛВЯТСЯ ОПЦИОНАЛЬНО: библиотека, собранная до ABI v2, их не несёт,
+// и жёсткая проверка заблокировала бы весь desktop-путь. NULL-указатель здесь
+// означает «ядро старое» — вызывающий отвечает понятной ошибкой.
+typedef char* (*caramba_set_tunnel_mode_fn)(CarambaHandle, const char*, int);
+typedef char* (*caramba_set_policy_fn)(CarambaHandle, const char*);
+typedef char* (*caramba_probe_fn)(CarambaHandle, int);
+// ABI v3, CSM/1. Каждый символ принимает и отдаёт одну строку JSON. Тоже
+// ОПЦИОНАЛЬНЫЕ: библиотека, собранная до ABI v3, их не несёт, и клиент
+// деградирует до «CSM недоступен в этой сборке», а не падает.
+typedef char* (*caramba_json_call_fn)(CarambaHandle, const char*);
+// ABI v3 reads: handle in, JSON out. CsmState и CsmLadder аргумента не берут,
+// потому что ничего не применяют и ничего не запрашивают по сети.
+typedef char* (*caramba_handle_call_fn)(CarambaHandle);
+// ABI v3: хэндл и целое. CarambaCsmRefresh берёт таймаут в секундах, потому
+// что цикл выборки лезет по лестнице и обязан быть ограничен.
+typedef char* (*caramba_handle_int_call_fn)(CarambaHandle, int);
 typedef char* (*caramba_up_fn)(CarambaHandle, const char*);
 typedef char* (*caramba_down_fn)(CarambaHandle);
 typedef char* (*caramba_status_fn)(CarambaHandle);
@@ -37,8 +62,23 @@ typedef struct {
   void* module;
   caramba_new_fn New;
   caramba_configure_fn Configure;
+  caramba_configure_session_fn ConfigureSession;  // optional (ABI v4)
   caramba_import_subscription_fn ImportSubscription;
   caramba_set_tun_fd_fn SetTunFd;
+  caramba_set_tunnel_mode_fn SetTunnelMode;  // optional (ABI v2)
+  caramba_set_policy_fn SetPolicy;           // optional (ABI v2)
+  caramba_probe_fn Probe;                    // optional (ABI v2)
+  caramba_json_call_fn DeviceKeygen;         // optional (ABI v3)
+  caramba_json_call_fn DeviceSign;           // optional (ABI v3)
+  caramba_json_call_fn DeviceAgree;          // optional (ABI v3)
+  caramba_json_call_fn CsmRequestSettings;   // optional (ABI v3)
+  caramba_handle_call_fn CsmState;           // optional (ABI v3)
+  caramba_handle_call_fn CsmLadder;          // optional (ABI v3)
+  caramba_json_call_fn CsmEnroll;            // optional (ABI v3)
+  caramba_handle_int_call_fn CsmRefresh;     // optional (ABI v3)
+  caramba_json_call_fn CsmSetLadder;         // optional (ABI v3)
+  caramba_json_call_fn CsmAnswerCatalogChange;  // optional (ABI v3)
+  caramba_json_call_fn CsmSelectProfile;     // optional (ABI v3)
   caramba_up_fn Up;
   caramba_down_fn Down;
   caramba_status_fn Status;
@@ -46,23 +86,101 @@ typedef struct {
   caramba_free_string_fn FreeString;
 } CarambaCoreFfi;
 
-// caramba_core_ffi_load resolves libcaramba_core.so. The loader relies on the
-// runtime search path (the bundle ships the .so under lib/ next to the host
-// binary, which Flutter adds to the rpath). Returns TRUE once every symbol is
-// bound.
+// caramba_core_open_module — dlopen ядра по списку кандидатов.
+//
+// Зачем не один dlopen("libcaramba_core.so"): плоское имя резолвится через
+// rpath ВЫЗЫВАЮЩЕГО объекта, а вызывающий тут — сам плагин
+// (libcaramba_vpn_plugin.so), который Flutter кладёт в bundle/lib/ обычным
+// копированием файла (install(FILES ...) в generated_plugins.cmake), не
+// переписывая ему rpath. Плюс современный линкер пишет DT_RUNPATH, а он, в
+// отличие от DT_RPATH, не наследуется от исполняемого файла. То есть
+// "$ORIGIN/lib" раннера плагину не поможет, и в собранном бандле ядро
+// нашлось бы только случайно. Поэтому после плоского имени пробуем абсолютные
+// пути от /proc/self/exe — ровно ту же раскладку, что перебирает dart-сторона
+// (packages/caramba_vpn/lib/src/ffi/library_lookup.dart).
+//
+// Порядок: CARAMBA_CORE_LIB (явное переопределение) -> плоское имя (rpath /
+// LD_LIBRARY_PATH / системные каталоги) -> <каталог бинарника>/lib/ ->
+// <каталог бинарника>/.
+static inline void* caramba_core_open_module(void) {
+  const gchar* env = g_getenv("CARAMBA_CORE_LIB");
+  if (env != NULL && env[0] != '\0') {
+    void* module = dlopen(env, RTLD_NOW | RTLD_LOCAL);
+    if (module != NULL) {
+      return module;
+    }
+  }
+  void* module = dlopen("libcaramba_core.so", RTLD_NOW | RTLD_LOCAL);
+  if (module != NULL) {
+    return module;
+  }
+  gchar* exe = g_file_read_link("/proc/self/exe", NULL);
+  if (exe == NULL) {
+    return NULL;
+  }
+  gchar* dir = g_path_get_dirname(exe);
+  // i == 0 — раскладка собранного бандла (<exe>/lib/), i == 1 — «плоская».
+  for (int i = 0; module == NULL && i < 2; i++) {
+    gchar* candidate =
+        (i == 0)
+            ? g_build_filename(dir, "lib", "libcaramba_core.so", NULL)
+            : g_build_filename(dir, "libcaramba_core.so", NULL);
+    module = dlopen(candidate, RTLD_NOW | RTLD_LOCAL);
+    g_free(candidate);
+  }
+  g_free(dir);
+  g_free(exe);
+  return module;
+}
+
+// caramba_core_ffi_load resolves libcaramba_core.so (see the candidate order in
+// caramba_core_open_module) and binds the caramba_core.h C ABI. Returns TRUE
+// once every required symbol is bound.
 static inline gboolean caramba_core_ffi_load(CarambaCoreFfi* ffi) {
   if (ffi->module != NULL) {
     return ffi->New != NULL;
   }
-  ffi->module = dlopen("libcaramba_core.so", RTLD_NOW | RTLD_LOCAL);
+  ffi->module = caramba_core_open_module();
   if (ffi->module == NULL) {
     return FALSE;
   }
   ffi->New = (caramba_new_fn)dlsym(ffi->module, "CarambaNew");
   ffi->Configure = (caramba_configure_fn)dlsym(ffi->module, "CarambaConfigure");
+  // ABI v4, optional: absent in a core built before the session seam.
+  ffi->ConfigureSession = (caramba_configure_session_fn)dlsym(
+      ffi->module, "CarambaConfigureSession");
   ffi->ImportSubscription = (caramba_import_subscription_fn)dlsym(
       ffi->module, "CarambaImportSubscription");
   ffi->SetTunFd = (caramba_set_tun_fd_fn)dlsym(ffi->module, "CarambaSetTunFd");
+  // ABI v2, optional: absent in a core built before the policy/probe wave.
+  ffi->SetTunnelMode = (caramba_set_tunnel_mode_fn)dlsym(
+      ffi->module, "CarambaSetTunnelMode");
+  ffi->SetPolicy =
+      (caramba_set_policy_fn)dlsym(ffi->module, "CarambaSetPolicy");
+  ffi->Probe = (caramba_probe_fn)dlsym(ffi->module, "CarambaProbe");
+  // ABI v3, optional: absent in a core built before CSM/1.
+  ffi->DeviceKeygen =
+      (caramba_json_call_fn)dlsym(ffi->module, "CarambaDeviceKeygen");
+  ffi->DeviceSign =
+      (caramba_json_call_fn)dlsym(ffi->module, "CarambaDeviceSign");
+  ffi->DeviceAgree =
+      (caramba_json_call_fn)dlsym(ffi->module, "CarambaDeviceAgree");
+  ffi->CsmRequestSettings =
+      (caramba_json_call_fn)dlsym(ffi->module, "CarambaCsmRequestSettings");
+  ffi->CsmState =
+      (caramba_handle_call_fn)dlsym(ffi->module, "CarambaCsmState");
+  ffi->CsmLadder =
+      (caramba_handle_call_fn)dlsym(ffi->module, "CarambaCsmLadder");
+  ffi->CsmEnroll =
+      (caramba_json_call_fn)dlsym(ffi->module, "CarambaCsmEnroll");
+  ffi->CsmRefresh =
+      (caramba_handle_int_call_fn)dlsym(ffi->module, "CarambaCsmRefresh");
+  ffi->CsmSetLadder =
+      (caramba_json_call_fn)dlsym(ffi->module, "CarambaCsmSetLadder");
+  ffi->CsmAnswerCatalogChange = (caramba_json_call_fn)dlsym(
+      ffi->module, "CarambaCsmAnswerCatalogChange");
+  ffi->CsmSelectProfile =
+      (caramba_json_call_fn)dlsym(ffi->module, "CarambaCsmSelectProfile");
   ffi->Up = (caramba_up_fn)dlsym(ffi->module, "CarambaUp");
   ffi->Down = (caramba_down_fn)dlsym(ffi->module, "CarambaDown");
   ffi->Status = (caramba_status_fn)dlsym(ffi->module, "CarambaStatus");

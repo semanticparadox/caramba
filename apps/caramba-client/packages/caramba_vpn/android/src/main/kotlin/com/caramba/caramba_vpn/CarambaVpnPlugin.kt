@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import androidx.annotation.NonNull
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
@@ -15,11 +17,16 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.PluginRegistry
+import org.json.JSONObject
+import java.io.File
 
 // CarambaVpnPlugin — the app-process Flutter plugin for Android.
 //
 // Registers the CHANNEL CONTRACT:
-//   MethodChannel  com.caramba/vpn          connect / disconnect / status / configure
+//   MethodChannel  com.caramba/vpn          configure / connect / connectRaw /
+//                                           disconnect / status, plus the ABI v2
+//                                           generic-mode calls importSubscription /
+//                                           probe / setPolicy / setTunnelMode
 //   EventChannel   com.caramba/vpn/status   { stage, detail?, connectedSinceMs }
 //   EventChannel   com.caramba/vpn/traffic  { downBps, upBps, downTotal, upTotal }
 //
@@ -37,8 +44,7 @@ class CarambaVpnPlugin :
     FlutterPlugin,
     ActivityAware,
     MethodCallHandler,
-    PluginRegistry.ActivityResultListener,
-    CarambaVpnBus.Listener {
+    PluginRegistry.ActivityResultListener {
 
     private companion object {
         const val VPN_REQUEST_CODE = 0x6361 // 'ca'
@@ -53,6 +59,53 @@ class CarambaVpnPlugin :
     private var trafficSink: EventChannel.EventSink? = null
 
     private var activity: Activity? = null
+
+    // Main-thread handler: worker replies (importSubscription / probe) must be
+    // delivered to the MethodChannel Result on the platform thread.
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    // Lazily built metadata-only core client for the generic-mode calls
+    // (importSubscription / probe). Separate from the tunnel core, which lives
+    // in CarambaVpnService.
+    private var tools: CarambaCore? = null
+
+    /**
+     * The seam [tools] was built with, as one string. Compared on every call so
+     * a login or a token rotation rebuilds the client instead of leaving it
+     * measuring the previous account's nodes.
+     */
+    private var toolsSeam: String = ""
+
+    /**
+     * Whether an imported subscription is loaded into [tools].
+     *
+     * The metadata core is shared by both paths, and `Core.Probe` measures an
+     * imported config in preference to the panel's. Without this flag a probe
+     * on the panel path would measure the nodes of a subscription imported
+     * earlier in the session and label them as the operator's — the exact kind
+     * of wrong number this work exists to remove.
+     */
+    private var toolsHasImport: Boolean = false
+
+    // The CSM/1 core client and the AndroidKeyStore holder of the device
+    // identity. Both live in the plugin process for the lifetime of the engine:
+    // the device identity is a long-lived identifier and must not be rebuilt per
+    // call.
+    private var csm: CarambaCore? = null
+
+    /**
+     * The profile whose CSM store is selected (02-SPEC.md 1.2). Empty means the
+     * single store in the core work dir, as installs made before the second
+     * operator have it.
+     */
+    private var csmProfileKey: String = ""
+
+    /**
+     * The loopback listener address with the credential of the current raise,
+     * as reported by the tunnel core. Empty while the engine is down.
+     */
+    private var loopbackProxyUrl: String = ""
+    private var device: CarambaDeviceKeys? = null
 
     // Pending connect args captured while the VPN-consent dialog is shown; the
     // service is started from onActivityResult once consent is granted.
@@ -72,7 +125,10 @@ class CarambaVpnPlugin :
             override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                 statusSink = events
                 // Replay last known status so a fresh subscriber renders now.
-                events?.success(CarambaVpnBus.currentStatus().asMap())
+                // Именно этот повтор и рисовал «Защищено» новому движку Flutter
+                // после перезапуска приложения, поэтому он идёт через ту же
+                // печать свидетеля, что и живые кадры.
+                events?.success(witnessed(CarambaVpnBus.currentStatus()))
             }
 
             override fun onCancel(arguments: Any?) {
@@ -91,11 +147,22 @@ class CarambaVpnPlugin :
             }
         })
 
-        CarambaVpnBus.setListener(this)
+        CarambaVpnBus.setListener(busListener)
+        CarambaVpnBus.setLoopbackListener(::onLoopbackProxy)
     }
 
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
         CarambaVpnBus.setListener(null)
+        CarambaVpnBus.setLoopbackListener(null)
+        tools?.close()
+        tools = null
+        // The fingerprint goes with the client it described: left behind, it
+        // would match an unchanged seam and short-circuit the rebuild.
+        toolsSeam = ""
+        toolsHasImport = false
+        csm?.close()
+        csm = null
+        device = null
         methodChannel.setMethodCallHandler(null)
         statusChannel.setStreamHandler(null)
         trafficChannel.setStreamHandler(null)
@@ -114,6 +181,11 @@ class CarambaVpnPlugin :
                     subscriptionId = call.argument<String>(CarambaVpnKeys.SUBSCRIPTION_UUID)
                         ?: call.argument<String>(CarambaVpnKeys.SUBSCRIPTION_ID) ?: "",
                     accessToken = call.argument<String>(CarambaVpnKeys.ACCESS_TOKEN) ?: "",
+                    // Absent from a caller built before the session seam existed;
+                    // an empty refresh degrades to the old 15-minute behaviour
+                    // instead of failing the call.
+                    refreshToken = call.argument<String>(CarambaVpnKeys.REFRESH_TOKEN) ?: "",
+                    accessExpiryUnix = call.argument<Number>(CarambaVpnKeys.ACCESS_EXPIRY)?.toLong() ?: 0L,
                 )
                 result.success(null)
             }
@@ -131,18 +203,178 @@ class CarambaVpnPlugin :
                 // rawSub path: carry the imported subscription + format + label
                 // through the SAME args map / consent flow / service intent the
                 // connect path uses. RAW_MODE flags the service to import instead of
-                // using the panel seam; serverId stays empty (no subscription node).
+                // using the panel seam; serverId (ABI v2) is optional and pins the
+                // CARAMBA selector to one node of the imported config.
                 val args = mapOf(
                     CarambaVpnKeys.RAW_MODE to "1",
                     CarambaVpnKeys.RAW_CONFIG to (call.argument<String>(CarambaVpnKeys.RAW_CONFIG) ?: ""),
                     CarambaVpnKeys.RAW_FORMAT to (call.argument<String>(CarambaVpnKeys.RAW_FORMAT) ?: ""),
                     CarambaVpnKeys.RAW_LABEL to (call.argument<String>(CarambaVpnKeys.RAW_LABEL) ?: ""),
-                    CarambaVpnKeys.SERVER_ID to "",
+                    // ABI v2: a non-empty serverId pins the CARAMBA selector to
+                    // that proxy name inside the imported config; empty keeps the
+                    // automatic choice.
+                    CarambaVpnKeys.SERVER_ID to (call.argument<String>(CarambaVpnKeys.SERVER_ID) ?: ""),
                     // serverName drives the foreground notification / TUN session
                     // label; reuse the raw profile label there.
                     CarambaVpnKeys.SERVER_NAME to (call.argument<String>(CarambaVpnKeys.RAW_LABEL) ?: ""),
                 )
                 connect(args, result)
+            }
+
+            // --- generic mode (ABI v2) -------------------------------------------
+            //
+            // importSubscription and probe do NOT touch the VpnService: they run on
+            // a lightweight core client inside the plugin process, on a background
+            // thread, and reply on the main thread. Both return the core's JSON
+            // verbatim; Dart parses it.
+
+            "importSubscription" -> {
+                val raw = call.argument<String>(CarambaVpnKeys.RAW_CONFIG) ?: ""
+                val format = call.argument<String>(CarambaVpnKeys.RAW_FORMAT) ?: ""
+                runOnWorker(result, "import_failed") {
+                    val core = toolsCore()
+                    val json = core.importSubscription(raw, format)
+                    // The imported config now outranks the panel's inside this
+                    // core; `configure` is what tells us the panel path is back
+                    // in play, and it needs to know there is something to clear.
+                    synchronized(this) { toolsHasImport = true }
+                    json
+                }
+            }
+
+            "probe" -> {
+                val timeoutMs = (call.argument<Number>(CarambaVpnKeys.TIMEOUT_MS))?.toInt() ?: 5000
+                runOnWorker(result, "probe_failed") {
+                    toolsCore().probeJson(timeoutMs)
+                }
+            }
+
+            "setPolicy" -> {
+                // Persisted, not applied here: the core that matters is the one
+                // CarambaVpnService builds, and it reads this seam before up().
+                persistPolicy(call.argument<String>(CarambaVpnKeys.POLICY_JSON) ?: "")
+                result.success(null)
+            }
+
+            "setTunnelMode" -> {
+                persistTunnelMode(
+                    mode = call.argument<String>(CarambaVpnKeys.TUNNEL_MODE) ?: "tun",
+                    port = (call.argument<Number>(CarambaVpnKeys.MIXED_PORT))?.toInt() ?: 7890,
+                )
+                result.success(null)
+            }
+
+            // --- CSM/1 device keys (ABI v3) --------------------------------------
+            //
+            // These do NOT touch the Go core: the key lives in the AndroidKeyStore
+            // and this class is its only holder. The core reaches the same key
+            // through CarambaDeviceKeyBridge, so one identity serves both paths.
+            // Signing and key agreement are keystore round trips, so they run on
+            // the worker thread and reply on the main one.
+
+            "deviceKeygen" -> {
+                runOnWorker(result, "device_keygen_failed") {
+                    deviceKeys().keygen("{}")
+                }
+            }
+
+            "deviceSign" -> {
+                val messageB64 = call.argument<String>(CarambaVpnKeys.MESSAGE_B64) ?: ""
+                runOnWorker(result, "device_sign_failed") {
+                    deviceKeys().sign(JSONObject().put("message_b64", messageB64).toString())
+                }
+            }
+
+            "deviceAgree" -> {
+                val peerB64 = call.argument<String>(CarambaVpnKeys.PEER_PUB_B64) ?: ""
+                val rkv = (call.argument<Number>(CarambaVpnKeys.RKV))?.toInt() ?: 0
+                runOnWorker(result, "device_agree_failed") {
+                    deviceKeys().agree(
+                        JSONObject().put("rkv", rkv).put("peer_pub_b64", peerB64).toString()
+                    )
+                }
+            }
+
+            "csmRequestSettings" -> {
+                // The write goes through the core, never through a socket opened
+                // here: a control plane with its own sockets bypasses the transport
+                // ladder, and the app degenerates to rung R0 while the core is
+                // still climbing for a configuration it can no longer change
+                // (02-SPEC.md 8.9).
+                val json = call.argument<String>(CarambaVpnKeys.POLICY_JSON) ?: "{}"
+                runOnWorker(result, "csm_write_failed") {
+                    csmCore().csmRequestSettings(json)
+                }
+            }
+
+            "csmState" -> {
+                // A read of what the core already verified. Off the main thread
+                // all the same: the core takes its own lock, and blocking the
+                // platform thread on it would stall the UI.
+                runOnWorker(result, "csm_state_failed") { csmCore().csmState() }
+            }
+
+            "csmLadder" -> {
+                runOnWorker(result, "csm_ladder_failed") { csmCore().csmLadder() }
+            }
+
+            "routeReport" -> {
+                // What the LAST raise applied to routing. Also a read, also off
+                // the main thread.
+                //
+                // Read from the core that RAISED — CarambaVpnService's — and not
+                // from the plugin's own cores, on which up() is never called:
+                // they would answer "no tunnel has been raised by this core
+                // instance" for the rest of the install, which is true of them
+                // and a lie about the device. Without it the settings screen has
+                // no way to tell a working ad block from an enabled and dead one,
+                // which is the whole reason the report exists.
+                //
+                // The fallback is the CSM core, reached only when nothing has
+                // raised in this process yet. Its answer is the core's OWN
+                // not_raised JSON: an empty string here would read on the Dart
+                // side as "this build has no bridge" (AppliedRoute.unsupported),
+                // and a report fabricated in Kotlin would be a fourth shape of
+                // the contract nobody verifies.
+                runOnWorker(result, "route_report_failed") {
+                    CarambaCore.raisedCore()?.routeReport() ?: csmCore().routeReport()
+                }
+            }
+
+            "csmEnroll" -> {
+                // Enrolment goes THROUGH the core and up the ladder: it is the
+                // one moment trust is created, and a socket opened here would
+                // be a path to the operator the ladder cannot see.
+                val json = call.argument<String>(CarambaVpnKeys.POLICY_JSON) ?: "{}"
+                runOnWorker(result, "csm_enroll_failed") { csmCore().csmEnroll(json) }
+            }
+
+            "csmRefresh" -> {
+                val timeout = (call.argument<Number>(CarambaVpnKeys.TIMEOUT_SEC))?.toInt() ?: 30
+                runOnWorker(result, "csm_refresh_failed") { csmCore().csmRefresh(timeout) }
+            }
+
+            "csmSetLadder" -> {
+                val json = call.argument<String>(CarambaVpnKeys.POLICY_JSON) ?: "{}"
+                runOnWorker(result, "csm_set_ladder_failed") {
+                    csmCore().csmSetLadder(json)
+                    "{\"ok\":true}"
+                }
+            }
+
+            "csmAnswerCatalogChange" -> {
+                val json = call.argument<String>(CarambaVpnKeys.POLICY_JSON) ?: "{}"
+                runOnWorker(result, "csm_catalog_answer_failed") {
+                    csmCore().csmAnswerCatalogChange(json)
+                }
+            }
+
+            "csmSelectProfile" -> {
+                val key = call.argument<String>(CarambaVpnKeys.CSM_PROFILE_KEY) ?: ""
+                runOnWorker(result, "csm_select_profile_failed") {
+                    selectCsmProfile(key)
+                    "{\"ok\":true}"
+                }
             }
 
             "disconnect" -> {
@@ -151,7 +383,11 @@ class CarambaVpnPlugin :
             }
 
             "status" -> {
-                result.success(CarambaVpnBus.currentStatus().asMap())
+                // Прямой вопрос приложения о подлинной стадии — тот самый,
+                // который Home задаёт при появлении экрана и при возвращении из
+                // фона. Отвечать на него без свидетеля значило бы оставить
+                // самый важный момент сверки на слове ядра о самом себе.
+                result.success(witnessed(CarambaVpnBus.currentStatus()))
             }
 
             else -> result.notImplemented()
@@ -225,22 +461,285 @@ class CarambaVpnPlugin :
         }
     }
 
+    // MARK: Свидетель туннеля
+
+    /**
+     * Кадр статуса с печатью независимого наблюдения.
+     *
+     * Наблюдение снимается ЗДЕСЬ, на выходе в Dart, а не кладётся в снимок:
+     * снимок кэшируется шиной и копируется поллером, и наблюдение, пролежавшее
+     * в нём хоть один такт, было бы такой же памятью о прошлом, как то самое
+     * «Защищено».
+     *
+     * Спрашиваем только про стадии, которые ЧТО-ТО УТВЕРЖДАЮТ о защите.
+     * `connecting`, `disconnected` и `error` ничего не обещают, а перебор сетей
+     * и getifaddrs идут на главном потоке — платить за них там, где ответ ни на
+     * что не влияет, незачем.
+     *
+     * Решение по вето принимает Dart, а не этот метод: одно место, где стадия
+     * переписывается, и оно покрыто тестами приложения. Здесь только факт.
+     */
+    private fun witnessed(snapshot: CarambaStatusSnapshot): Map<String, Any?> {
+        val claimsProtection =
+            snapshot.stage == CarambaStage.CONNECTED ||
+                snapshot.stage == CarambaStage.RECONNECTING
+        if (!claimsProtection) return snapshot.asMap()
+        return snapshot.asMap(CarambaTunnelWitness.verdict(appContext).wire)
+    }
+
+    // MARK: Generic mode helpers (ABI v2)
+
+    /**
+     * Runs a blocking core call on a background thread and replies on the main
+     * thread. importSubscription parses a whole subscription and probe dials
+     * every node, so neither may sit on the platform thread.
+     */
+    private fun runOnWorker(result: Result, errorCode: String, body: () -> String) {
+        Thread({
+            val reply: Result = result
+            try {
+                val json = body()
+                mainHandler.post { reply.success(json) }
+            } catch (t: Throwable) {
+                val message = t.message ?: errorCode
+                mainHandler.post { reply.error(errorCode, message, null) }
+            }
+        }, "caramba-vpn-tools").start()
+    }
+
+    /**
+     * Lazily builds the metadata-only core client shared by importSubscription
+     * and probe. It lives in the plugin process and keeps its own work dir, so a
+     * probe never disturbs a running tunnel (whose core lives in the service).
+     *
+     * It is built WITH the persisted panel seam. Without it the core has no
+     * panel URL and no token, so on the panel path `probe` had no config to
+     * measure and no way to get one before the first `up`; it answered with an
+     * empty server list, which the app could only read as "the operator has no
+     * nodes". The imported path is unaffected: an empty seam builds exactly the
+     * client it built before.
+     *
+     * The seam is re-read on every call and the client is rebuilt when it
+     * changed, because it changes AFTER this core may already exist — a login,
+     * a token rotation or a switch of operator all arrive through `configure`,
+     * and a client built before one of them would keep measuring the previous
+     * account's nodes (or answering 401) until the app restarts.
+     *
+     * Synchronized: it is called from the worker thread, and two concurrent
+     * generic-mode calls must not build two clients over the same work dir.
+     */
+    @Synchronized
+    private fun toolsCore(): CarambaCore {
+        val prefs = appContext.getSharedPreferences(CarambaVpnKeys.PREFS, Context.MODE_PRIVATE)
+        val panelUrl = prefs.getString(CarambaVpnKeys.PANEL_URL, "") ?: ""
+        val subUrl = prefs.getString(CarambaVpnKeys.SUB_URL, "") ?: ""
+        val subscriptionId = prefs.getString(CarambaVpnKeys.SUBSCRIPTION_ID, "") ?: ""
+        val accessToken = prefs.getString(CarambaVpnKeys.ACCESS_TOKEN, "") ?: ""
+        val refreshToken = prefs.getString(CarambaVpnKeys.REFRESH_TOKEN, "") ?: ""
+        val accessExpiry = prefs.getLong(CarambaVpnKeys.ACCESS_EXPIRY, 0L)
+        // EVERY field of the seam belongs in this identity. A client built
+        // before a rotation keeps measuring with the previous session, and a
+        // field left out of the list is a rotation the probe never notices.
+        val seam = listOf(panelUrl, subUrl, subscriptionId, accessToken, refreshToken, accessExpiry.toString())
+            .joinToString(" ")
+
+        val existing = tools
+        if (existing != null && seam == toolsSeam) return existing
+        toolsHasImport = false
+        // The stale client is dropped, not closed: closing calls into the Go
+        // core, and a concurrent probe may still be inside it. It holds no fd
+        // and never raised a tunnel, so letting it go is enough.
+        tools = null
+
+        val dir = File(appContext.filesDir, "caramba-core-tools")
+        if (!dir.exists()) dir.mkdirs()
+        val created = CarambaCore.createTools(
+            workDir = dir.absolutePath,
+            tokenPath = File(dir, "tokens.json").absolutePath,
+            panelUrl = panelUrl,
+            subUrl = subUrl,
+            subscriptionId = subscriptionId,
+            accessToken = accessToken,
+            refreshToken = refreshToken,
+            accessExpiryUnix = accessExpiry,
+        )
+        tools = created
+        toolsSeam = seam
+        return created
+    }
+
+    /**
+     * The AndroidKeyStore holder of the device identity. One instance: the
+     * identity is established once and both the channel calls and the Go core's
+     * bridge reach the same key through it.
+     */
+    @Synchronized
+    private fun deviceKeys(): CarambaDeviceKeys {
+        val existing = device
+        if (existing != null) return existing
+        val created = CarambaDeviceKeys(appContext)
+        device = created
+        return created
+    }
+
+    /**
+     * The core client that owns the CSM/1 profile: enrollment state, the pinned
+     * root, the monotonic marks and the transport ladder.
+     *
+     * It keeps a PERSISTENT work dir, unlike the tools client, because the CSM
+     * store is the profile's identity and it must survive a restart. The device
+     * key bridge is registered BEFORE any CSM call, so the core never falls back
+     * to a software key it would then have to keep forever.
+     */
+    @Synchronized
+    private fun csmCore(): CarambaCore {
+        val existing = csm
+        if (existing != null) return existing
+        loopbackProxyUrl = CarambaVpnBus.currentLoopbackProxy()
+        val dir = File(appContext.filesDir, "caramba-core-csm")
+        if (!dir.exists()) dir.mkdirs()
+        val prefs = appContext.getSharedPreferences(CarambaVpnKeys.PREFS, Context.MODE_PRIVATE)
+        val created = CarambaCore.createCsm(
+            panelUrl = prefs.getString(CarambaVpnKeys.PANEL_URL, "") ?: "",
+            subUrl = prefs.getString(CarambaVpnKeys.SUB_URL, "") ?: "",
+            workDir = dir.absolutePath,
+            tokenPath = File(dir, "tokens.json").absolutePath,
+            subscriptionId = prefs.getString(CarambaVpnKeys.SUBSCRIPTION_ID, "") ?: "",
+            accessToken = prefs.getString(CarambaVpnKeys.ACCESS_TOKEN, "") ?: "",
+            refreshToken = prefs.getString(CarambaVpnKeys.REFRESH_TOKEN, "") ?: "",
+            accessExpiryUnix = prefs.getLong(CarambaVpnKeys.ACCESS_EXPIRY, 0L),
+            bridge = CarambaDeviceKeyBridge(deviceKeys()),
+        )
+        csm = created
+        if (csmProfileKey.isNotEmpty()) {
+            created.csmSelectProfile(csmProfileKey)
+        }
+        // The loopback rung of THIS core has to be told the listener address,
+        // because `up` runs on the tunnel core and never on this one. Without
+        // it R4 here is permanently not_configured and the ladder degrades to
+        // R1 and R5 on the platform the listener exists for.
+        applyLoopbackToCsm(created)
+        return created
+    }
+
+    /**
+     * Points the CSM store at one profile (02-SPEC.md 1.2). The store holds the
+     * pinned root, the device registration, the monotonic marks and the attempt
+     * history, and one store per app puts the second operator's on top of the
+     * first operator's. Changing the key drops the current core so the next CSM
+     * call rebuilds it against the new profile's directory.
+     */
+    @Synchronized
+    private fun selectCsmProfile(key: String) {
+        if (csmProfileKey == key) return
+        csmProfileKey = key
+        csm = null
+    }
+
+    /**
+     * Hands the loopback listener address, credential included, to the CSM core.
+     * An empty string means the engine is down and rung R4 has no path.
+     */
+    @Synchronized
+    private fun applyLoopbackToCsm(target: CarambaCore? = csm) {
+        val core = target ?: return
+        try {
+            core.csmSetLadder(
+                JSONObject().put("tunnel_proxy", loopbackProxyUrl).toString()
+            )
+        } catch (_: Throwable) {
+            // A core built before ABI v3 has no such symbol. The ladder then
+            // keeps R4 unavailable, which is the honest side of the failure.
+        }
+    }
+
+    /**
+     * The tunnel core published a new loopback address (a raise) or an empty one
+     * (a teardown). Pushed straight into the CSM core, which is the only place
+     * that needs it: an empty string returns rung R4 to not_configured.
+     */
+    @Synchronized
+    private fun onLoopbackProxy(url: String) {
+        loopbackProxyUrl = url
+        applyLoopbackToCsm()
+    }
+
+    private fun persistPolicy(json: String) {
+        appContext.getSharedPreferences(CarambaVpnKeys.PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(CarambaVpnKeys.PREF_POLICY_JSON, json)
+            .apply()
+    }
+
+    private fun persistTunnelMode(mode: String, port: Int) {
+        appContext.getSharedPreferences(CarambaVpnKeys.PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(CarambaVpnKeys.PREF_TUNNEL_MODE, mode)
+            .putInt(CarambaVpnKeys.PREF_MIXED_PORT, port)
+            .apply()
+    }
+
     private fun persistSeam(
         panelUrl: String,
         subUrl: String,
         subscriptionId: String,
         accessToken: String,
+        refreshToken: String,
+        accessExpiryUnix: Long,
     ) {
         // Persist the seam so CarambaVpnService can read it even when the system
         // restarts the service in a fresh process. Stored in the app's private
-        // prefs (MODE_PRIVATE) — not world-readable.
+        // prefs (MODE_PRIVATE) — not world-readable. The refresh token rides
+        // along for the same reason the access token does, and because without
+        // it a restarted service comes back holding a session it cannot renew
+        // — see CarambaVpnKeys.PREFS for why that trade is the right one.
         appContext.getSharedPreferences(CarambaVpnKeys.PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(CarambaVpnKeys.PANEL_URL, panelUrl)
             .putString(CarambaVpnKeys.SUB_URL, subUrl)
             .putString(CarambaVpnKeys.SUBSCRIPTION_ID, subscriptionId)
             .putString(CarambaVpnKeys.ACCESS_TOKEN, accessToken)
+            .putString(CarambaVpnKeys.REFRESH_TOKEN, refreshToken)
+            .putLong(CarambaVpnKeys.ACCESS_EXPIRY, accessExpiryUnix)
             .apply()
+        // The CSM core caches the seam it was built with, and the settings write
+        // authorizes with the account token from that core's own store. A core
+        // built before a token rotation would keep answering 401 until the app
+        // restarts, so it is dropped and rebuilt on the next CSM call. The device
+        // identity survives: it lives in the AndroidKeyStore, not in the core.
+        dropCsmCore()
+        dropImportedTools()
+    }
+
+    /**
+     * Drops the metadata core when it holds an imported subscription.
+     *
+     * Called from `configure`, and only `configure`: the raw path never sends
+     * it (`connectRaw` explicitly forgets the panel seam), so its arrival means
+     * the panel path is in play. `Core.Probe` prefers an imported config over
+     * the panel's, so a core left carrying one would answer a panel-path probe
+     * with the nodes of somebody else's subscription.
+     *
+     * A core WITHOUT an import is kept: it holds the fetched panel profile, and
+     * dropping it would send every probe back to the subscription service over
+     * the network for a body it already has.
+     *
+     * The reference is dropped, not closed: closing calls into the Go core, and
+     * this runs on the platform thread while a probe may still be inside it.
+     * The metadata core holds no fd and never raised a tunnel.
+     */
+    @Synchronized
+    private fun dropImportedTools() {
+        if (!toolsHasImport) return
+        tools = null
+        toolsSeam = ""
+        toolsHasImport = false
+    }
+
+    @Synchronized
+    private fun dropCsmCore() {
+        csm?.close()
+        csm = null
     }
 
     // MARK: ActivityAware (for the VPN-consent dialog)
@@ -283,11 +782,17 @@ class CarambaVpnPlugin :
 
     // MARK: CarambaVpnBus.Listener (forward to the event sinks on the main thread)
 
-    override fun onStatus(snapshot: CarambaStatusSnapshot) {
-        statusSink?.success(snapshot.asMap())
-    }
+    // Held as a private anonymous object rather than implemented by the plugin
+    // class itself: CarambaVpnBus.Listener and the snapshot types are `internal`,
+    // and a public member of this public class may not expose them (Kotlin
+    // EXPOSED_PARAMETER_TYPE). The bus already posts to the main looper.
+    private val busListener = object : CarambaVpnBus.Listener {
+        override fun onStatus(snapshot: CarambaStatusSnapshot) {
+            statusSink?.success(witnessed(snapshot))
+        }
 
-    override fun onTraffic(snapshot: CarambaTrafficSnapshot) {
-        trafficSink?.success(snapshot.asMap())
+        override fun onTraffic(snapshot: CarambaTrafficSnapshot) {
+            trafficSink?.success(snapshot.asMap())
+        }
     }
 }

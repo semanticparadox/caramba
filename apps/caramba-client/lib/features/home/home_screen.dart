@@ -5,12 +5,40 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:caramba_client/data/brand.dart';
+import 'package:caramba_client/atmosphere/atmosphere_layer.dart';
+import 'package:caramba_client/features/branding/brand_wordmark.dart';
+import 'package:caramba_client/data/models/connection_profile.dart';
+import 'package:caramba_client/data/models/exit_location.dart';
+import 'package:caramba_client/data/models/protocol.dart';
+import 'package:caramba_client/data/models/relay.dart';
+import 'package:caramba_client/data/models/server.dart';
+import 'package:caramba_client/data/models/sub_plan.dart';
+import 'package:caramba_client/data/models/subscription.dart' show AccessState;
+import 'package:caramba_client/desktop/desktop_platform.dart';
+import 'package:caramba_client/domain/autopilot/auto_pick.dart'
+    show namingOfProxy;
+import 'package:caramba_client/domain/autopilot/autopilot_state.dart';
+import 'package:caramba_client/domain/offering/availability.dart';
+import 'package:caramba_client/domain/offering/offering_providers.dart';
+import 'package:caramba_client/features/csm/config_age_card.dart';
+import 'package:caramba_client/features/csm/keep_or_revert_card.dart';
+import 'package:caramba_client/features/home/autopilot_button.dart';
+import 'package:caramba_client/features/home/home_desktop_layout.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
+import 'package:caramba_client/features/protocol/protocol_truth.dart';
+import 'package:caramba_client/features/servers/access_card.dart';
+import 'package:caramba_client/features/servers/relay_screen.dart'
+    show effectiveRelayIndex;
+import 'package:caramba_client/features/settings/applied_route_card.dart';
+import 'package:caramba_client/features/settings/reconnect_banner.dart';
 import 'package:caramba_client/router/routes.dart';
+import 'package:caramba_client/state/access_guard.dart';
 import 'package:caramba_client/state/account_state.dart';
 import 'package:caramba_client/state/auth_state.dart';
+import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
+import 'package:caramba_client/state/core_error.dart';
+import 'package:caramba_client/state/exit_inventory_state.dart';
 import 'package:caramba_client/state/servers_state.dart';
 import 'package:caramba_client/state/subscription_state.dart';
 import 'package:caramba_client/state/vpn_state.dart';
@@ -24,8 +52,102 @@ import 'package:caramba_client/widgets/lucide.dart';
 import 'package:caramba_client/widgets/traffic_chart.dart';
 import 'package:caramba_client/widgets/ui.dart';
 
-/// Главная (демо §HOME): дисплей-дайл подключения + config-rows
-/// (сервер/relay/протокол/маршрут) + 4 ячейки статистики с tabular-цифрами.
+/// «Подключение» (первая вкладка; маршрут /home и имя HomeScreen не менялись):
+/// дисплей-дайл подключения + config-rows (сервер/relay/тип подключения) +
+/// ячейки статистики с tabular-цифрами.
+///
+/// Строки «Режим» здесь больше нет — она в Настройках, раздел «Правила
+/// трафика» (владелец: переключают редко). Что ядро применило, показывает
+/// AppliedRouteCard внизу.
+///
+/// Экран двухветочный, и ветка выбирается ОДИН раз на билд:
+///   * аккаунт панели — сегодняшняя Home: план, колокол, relay, рекомендованный
+///     сервер, история трафика;
+///   * generic-режим (своя подписка, сессии панели нет) — те же дайл и
+///     атмосфера, но данные берутся из активного [ConnectionProfile] и из
+///     потока статистики ядра. Панельные провайдеры в этой ветке НЕ
+///     подписываются вовсе: за ними нет данных, а запросы ушли бы в 401.
+/// Подпись под дайлом на ПАНЕЛЬНОМ пути.
+///
+/// Вынесена из виджета намеренно: единственное нетривиальное решение здесь —
+/// имеет ли приложение право утверждать цепочку, и проверять его наблюдением за
+/// экраном нельзя. Дайл в состоянии [VpnStage.connected] подставляет таймер
+/// сессии вместо этой строки, так что на самом экране она в этом состоянии
+/// сейчас не видна вовсе — а вычислялась и была ложью.
+///
+/// «Вход: X -> Y» — это УТВЕРЖДЕНИЕ о цепочке. Тело clash, которое читает ядро,
+/// цепочку выразить не может (`dialer-proxy` в нём нет), панель на живом флоте
+/// говорит `chained_in_config: false`, и баннер двумя строками ниже это уже
+/// сообщает — а заголовок утверждал обратное. Право на стрелку даёт только
+/// подтверждённая возможность: «неизвестно» её не даёт, потому что утверждение,
+/// которого никто не подтвердил, — та же ложь, что и опровергнутое.
+String panelDialSubtitle({
+  required VpnStage stage,
+  required Relay? relay,
+  required Availability chaining,
+  required String? serverName,
+  required String protocolName,
+  String? detail,
+  AccessState? access,
+}) {
+  switch (stage) {
+    case VpnStage.connected:
+      // Туннель поднят, а доступ закрыт: цепочка и имя узла в этот момент
+      // правдивы и совершенно бесполезны — человеку нужна причина, по которой
+      // через них ничего не идёт.
+      if (access != null && access.isBlocked) return access.shortReason;
+      final chained =
+          chaining.isAvailable &&
+          relay != null &&
+          !relay.isOff &&
+          !relay.isAuto;
+      if (chained) {
+        return 'Вход: ${relay.name} -> ${serverName ?? 'сервер'}';
+      }
+      return serverName ?? 'Защищено';
+    case VpnStage.connecting:
+    case VpnStage.reconnecting:
+      return '${serverName ?? 'Сервер'} · $protocolName';
+    case VpnStage.error:
+      // ЗДЕСЬ БЫЛА ЖЁСТКО ЗАШИТАЯ СТРОКА «Проверьте сеть и нажмите снова».
+      // Она говорила неправду ровно тогда, когда правда была нужнее всего: с
+      // сетью всё было в порядке, у человека кончился дневной трафик, а
+      // причину ядро сообщило и её выбросили. Причина доезжает в
+      // `VpnStatus.detail` и до этой правки не читалась НИ РАЗУ.
+      return dialErrorLabel(detail: detail, access: access);
+    case VpnStage.disconnected:
+      return 'Нажмите, чтобы подключиться';
+  }
+}
+
+/// Подпись под дайлом в состоянии ошибки: причина, а не догадка про сеть.
+///
+/// Дайл узкий, поэтому здесь короткая фраза; полное объяснение с числами и
+/// кнопкой оплаты живёт в [AccessCard] под дайлом. Ничего не зная о причине,
+/// строка честно предлагает повтор — но именно как последний вариант, а не как
+/// первый ответ на любую поломку.
+String dialErrorLabel({String? detail, AccessState? access}) {
+  if (access != null && access.isBlocked) return access.shortReason;
+  final named = clientFailureText(detail);
+  if (named != null) return named;
+  final failure = describeText(detail, access: access);
+  if (failure?.access != null) return failure!.text.split('.').first;
+  if (failure != null && !failure.retryable) return failure.text;
+  return 'Не удалось подключиться. Проверьте сеть и нажмите снова';
+}
+
+/// Текст для двух отказов, которые называет САМ КЛИЕНТ, а не ядро.
+///
+/// Оба про одно: приложение поймало разрыв между тем, что ядро о себе говорит,
+/// и тем, что видно снаружи. Такой отказ обязан читаться иначе, чем «сеть
+/// подвела», — иначе человек будет чинить сеть. `null` — причина не наша,
+/// разбирать её общему переводчику ошибок.
+String? clientFailureText(String? detail) => switch (detail?.trim()) {
+  VpnFailureReason.noVpnTransport => 'Система не видит VPN-подключения',
+  VpnFailureReason.tunNotServiced => 'Туннель поднялся без адаптера и опущен',
+  _ => null,
+};
+
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -33,15 +155,84 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with WidgetsBindingObserver {
   final ValueNotifier<int> _tick = ValueNotifier<int>(0);
   Timer? _ticker;
 
+  // The atmosphere layer is registered to the real layout: the chart's home
+  // station is the dial, and the boundary bottom plus the quiet lens come from
+  // the laid-out connect block. Measured after layout, then only when the
+  // result actually moves (text scale, rotation), so this does not loop.
+  final GlobalKey _layerKey = GlobalKey();
+  final GlobalKey _dialKey = GlobalKey();
+  final GlobalKey _labelKey = GlobalKey();
+  final GlobalKey _headerKey = GlobalKey();
+  final ScrollController _scroll = ScrollController();
+  AtmosphereAnchor _anchor = AtmosphereAnchor.unmeasured;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Экран, который говорит «Защищено», обязан спросить об этом платформу, а
+    // не поверить кадру, доставшемуся ему по наследству. Первый вопрос — сразу
+    // после первого кадра: на холодном старте нативный кэш мог пережить и
+    // туннель, и весь прошлый запуск приложения.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _verifyStage());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Второй момент расхождения: пока приложение было в фоне, туннель мог
+    // упасть, а сообщить об этом было некому — движка Flutter в этот момент
+    // могло не быть вовсе.
+    if (state == AppLifecycleState.resumed) _verifyStage();
+  }
+
+  /// Спросить правду о стадии туннеля. Ошибку глотаем намеренно: молчание
+  /// платформы — не доказательство разрыва, и рисовать по нему «Отключено»
+  /// значило бы заменить одну неправду другой.
+  void _verifyStage() {
+    if (!mounted) return;
+    unawaited(ref.read(vpnProvider.notifier).refreshStage());
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
     _tick.dispose();
+    _scroll.dispose();
     super.dispose();
+  }
+
+  /// Anchors the chart to where the dial sits at scroll offset zero. The
+  /// atmosphere is a background layer and does not scroll with the list, so the
+  /// current scroll offset is taken back out of the measurement.
+  void _measureAnchor() {
+    final layer = _layerKey.currentContext?.findRenderObject();
+    final dial = _dialKey.currentContext?.findRenderObject();
+    final label = _labelKey.currentContext?.findRenderObject();
+    final header = _headerKey.currentContext?.findRenderObject();
+    if (layer is! RenderBox ||
+        dial is! RenderBox ||
+        label is! RenderBox ||
+        header is! RenderBox) {
+      return;
+    }
+    if (!layer.hasSize || !dial.hasSize || !label.hasSize) return;
+    final shift = Offset(0, _scroll.hasClients ? _scroll.offset : 0.0);
+    final dialTopLeft = dial.localToGlobal(Offset.zero, ancestor: layer);
+    final labelTopLeft = label.localToGlobal(Offset.zero, ancestor: layer);
+    final headerTopLeft = header.localToGlobal(Offset.zero, ancestor: layer);
+    final next = AtmosphereAnchor(
+      dialCenter: dialTopLeft + dial.size.center(Offset.zero) + shift,
+      labelRect: (labelTopLeft + shift) & label.size,
+      headerBottom: headerTopLeft.dy + header.size.height + shift.dy,
+    );
+    if (next != _anchor && mounted) setState(() => _anchor = next);
   }
 
   void _startTicker() => _ticker ??= Timer.periodic(
@@ -70,6 +261,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return '${mb.toStringAsFixed(1).replaceAll('.', ',')} МБ';
   }
 
+  /// Мгновенная скорость. Отдельный формат: байты в секунду читаются в КБ/с,
+  /// а не в МБ с одним знаком, иначе весь трафик выглядит как «0,0».
+  String _fmtRate(int bytesPerSecond) {
+    if (bytesPerSecond <= 0) return '0 КБ/с';
+    final kb = bytesPerSecond / 1024;
+    if (kb >= 1024) {
+      return '${(kb / 1024).toStringAsFixed(1).replaceAll('.', ',')} МБ/с';
+    }
+    return '${kb.toStringAsFixed(0)} КБ/с';
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -83,16 +285,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     });
 
     final status = ref.watch(vpnProvider);
-    final user = ref.watch(currentUserProvider);
-    final recommended = ref.watch(recommendedServerProvider);
     final traffic = ref.watch(trafficProvider).valueOrNull ?? TrafficStats.zero;
     final cfg = ref.watch(coreConfigProvider);
     final protocols = ref.watch(protocolsProvider);
-    final modes = ref.watch(routingModesProvider);
-    final relays = ref.watch(relaysProvider);
-    // Индекс relay мог быть выбран на дефолтном списке; relay-список с панели
-    // может быть короче — клампим, чтобы не выйти за границы.
-    final relayIdx = relays.isEmpty ? 0 : cfg.relay.clamp(0, relays.length - 1);
+
+    final panelSession =
+        ref.watch(authProvider).stage == AuthStage.authenticated;
+    // Ветка выбирается ТОЛЬКО по сессии панели: без неё панельные провайдеры
+    // ушли бы в 401, а флаг generic-режима и число профилей здесь ни при чём
+    // — без единого профиля экран теперь тоже показывается (пустое состояние).
+    final guest = !panelSession;
+    final profilesState = ref.watch(connectionProfilesProvider);
+    // Подключений нет вовсе (а не «активный не выбран»): пока профили не
+    // прочитаны, пустое состояние не показываем, чтобы не мигать им.
+    final noConnections =
+        guest && !profilesState.loading && profilesState.profiles.isEmpty;
 
     if (status.isConnected) {
       _startTicker();
@@ -100,185 +307,859 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       _stopTicker();
     }
 
-    final server = status.server ?? recommended;
-    // План для чипа: активная подписка из /app/subscriptions, иначе /me, иначе
-    // активная подписка из /app/subscription, иначе Free.
-    final subsList = ref.watch(subscriptionsProvider).valueOrNull;
-    String? subPlanName;
-    if (subsList != null && subsList.isNotEmpty) {
-      final active = subsList.where((s) => s.isActive);
-      subPlanName = (active.isNotEmpty ? active.first : subsList.first).name;
-    }
-    final plan =
-        subPlanName ??
-        user?.planName ??
-        ref.watch(subscriptionProvider).valueOrNull?.planName ??
-        'Free';
+    WidgetsBinding.instance.addPostFrameCallback((_) => _measureAnchor());
 
-    final csub = switch (status.stage) {
-      VpnStage.connected => () {
-        final relay = relays[relayIdx];
-        if (!relay.isOff && !relay.isAuto) {
-          return 'Вход: ${relay.name} -> ${server?.name ?? 'сервер'}';
-        }
-        return server?.name ?? 'Защищено';
-      }(),
-      VpnStage.connecting || VpnStage.reconnecting =>
-        '${server?.name ?? 'Сервер'} · ${protocols[cfg.protocol].name}',
-      VpnStage.error => 'Проверьте сеть и нажмите снова',
-      VpnStage.disconnected => 'Нажмите, чтобы подключиться',
-    };
+    // Ветка раскладки выбирается ПЛАТФОРМОЙ и ровно один раз за билд: всё, что
+    // ниже, считается одинаково для обеих, и расходятся они только в самом
+    // конце, на композиции. Ширина окна тут ни при чём — узкое окно на Маке
+    // остаётся десктопом.
+    final desktop = isDesktopPlatform;
+
+    final String csub;
+    final List<Widget> cards;
+    final Widget headerTrailing;
+    // Право подключаться: сначала ЖИВОЙ ответ (его получает сторож перед
+    // подключением и пока туннель поднят), затем панельный снимок.
+    //
+    // Порядок именно такой, и он важен дважды. Панельный снимок делается один
+    // раз при логине и после полуночи весь день утверждал бы вчерашний отказ.
+    // А в generic-режиме панели нет вовсе — и до живой проверки объяснять
+    // владельцу, почему через его собственный туннель ничего не идёт, было
+    // просто нечем.
+    final AccessState? live = ref.watch(liveAccessRefusalProvider);
+    final AccessState? access =
+        live ?? (guest ? null : ref.watch(subscriptionAccessProvider));
+    // Туннель поднят, а доступа нет: щит в этом состоянии — ложь, и дайл
+    // обязан сказать это словами.
+    final accessBlocked =
+        status.isConnected && access != null && access.isBlocked;
+    if (guest) {
+      final profile = ref.watch(activeConnectionProfileProvider);
+      final proxy = ref.watch(activeProxyProvider);
+      final node = _pinnedNodeName(profile);
+      csub = _guestSubLabel(
+        status: status,
+        profile: profile,
+        proxy: proxy,
+        node: node,
+        protocol: protocols[cfg.protocol].name,
+        access: access,
+        noConnections: noConnections,
+      );
+      // Колокола и плана здесь нет, но высота шапки обязана остаться прежней:
+      // атмосферный слой зарегистрирован на измеренную геометрию, и сдвиг дайла
+      // вверх ломает порядок «зажигания» маршрутов (kAtmoOpenRank).
+      headerTrailing = const SizedBox(height: 44);
+      // Пустое состояние на десктопе рисует РАСКЛАДКА, а не список карточек:
+      // там кнопки по содержимому и текст влево, а мобильные `_emptyCards`
+      // растянули бы «Добавить подключение» на всю правую колонку.
+      cards = noConnections
+          ? (desktop ? const <Widget>[] : _emptyCards())
+          : _guestCards(
+              status: status,
+              traffic: traffic,
+              profile: profile,
+              proxy: proxy,
+              node: node,
+              cfg: cfg,
+              protocols: protocols,
+              desktop: desktop,
+            );
+    } else {
+      final user = ref.watch(currentUserProvider);
+      final recommended = ref.watch(recommendedServerProvider);
+      final relays = ref.watch(relaysProvider);
+      final server = status.server ?? recommended;
+      // Индекс relay мог быть выбран на дефолтном списке; relay-список с панели
+      // может быть короче. Приведение общее с кодировщиком провода, а не кламп:
+      // кламп называл последнюю строку списка там, где ядру уходило «входа не
+      // выбрано». См. [effectiveRelayIndex].
+      final relayIdx = effectiveRelayIndex(cfg.relay, relays);
+      final relay = relayIdx < 0 ? null : relays[relayIdx];
+      // Вход, который назвал оператор по активной подписке. Другого источника
+      // для «Авто» нет: решение принимает генератор конфига, не приложение.
+      final relayFromOperator = _operatorRelayCountry(
+        ref.watch(subscriptionsProvider).valueOrNull,
+      );
+      // План для чипа: активная подписка из /app/subscriptions, иначе /me,
+      // иначе активная подписка из /app/subscription, иначе Free.
+      final subsList = ref.watch(subscriptionsProvider).valueOrNull;
+      String? subPlanName;
+      if (subsList != null && subsList.isNotEmpty) {
+        final active = subsList.where((s) => s.isActive);
+        subPlanName = (active.isNotEmpty ? active.first : subsList.first).name;
+      }
+      final plan =
+          subPlanName ??
+          user?.planName ??
+          ref.watch(subscriptionProvider).valueOrNull?.planName ??
+          'Free';
+
+      csub = panelDialSubtitle(
+        stage: status.stage,
+        relay: relay,
+        chaining: ref.watch(capabilitiesProvider).relayChaining.availability,
+        serverName: server?.name,
+        protocolName: protocols[cfg.protocol].name,
+        detail: status.detail,
+        access: access,
+      );
+      headerTrailing = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _PlanChip(plan: plan),
+          const SizedBox(width: AppSpace.s2),
+          const NotificationBell(),
+        ],
+      );
+      cards = _panelCards(
+        status: status,
+        traffic: traffic,
+        server: server,
+        relay: relay,
+        relayFromOperator: relayFromOperator,
+        cfg: cfg,
+        protocols: protocols,
+        desktop: desktop,
+      );
+    }
+
+    final needsReconnect = ref.watch(reconnectRequiredProvider);
+    final proxyEndpoint = ref.watch(proxyEndpointProvider);
+
+    // Дайл собирается ОДИН раз и уезжает в обе раскладки как есть: те же ключи,
+    // та же подпись, тот же `onTap`. Дублировать его в десктопной ветке значило
+    // бы завести второе место, где решают, что делает нажатие.
+    final dial = ValueListenableBuilder<int>(
+      valueListenable: _tick,
+      builder: (context, _, __) => ConnectDial(
+        dialKey: _dialKey,
+        labelKey: _labelKey,
+        stage: status.stage,
+        accessBlocked: accessBlocked,
+        // Идущий таймер под закрытым доступом читается как
+        // «работает уже 1м43с» — ровно та строка, которая и
+        // сделала ложную защиту убедительной. Пока доступа нет,
+        // на её месте стоит причина; сам таймер остаётся в
+        // ячейке «Сессия», где он говорит про туннель, а не про
+        // защиту, и там он правда.
+        subLabel: status.stage == VpnStage.connected && !accessBlocked
+            ? _session(status.connectedSince)
+            : csub,
+        onTap: () {
+          unawaited(HapticFeedback.mediumImpact());
+          // Поднимать ядру нечего: подключений нет вовсе, и
+          // единственное осмысленное действие дайла — увести
+          // туда, где их добавляют.
+          if (noConnections) {
+            context.go(AppRoute.connectionImport);
+            return;
+          }
+          unawaited(ref.read(vpnProvider.notifier).toggle());
+        },
+      ),
+    );
+
+    if (desktop) {
+      return HomeDesktopLayout(
+        layerKey: _layerKey,
+        headerKey: _headerKey,
+        stage: status.stage,
+        anchor: _anchor,
+        headerTrailing: headerTrailing,
+        dial: dial,
+        proxyEndpoint: proxyEndpoint,
+        // Подбирать не из чего, пока нет ни одного подключения.
+        autopilot: noConnections ? null : const AutopilotButton(),
+        needsReconnect: needsReconnect,
+        access: access,
+        // Состав и порядок правой колонки тот же, что у мобильного бэкдропа:
+        // INV-21/INV-22 сверху, карточки ветки следом, отчёт ядра о том, что
+        // ОНО применило, — последним. Баннер реконнекта и карточка доступа из
+        // этого списка вычтены: они уехали в левую панель, к дайлу.
+        cards: noConnections
+            ? const <Widget>[]
+            : <Widget>[
+                const CsmConfigAgeCard(),
+                const CsmPendingChangesSection(),
+                ...cards,
+                const AppliedRouteCard(),
+              ],
+        noConnections: noConnections,
+        onAddConnection: () => context.go(AppRoute.connectionImport),
+        onConnectPanel: () => context.go(AppRoute.login),
+      );
+    }
 
     return Scaffold(
-      backgroundColor: c.bgCanvas,
-      body: SafeArea(
-        bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpace.s5,
-            AppSpace.s5,
-            AppSpace.s5,
-            AppSpace.s20 + AppSpace.s6,
-          ),
-          children: [
-            Row(
-              children: [
-                Text(
-                  kBrandName,
-                  style: AppType.titleMd.copyWith(color: c.textHi),
-                ),
-                const Spacer(),
-                _PlanChip(plan: plan),
-                const SizedBox(width: AppSpace.s2),
-                const NotificationBell(),
-              ],
+      backgroundColor: c.bgBase,
+      body: Stack(
+        children: [
+          // The chart sits full-bleed behind Home. It is decorative, excluded
+          // from semantics, and reports nothing the dial does not already say.
+          Positioned.fill(
+            child: AtmosphereLayer(
+              key: _layerKey,
+              stage: status.stage,
+              anchor: _anchor,
             ),
-            const SizedBox(height: AppSpace.s4),
-            Center(
-              child: ValueListenableBuilder<int>(
-                valueListenable: _tick,
-                builder: (context, _, __) => ConnectDial(
-                  stage: status.stage,
-                  subLabel: status.stage == VpnStage.connected
-                      ? _session(status.connectedSince)
-                      : csub,
-                  onTap: () {
-                    unawaited(HapticFeedback.mediumImpact());
-                    unawaited(ref.read(vpnProvider.notifier).toggle());
-                  },
+          ),
+          Positioned.fill(
+            child: SafeArea(
+              bottom: false,
+              child: ListView(
+                controller: _scroll,
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpace.s5,
+                  AppSpace.s5,
+                  AppSpace.s5,
+                  AppSpace.s20 + AppSpace.s6,
                 ),
+                children: [
+                  Row(
+                    key: _headerKey,
+                    children: [
+                      // Operator brand names can be long; the row must not
+                      // overflow on a narrow phone at a large text scale.
+                      Flexible(
+                        child: BrandWordmark(
+                          height: 28,
+                          textStyle: AppType.titleMd.copyWith(color: c.textHi),
+                        ),
+                      ),
+                      const Spacer(),
+                      headerTrailing,
+                    ],
+                  ),
+                  // The chart needs its designed headroom above the dial: the
+                  // upper stations and the boundary top edge sit in this gap.
+                  const SizedBox(height: AppSpace.s8),
+                  Center(child: dial),
+                  // Proxy-режим не перехватывает трафик системы: адрес локального
+                  // инбаунда нужно видеть, чтобы прописать его в браузере/системе.
+                  if (proxyEndpoint != null) ...[
+                    const SizedBox(height: AppSpace.s2),
+                    Text(
+                      'Прокси $proxyEndpoint',
+                      textAlign: TextAlign.center,
+                      style: AppType.monoSm.copyWith(color: c.textLow),
+                    ),
+                  ],
+                  // The cards keep their own opaque surfaces; this is the seam
+                  // where the chart slides under the content so it never fights
+                  // the stats.
+                  CardsBackdrop(
+                    children: [
+                      // Правка настроек при поднятом туннеле применяется со
+                      // следующего Up — баннер стоит первым в контенте, до
+                      // самих настроек. Выше дайла его ставить нельзя: связка
+                      // Home с атмосферой держится на измеренной геометрии
+                      // шапки и дайла, и любой сдвиг ломает её инвариант.
+                      if (needsReconnect) ...[
+                        const ReconnectBanner(),
+                        const SizedBox(height: AppSpace.s4),
+                      ],
+                      // Стена, в которую упирается человек, стоит там же, где
+                      // он в неё упирается: под дайлом, который отказался
+                      // подключаться. Раньше единственное объяснение жило в
+                      // профиле, за двумя переходами, и называло недельную
+                      // квоту, которой не существует.
+                      if (access != null && access.isBlocked) ...[
+                        AccessCard(access: access),
+                        const SizedBox(height: AppSpace.s4),
+                      ],
+                      // INV-21 и INV-22 живут здесь же, ниже дайла: возраст
+                      // конфигурации, липкая ошибка и карточки «Оставить или
+                      // Вернуть». Выше дайла их ставить нельзя, атмосферный
+                      // слой зарегистрирован на измеренную геометрию шапки и
+                      // дайла и любой сдвиг ломает его инвариант.
+                      const CsmConfigAgeCard(),
+                      const CsmPendingChangesSection(),
+                      ...cards,
+                      // Что ядро ФАКТИЧЕСКИ применило. Стоит после карточек
+                      // выбора намеренно: сначала то, что пользователь
+                      // попросил, следом — что из этого получилось. До моста
+                      // отчёта второй половины не существовало вовсе, и
+                      // «блок рекламы» оставался обещанием.
+                      if (!noConnections) const AppliedRouteCard(),
+                    ],
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: AppSpace.s5),
-            RowsGroup(
-              children: [
-                CRow(
-                  icon: Lucide.globe,
-                  label: 'Сервер',
-                  value: server == null ? 'Авто' : server.name,
-                  chevron: true,
-                  trailing: server?.countryCode == null
-                      ? null
-                      : Padding(
-                          padding: const EdgeInsets.only(right: AppSpace.s2),
-                          child: CodeChip(server!.countryCode!),
-                        ),
-                  onTap: () => context.go(AppRoute.servers),
-                ),
-                CRow(
-                  icon: Lucide.waypoints,
-                  label: 'Relay (вход)',
-                  value: relays[relayIdx].name,
-                  chevron: true,
-                  onTap: () => _pickRelay(),
-                ),
-                CRow(
-                  icon: protocols[cfg.protocol].icon,
-                  label: 'Протокол',
-                  value: protocols[cfg.protocol].name,
-                  chevron: true,
-                  onTap: () => context.go(AppRoute.protocol),
-                ),
-                CRow(
-                  icon: Lucide.route,
-                  label: 'Маршрут',
-                  value: modes[cfg.route].name,
-                  chevron: true,
-                  onTap: () => _pickRoute(),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpace.s4),
-            ValueListenableBuilder<int>(
-              valueListenable: _tick,
-              builder: (context, _, __) {
-                final connected = status.isConnected;
-                return _StatsGrid(
-                  down: connected ? _fmtBytes(traffic.downTotal) : '0,0 МБ',
-                  up: connected ? _fmtBytes(traffic.upTotal) : '0,0 МБ',
-                  latency: connected && server?.pingMs != null
-                      ? '${server!.pingMs} мс'
-                      : '·',
-                  session: connected
-                      ? _session(status.connectedSince)
-                      : '00:00',
-                );
-              },
-            ),
-            const SizedBox(height: AppSpace.s4),
-            SectionTitle(
-              'Трафик',
-              padding: const EdgeInsets.only(bottom: AppSpace.s3),
-            ),
-            ref
-                .watch(trafficHistoryProvider)
-                .when(
-                  data: (points) => TrafficChart(points: points),
-                  loading: () => const TrafficChart(points: []),
-                  error: (_, __) => const TrafficChart(points: []),
-                ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Future<void> _pickRelay() async {
-    final relays = ref.read(relaysProvider);
-    final cfg = ref.read(coreConfigProvider);
-    final sel = relays.isEmpty ? 0 : cfg.relay.clamp(0, relays.length - 1);
-    final i = await showPickerSheet(
-      context: context,
-      title: 'Relay (вход)',
-      subtitle:
-          'Через какую страну идёт вход в цепочку. Удобно в России: вход через устойчивую страну, выход где нужно.',
-      options: relays
-          .map((r) => (name: r.name, desc: r.desc, icon: null as String?))
-          .toList(),
-      selected: sel,
-    );
-    if (i != null && mounted) {
-      ref.read(coreConfigProvider.notifier).setRelay(i);
-      showCarambaToast(context, 'Relay: ${relays[i].name}');
+  /// Ячейка задержки: число вместе с тем, кто его получил.
+  ///
+  /// Собственный замер приложения вытесняет число оператора, как только он
+  /// появляется; до этого показывается операторское, но подписью «пинг узла»,
+  /// а не «задержка» — узел меряет расстояние до СВОЕЙ цели, и выдавать это за
+  /// расстояние пользователя нельзя. Замер, идущий прямо сейчас, — тоже
+  /// состояние, а не пустота.
+  StatCell _latencyCell({required bool connected, required Server? server}) {
+    if (!connected || server == null) {
+      return (value: '·', label: 'Задержка');
     }
+    final node = ref
+        .watch(exitInventoryProvider)
+        .nodes
+        .where((ExitNode n) => n.panelNodeId == server.id)
+        .firstOrNull;
+    final latency =
+        node?.latency ??
+        (server.pingMs == null
+            ? Latency.none
+            : Latency.fromOperator(server.pingMs!));
+    return switch (latency.source) {
+      LatencySource.client => (
+        value: latency.isTimeout ? 'нет' : '${latency.ms} мс',
+        label: 'Ваш пинг',
+      ),
+      LatencySource.operator => (
+        value: latency.isTimeout ? 'нет' : '${latency.ms} мс',
+        label: 'Пинг узла',
+      ),
+      LatencySource.measuring => (value: '…', label: 'Меряю пинг'),
+      LatencySource.none => (value: '·', label: 'Задержка'),
+    };
   }
 
-  Future<void> _pickRoute() async {
-    final modes = ref.read(routingModesProvider);
-    final cfg = ref.read(coreConfigProvider);
-    final i = await showPickerSheet(
-      context: context,
-      title: 'Маршрутизация',
-      subtitle: 'Что идёт через VPN, а что напрямую.',
-      options: modes
-          .map((m) => (name: m.name, desc: m.desc, icon: m.icon as String?))
-          .toList(),
-      selected: cfg.route,
-    );
-    if (i != null && mounted) {
-      ref.read(coreConfigProvider.notifier).setRoute(i);
-      showCarambaToast(context, 'Маршрут: ${modes[i].name}');
+  /// Панельная Home: сервер/relay/тип подключения, 4 ячейки и история трафика.
+  List<Widget> _panelCards({
+    required VpnStatus status,
+    required TrafficStats traffic,
+    required Server? server,
+    required Relay? relay,
+    required String? relayFromOperator,
+    required CoreConfig cfg,
+    required List<ProtocolOption> protocols,
+    bool desktop = false,
+  }) {
+    // Строка сервера говорит СТРАНОЙ: узел под ней меняется автоподбором, а
+    // выбирает пользователь именно страну. Имя узла остаётся рядом вторичным —
+    // без него не видно, куда автоподбор в итоге встал.
+    //
+    // Страну называет [exitHeadlineProvider], а не пин профиля: закреплённая
+    // страна без свободных узлов connect не останавливает, и заголовок обязан
+    // назвать ту страну, через которую трафик выходит, а не ту, которую
+    // пользователь когда-то выбрал.
+    final headline = ref.watch(exitHeadlineProvider);
+    // Флаг берётся у страны инвентаря, а не выводится здесь из кода: там уже
+    // решено, твёрдая ли это страна, и второе решение на том же коде поставило
+    // бы на Home флаг, которого нет на экране серверов.
+    final exitFlag = ref
+        .watch(exitInventoryProvider)
+        .locationOf(headline.countryCode)
+        ?.flag;
+    final country = (exitFlag == null || exitFlag == kNeutralFlag)
+        ? headline.title
+        : '$exitFlag ${headline.title}';
+    return [
+      RowsGroup(
+        children: [
+          CRow(
+            icon: Lucide.globe,
+            label: 'Сервер',
+            value: country,
+            chevron: true,
+            trailing: server == null
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(right: AppSpace.s2),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 132),
+                      child: Text(
+                        server.name,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.right,
+                        style: AppType.bodySm.copyWith(
+                          color: context.c.textLow,
+                        ),
+                      ),
+                    ),
+                  ),
+            onTap: () => context.go(AppRoute.servers),
+          ),
+          _relayRow(relay: relay, autoRelayCountry: relayFromOperator),
+          _protocolRow(cfg: cfg, protocols: protocols),
+        ],
+      ),
+      // Автоподбор вынесен ИЗ группы: он не выбор из списка, а действие, и
+      // форма обязана это говорить (см. [AutopilotButton]). На десктопе он
+      // уезжает в левую панель, под дайл: там живут действия над самим
+      // подключением, а правая колонка остаётся списком карточек.
+      if (!desktop) ...[
+        const SizedBox(height: AppSpace.s3),
+        const AutopilotButton(),
+      ],
+      ..._protocolTruthBanner(),
+      ..._autopilotBanner(),
+      if (!ref
+          .watch(capabilitiesProvider)
+          .relayChaining
+          .availability
+          .isAvailable) ...[
+        const SizedBox(height: AppSpace.s3),
+        InlineBanner(
+          glyph: Lucide.waypoints,
+          text: ref
+              .watch(capabilitiesProvider)
+              .relayChaining
+              .availability
+              .message,
+        ),
+      ],
+      if (headline.diverged) ...[
+        const SizedBox(height: AppSpace.s3),
+        // Подмену выбора нельзя проводить молча: заголовок уже говорит правду о
+        // стране, но без этой строки правда выглядела бы как «настройка сама
+        // сбросилась». Причина названа тут же, рядом со строкой «Сервер».
+        InlineBanner(glyph: Lucide.globe, text: headline.divergenceMessage),
+      ],
+      const SizedBox(height: AppSpace.s4),
+      ValueListenableBuilder<int>(
+        valueListenable: _tick,
+        builder: (context, _, __) {
+          final connected = status.isConnected;
+          return _StatsGrid(
+            cells: [
+              (
+                value: connected ? _fmtBytes(traffic.downTotal) : '0,0 МБ',
+                label: 'Скачано',
+              ),
+              (
+                value: connected ? _fmtBytes(traffic.upTotal) : '0,0 МБ',
+                label: 'Отправлено',
+              ),
+              // Ячейка называет АВТОРА числа. Прежде здесь стояло
+              // `server.pingMs` под подписью «Задержка» — то есть панельный
+              // `nodes.last_latency`, RTT самого узла до его цели по heartbeat
+              // раз в ~30 с, выданный за задержку пользователя. Числа разной
+              // природы под одной подписью неотличимы, поэтому подпись теперь
+              // говорит, чей это замер.
+              _latencyCell(connected: connected, server: server),
+              (
+                value: connected ? _session(status.connectedSince) : '00:00',
+                label: 'Сессия',
+              ),
+            ],
+          );
+        },
+      ),
+      const SizedBox(height: AppSpace.s4),
+      const SectionTitle(
+        'Трафик',
+        padding: EdgeInsets.only(bottom: AppSpace.s3),
+      ),
+      ref
+          .watch(trafficHistoryProvider)
+          .when(
+            data: (points) => TrafficChart(points: points),
+            loading: () => const TrafficChart(points: []),
+            error: (_, __) => const TrafficChart(points: []),
+          ),
+    ];
+  }
+
+  /// Подключений нет вовсе. Одно действие и ничего лишнего: владелец просил
+  /// пустить человека посмотреть приложение до того, как он что-то добавит.
+  List<Widget> _emptyCards() => [
+    const ScreenEmpty(
+      glyph: Lucide.plus,
+      title: 'Подключений пока нет',
+      message:
+          'Добавьте ссылку на подписку, конфиг или ссылку caramba:// из бота '
+          'оператора — приложение само разберёт, что это. Настройки и профиль '
+          'можно посмотреть уже сейчас.',
+    ),
+    FilledButton(
+      onPressed: () => context.go(AppRoute.connectionImport),
+      child: const Text('Добавить подключение'),
+    ),
+  ];
+
+  /// Generic-режим: подписка и узел берутся с активного профиля, статистика —
+  /// из потока ядра. Ни квота-карты, ни плановых чипов здесь нет: тарифы живут
+  /// у аккаунта панели, а его нет.
+  List<Widget> _guestCards({
+    required VpnStatus status,
+    required TrafficStats traffic,
+    required ConnectionProfile? profile,
+    required String? proxy,
+    required String? node,
+    required CoreConfig cfg,
+    required List<ProtocolOption> protocols,
+    bool desktop = false,
+  }) {
+    final connected = status.isConnected;
+    // МАШИНЫ, а не строки конфига. `profile.serverCount` — это длина списка
+    // прокси, то есть по строке на каждый инбаунд каждой машины: у живой
+    // подписки это 13 при двух машинах, и Home повторял ровно ту жалобу
+    // владельца («восемь серверов»), от которой экран серверов уже избавлен.
+    // Число берётся из того же слоя предложения, что и там: одна группа —
+    // одна машина.
+    final machines = ref.watch(offeringProvider).exits.length;
+    // Строка «Сервер» — ПЕРВЫЙ экран, и обещание входа попадало на него
+    // целиком: имя `🇨🇦 Stream via 🇷🇺` стояло прямо над строкой «Relay (вход):
+    // Выкл». Цепочки на этом пути нет (`detour` теряется при переводе
+    // sing-box → clash), так что имя обещало то, чего строка под ним честно не
+    // делает. Здесь, как в списке автоподбора, говорим тем, что НА ПРОВОДЕ.
+    final facts = ref.watch(fleetFactsProvider);
+    final pinned = (node == null || node.isEmpty)
+        ? null
+        : namingOfProxy(node, facts);
+    final live = (connected && proxy != null && proxy.isNotEmpty)
+        ? namingOfProxy(proxy, facts)
+        : null;
+    final base = pinned?.title ?? 'Авто';
+    // «Плюс активный узел ядра»: селектор мог встать не на закреплённый узел
+    // (авто-выбор), и тогда важно показать оба. Второе имя едет ТРЕЙЛИНГОМ, а
+    // не второй половиной значения через «·»: CRow режет значение
+    // многоточием с конца, и склейка двух имён давала «🇨🇦 Stream via 🇷🇺 ·…» —
+    // обрубок, в котором не осталось целым ни одно из двух имён. Своя рамка
+    // на каждое имя — та же форма, что в панельной ветке выше.
+    final liveTitle = (live != null && live.title != base) ? live.title : null;
+    // Имя оператора со строки не теряется молча: расхождение названо тут же
+    // тегом, а само имя целиком лежит на экране серверов, куда строка и ведёт.
+    final promisesEntry = (live ?? pinned)?.overPromises ?? false;
+    // Цепочка через вход на сыром конфиге не собирается. Строку всё равно
+    // показываем: спрятанная, она неотличима от «такой настройки не бывает», и
+    // пользователь ищет её в обновлении приложения. Причина берётся из
+    // возможности слоя предложения (`Capabilities.relayChaining`), а не
+    // сочиняется здесь.
+    final chaining = ref.watch(capabilitiesProvider).relayChaining.availability;
+
+    return [
+      RowsGroup(
+        children: [
+          CRow(
+            icon: Lucide.layers,
+            label: 'Подписка',
+            value: (profile == null || profile.displayName.isEmpty)
+                ? 'Не выбрана'
+                : profile.displayName,
+            chevron: true,
+            trailing: machines == 0
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(right: AppSpace.s2),
+                    // Слово то же, что на экране серверов, и считает то же
+                    // самое: разойтись им нельзя.
+                    child: Tag('узлов: $machines'),
+                  ),
+            onTap: () => context.go(AppRoute.connections),
+          ),
+          CRow(
+            icon: Lucide.globe,
+            label: 'Сервер',
+            value: base,
+            // Расхождение важнее повтора второго имени: когда имя обещает
+            // вход, которого нет, это и есть главное, что строка обязана
+            // сказать про свой узел.
+            trailing: promisesEntry
+                ? const Padding(
+                    padding: EdgeInsets.only(right: AppSpace.s2),
+                    child: Tag('вход только в имени'),
+                  )
+                : liveTitle == null
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(right: AppSpace.s2),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 132),
+                      child: Text(
+                        liveTitle,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.right,
+                        style: AppType.bodySm.copyWith(
+                          color: context.c.textLow,
+                        ),
+                      ),
+                    ),
+                  ),
+            chevron: true,
+            onTap: () => context.go(AppRoute.servers),
+          ),
+          // Имя входа берём из [Relay.defaults], а не из [relaysProvider]:
+          // тот тянет список у панели, а эта ветка в панель не ходит.
+          _relayRow(
+            relay:
+                Relay.defaults[effectiveRelayIndex(cfg.relay, Relay.defaults)],
+          ),
+          _protocolRow(cfg: cfg, protocols: protocols),
+        ],
+      ),
+      // Та же кнопка, что и в панельной ветке: автоподбор одинаково не
+      // принадлежит группе выборов на обоих путях — и одинаково уезжает в
+      // левую панель на десктопе.
+      if (!desktop) ...[
+        const SizedBox(height: AppSpace.s3),
+        const AutopilotButton(),
+      ],
+      ..._protocolTruthBanner(),
+      ..._autopilotBanner(),
+      if (!chaining.isAvailable) ...[
+        const SizedBox(height: AppSpace.s3),
+        // Причина относится к ЦЕПОЧКЕ, а не к строке входа: сама строка живая
+        // («Выкл» и «Авто» истинны при любом источнике). Места под подпись у
+        // CRow нет, поэтому причина едет отдельной строкой под группой.
+        InlineBanner(glyph: Lucide.waypoints, text: chaining.message),
+      ],
+      const SizedBox(height: AppSpace.s4),
+      ValueListenableBuilder<int>(
+        valueListenable: _tick,
+        builder: (context, _, __) {
+          final mode = ref.watch(activeTunnelModeProvider);
+          return _StatsGrid(
+            // Шесть ячеек в правой колонке десктопа встают в три столбца: в
+            // два они уходят вниз шестью строками и выталкивают график.
+            columns: desktop ? 3 : 2,
+            cells: [
+              (
+                value: connected ? _fmtBytes(traffic.downTotal) : '0,0 МБ',
+                label: 'Скачано',
+              ),
+              (
+                value: connected ? _fmtBytes(traffic.upTotal) : '0,0 МБ',
+                label: 'Отправлено',
+              ),
+              (
+                value: connected ? _fmtRate(traffic.downBps) : '0 КБ/с',
+                label: 'Приём',
+              ),
+              (
+                value: connected ? _fmtRate(traffic.upBps) : '0 КБ/с',
+                label: 'Отдача',
+              ),
+              (
+                value: connected ? _session(status.connectedSince) : '00:00',
+                label: 'Сессия',
+              ),
+              (
+                value: switch (mode) {
+                  TunnelMode.tun => 'TUN',
+                  TunnelMode.proxy => 'Прокси',
+                  null => '·',
+                },
+                label: 'Захват',
+              ),
+            ],
+          );
+        },
+      ),
+    ];
+  }
+
+  /// Подпись под дайлом в generic-режиме. Панельных имён серверов здесь нет:
+  /// говорим узлом подписки, именем профиля и протоколом.
+  String _guestSubLabel({
+    required VpnStatus status,
+    required ConnectionProfile? profile,
+    required String? proxy,
+    required String? node,
+    required String protocol,
+    required bool noConnections,
+    AccessState? access,
+  }) {
+    final name = (profile == null || profile.displayName.isEmpty)
+        ? null
+        : profile.displayName;
+    return switch (status.stage) {
+      // Имя узла под живым туннелем без доступа называло бы работающим то, что
+      // не работает: причина важнее адреса.
+      VpnStage.connected =>
+        (access != null && access.isBlocked)
+            ? access.shortReason
+            : proxy ?? node ?? name ?? 'Защищено',
+      VpnStage.connecting ||
+      VpnStage.reconnecting => '${node ?? name ?? 'Узел'} · $protocol',
+      // Своей подписке панель отказывает тем же 403, что и панельной: причина
+      // приезжает в detail, и выбрасывать её здесь так же нельзя.
+      VpnStage.error => dialErrorLabel(detail: status.detail, access: access),
+      VpnStage.disconnected =>
+        profile == null
+            ? (noConnections ? 'Добавьте подключение' : 'Выберите подключение')
+            : 'Нажмите, чтобы подключиться',
+    };
+  }
+
+  /// Имя закреплённого узла подписки. `null` — пин не стоит (авто-выбор ядром)
+  /// или узла с таким id в кэше больше нет.
+  String? _pinnedNodeName(ConnectionProfile? profile) {
+    final id = profile?.selectedServerId;
+    if (profile == null || id == null || id.isEmpty) return null;
+    for (final s in profile.servers) {
+      if (s.id == id) return s.name.isEmpty ? s.id : s.name;
     }
+    return id;
+  }
+
+  /// Страна входа, которую называет ОПЕРАТОР по активной подписке.
+  ///
+  /// Берётся из активной подписки, а не из первой в списке: у человека может
+  /// быть несколько, и вход неактивной к текущему туннелю отношения не имеет.
+  /// `null` — оператор его не назвал.
+  static String? _operatorRelayCountry(List<SubPlan>? subs) {
+    if (subs == null || subs.isEmpty) return null;
+    final active = subs.where((s) => s.isActive);
+    final plan = active.isNotEmpty ? active.first : subs.first;
+    final cc = (plan.relayCountry ?? '').trim();
+    return cc.isEmpty ? null : cc;
+  }
+
+  /// Строка ТИПА ПОДКЛЮЧЕНИЯ (бывший «Протокол»).
+  ///
+  /// Имя сменилось не ради красоты. Список за этой строкой — инбаунды
+  /// выбранной машины, то есть «чем сервер принимает соединение»; строк там
+  /// больше, чем протоколов (vless/tcp/reality и vless/ws/tls — разные), а
+  /// слово «протокол» обещало выбор технологии.
+  ///
+  /// В режиме «Авто» строка обязана назвать, ЧТО авто выбрал: пустое «Авто» —
+  /// это контрол, который не сообщает о своей работе. Источник только живой:
+  /// узел, на котором стоит ядро, либо прошлый замер. Догадок нет.
+  ///
+  /// И то же правило — для ЗАКРЕПЛЁННОГО типа. Ядро закрепляет семейство, но
+  /// когда ни один его узел не поднялся, селектор молча уходит на другой прокси
+  /// (см. [protocolTruthOf]); строка при этом печатала закреплённое имя над
+  /// туннелем другого протокола. Здесь она называет то, что на проводе.
+  Widget _protocolRow({
+    required CoreConfig cfg,
+    required List<ProtocolOption> protocols,
+  }) {
+    final option = (cfg.protocol >= 0 && cfg.protocol < protocols.length)
+        ? protocols[cfg.protocol]
+        : null;
+    final truth = ref.watch(protocolTruthProvider);
+    return CRow(
+      icon: truth.glyph ?? option?.icon ?? Lucide.layers,
+      label: 'Тип подключения',
+      value: truth.value,
+      // Цвет тут не сообщение, а метка «эта строка не в том состоянии, в
+      // которое её ставили»: сообщение целиком несут слово «вместо» в значении
+      // и баннер под группой.
+      valueColor: truth.diverged ? context.c.warning : null,
+      chevron: true,
+      onTap: () => context.go(AppRoute.protocol),
+    );
+  }
+
+  /// Объяснение подмены типа — под группой, рядом со строкой.
+  ///
+  /// Отдельной строкой, а не подписью: места под подпись у [CRow] нет, и
+  /// подмену страны в строке «Сервер» объясняют ровно так же.
+  List<Widget> _protocolTruthBanner() {
+    final truth = ref.watch(protocolTruthProvider);
+    if (!truth.diverged) return const <Widget>[];
+    return <Widget>[
+      const SizedBox(height: AppSpace.s3),
+      InlineBanner(
+        tone: BannerTone.warning,
+        glyph: Lucide.layers,
+        text: truth.note,
+      ),
+    ];
+  }
+
+  /// Что именно выбрал автоподбор и что с этим выбором сейчас.
+  ///
+  /// Текст собирает [autopilotBannerText], и подпись он берёт у ДЕРЖАТЕЛЯ
+  /// ([autoHolderProvider]), а не у строки «Сервер». Раньше здесь стояла
+  /// `autoServerLabelProvider.subtitle` — подпись контрола, которая при живом
+  /// туннеле описывает активный узел, — и фраза про канадский выбор
+  /// заканчивалась словами «Сейчас в туннеле» над немецким выходом.
+  List<Widget> _autopilotBanner() {
+    final pick = ref.watch(autoPickRecordProvider);
+    if (pick == null) return const <Widget>[];
+    final stale = ref.watch(autoStaleProvider);
+    return <Widget>[
+      const SizedBox(height: AppSpace.s3),
+      InlineBanner(
+        tone: stale == AutoStaleReason.none
+            ? BannerTone.info
+            : BannerTone.warning,
+        glyph: Lucide.gauge,
+        text: autopilotBannerText(
+          pick: pick,
+          stale: stale,
+          holder: ref.watch(autoHolderProvider),
+        ),
+      ),
+    ];
+  }
+
+  /// Строка входа, одинаковая в обеих ветках Home.
+  ///
+  /// Строка называет ЗНАЧЕНИЕ, которое сейчас в силе, и всегда ведёт на экран
+  /// входа. Раньше при недоступной цепочке она говорила «Недоступно» и не
+  /// нажималась — а это была неправда сразу дважды: «Выкл» и «Авто» доступны
+  /// при любом флоте, и именно через эту строку лежит единственный путь к
+  /// экрану, на котором чужой или устаревший вход можно снять. Причину
+  /// недоступности цепочки несёт баннер под группой, а не подмена значения.
+  ///
+  /// Приглушение осталось ровно для одного случая: в силе настоящий вход
+  /// оператора, а собрать цепочку источник не может — значит записанное
+  /// значение не исполняется, и молчать об этом нельзя.
+  /// [autoRelayCountry] — вход, который назвал ОПЕРАТОР по этой подписке
+  /// (`/subscriptions[].relay_country`). Это единственный честный источник для
+  /// «Авто»: приложение вход не выбирает и знать его иначе не может. Пусто —
+  /// оператор его не называет, и строка остаётся просто «Авто»; выдумывать
+  /// «напрямую» нельзя — молчание источника это не «нет входа».
+  Widget _relayRow({required Relay? relay, String? autoRelayCountry}) {
+    final a = ref.watch(capabilitiesProvider).relayChaining.availability;
+    final ignored =
+        a.isUnavailable && relay != null && !relay.isOff && !relay.isAuto;
+    final cc = (autoRelayCountry ?? '').trim().toUpperCase();
+    final value = (relay != null && relay.isAuto && cc.isNotEmpty)
+        ? 'Авто · через $cc'
+        : (relay?.name ?? '·');
+    return Opacity(
+      opacity: ignored ? 0.45 : 1,
+      child: CRow(
+        icon: Lucide.waypoints,
+        label: 'Relay (вход)',
+        value: value,
+        chevron: true,
+        onTap: () => context.go(AppRoute.relay),
+      ),
+    );
+  }
+}
+
+/// The plane the config and stats cards sit on. The chart never deviates more
+/// than about 7 percent from the base plane, but stacking it under a dense grid
+/// of numbers still costs legibility, so the atmosphere is damped to under a
+/// fifth from the first card down. The short top ramp keeps it from reading as
+/// a box edge.
+class CardsBackdrop extends StatelessWidget {
+  final List<Widget> children;
+  const CardsBackdrop({required this.children, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final base = context.c.bgBase;
+    return Container(
+      padding: const EdgeInsets.only(top: AppSpace.s5),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            base.withValues(alpha: 0),
+            base.withValues(alpha: 0.82),
+            base.withValues(alpha: 0.82),
+          ],
+          stops: const [0, 0.055, 1],
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
+      ),
+    );
   }
 }
 
@@ -300,21 +1181,39 @@ class _PlanChip extends StatelessWidget {
   }
 }
 
+/// Одна ячейка сетки статистики: крупное tabular-число и подпись капсом.
+typedef StatCell = ({String value, String label});
+
+/// Сетка статистики. Число ячеек кратно числу колонок: панельная Home даёт
+/// четыре, generic — шесть (к объёмам добавляются мгновенные скорости и режим
+/// захвата трафика, которых у панельной ветки нет).
+///
+/// [columns] — сколько ячеек в строке. Две на мобильном (и в панельной ветке
+/// десктопа, где ячеек всего четыре), три в правой колонке десктопа под
+/// generic-шестёрку. Неполный хвост не рисуется: сетка из ячейки-полторы
+/// читается как обрезанная таблица.
 class _StatsGrid extends StatelessWidget {
-  final String down;
-  final String up;
-  final String latency;
-  final String session;
-  const _StatsGrid({
-    required this.down,
-    required this.up,
-    required this.latency,
-    required this.session,
-  });
+  final List<StatCell> cells;
+  final int columns;
+  const _StatsGrid({required this.cells, this.columns = 2});
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final rows = <Widget>[];
+    for (var i = 0; i + columns - 1 < cells.length; i += columns) {
+      if (rows.isNotEmpty) {
+        rows.add(Container(height: 1, color: c.borderSubtle));
+      }
+      final row = <Widget>[];
+      for (var j = 0; j < columns; j++) {
+        if (j > 0) {
+          row.add(Container(width: 1, height: 64, color: c.borderSubtle));
+        }
+        row.add(Expanded(child: _cell(c, cells[i + j])));
+      }
+      rows.add(Row(children: row));
+    }
     return Container(
       decoration: BoxDecoration(
         color: c.borderSubtle,
@@ -322,29 +1221,11 @@ class _StatsGrid extends StatelessWidget {
         border: Border.all(color: c.borderSubtle),
       ),
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(child: _cell(c, down, 'Скачано')),
-              Container(width: 1, height: 64, color: c.borderSubtle),
-              Expanded(child: _cell(c, up, 'Отправлено')),
-            ],
-          ),
-          Container(height: 1, color: c.borderSubtle),
-          Row(
-            children: [
-              Expanded(child: _cell(c, latency, 'Задержка')),
-              Container(width: 1, height: 64, color: c.borderSubtle),
-              Expanded(child: _cell(c, session, 'Сессия')),
-            ],
-          ),
-        ],
-      ),
+      child: Column(children: rows),
     );
   }
 
-  Widget _cell(AppColors c, String value, String key) {
+  Widget _cell(AppColors c, StatCell cell) {
     return Container(
       color: c.surface1,
       padding: const EdgeInsets.symmetric(
@@ -355,7 +1236,7 @@ class _StatsGrid extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            value,
+            cell.value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: AppType.titleLg.copyWith(
@@ -367,7 +1248,7 @@ class _StatsGrid extends StatelessWidget {
           ),
           const SizedBox(height: AppSpace.s1),
           Text(
-            key.toUpperCase(),
+            cell.label.toUpperCase(),
             style: AppType.caption.copyWith(
               color: c.textLow,
               letterSpacing: 0.6,

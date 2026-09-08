@@ -73,6 +73,56 @@ static inline gchar* caramba_json_get_string(const char* src, const char* key) {
 }
 
 // caramba_json_get_int reads a top-level integer field, or fallback if absent.
+// caramba_json_escape отдаёт значение как ЛИТЕРАЛ строки JSON, вместе с
+// кавычками. Результат освобождает вызывающий (g_free).
+//
+// Два тела запросов ABI v3, которые собираются здесь, подставляют значение,
+// пришедшее по каналу без проверки. Склеенное как есть, оно закрывается одной
+// двойной кавычкой, и вызывающий дописывает в DeviceSignRequest или
+// DeviceAgreeRequest соседние поля по своему выбору: другой rkv, kdf_info_b64,
+// другое сообщение. Android собирает тот же JSON через JSONObject, Apple через
+// JSONSerialization; здесь та же гарантия, написанная явно.
+static inline gchar* caramba_json_escape(const char* value) {
+  if (value == NULL) {
+    return g_strdup("\"\"");
+  }
+  GString* out = g_string_new("\"");
+  for (const unsigned char* p = (const unsigned char*)value; *p != '\0'; ++p) {
+    switch (*p) {
+      case '"':
+        g_string_append(out, "\\\"");
+        break;
+      case '\\':
+        g_string_append(out, "\\\\");
+        break;
+      case '\n':
+        g_string_append(out, "\\n");
+        break;
+      case '\r':
+        g_string_append(out, "\\r");
+        break;
+      case '\t':
+        g_string_append(out, "\\t");
+        break;
+      case '\b':
+        g_string_append(out, "\\b");
+        break;
+      case '\f':
+        g_string_append(out, "\\f");
+        break;
+      default:
+        if (*p < 0x20) {
+          g_string_append_printf(out, "\\u%04x", *p);
+        } else {
+          g_string_append_c(out, (gchar)*p);
+        }
+        break;
+    }
+  }
+  g_string_append_c(out, '"');
+  return g_string_free(out, FALSE);
+}
+
 static inline int64_t caramba_json_get_int(const char* src, const char* key,
                                            int64_t fallback) {
   const char* p = caramba_json_value_pos(src, key);

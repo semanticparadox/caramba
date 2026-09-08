@@ -21,6 +21,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- Persistent connection notification (Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Признак, которого приложение не может себе выдумать.
+         Слово «Защищено» до сих пор опиралось только на ответ Go-ядра о самом
+         себе; ConnectivityManager даёт второй, независимый источник — ту же
+         сеть с транспортом VPN, которой определяется значок в статус-баре
+         (см. CarambaTunnelWitness). Разрешение обычное (normal), у пользователя
+         ничего не спрашивается и в диалоге установки оно не появляется. Без
+         него getNetworkCapabilities начинает отвечать null, наблюдение честно
+         вырождается в «не знаю» — а по «не знаю» вето не срабатывает, и щит
+         останется гореть над мёртвым туннелем. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application>
         <!-- The VPN tunnel service. BIND_VPN_SERVICE is enforced by the system:

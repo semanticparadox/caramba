@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Backup and device-transfer rules, Android 12 and above
+     (android:dataExtractionRules). Same reason as caramba_backup_rules.xml:
+     the CSM/1 device identity is bound to one handset, and both cloud backup
+     and direct device-to-device transfer would put it on a second one. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="caramba_csm_device.xml" />
+        <exclude domain="sharedpref" path="caramba_vpn_seam.xml" />
+        <exclude domain="file" path="caramba-core-csm/" />
+        <exclude domain="file" path="caramba-core/" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="caramba_csm_device.xml" />
+        <exclude domain="sharedpref" path="caramba_vpn_seam.xml" />
+        <exclude domain="file" path="caramba-core-csm/" />
+        <exclude domain="file" path="caramba-core/" />
+    </device-transfer>
+</data-extraction-rules>
