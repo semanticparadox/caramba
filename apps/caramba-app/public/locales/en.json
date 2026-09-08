@@ -663,6 +663,7 @@
       "macos": "Mac",
       "linux": "Linux",
       "androidMeta": "APK file",
+      "getInTelegram": "Get in Telegram",
       "guideTitle": "Our app",
       "guideNote": "Download Caramba Connect and sign in by link — the app sets itself up, no subscription copying.",
       "guideOpen": "Open Caramba Connect"

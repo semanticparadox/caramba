@@ -665,6 +665,7 @@
       "macos": "Mac",
       "linux": "Linux",
       "androidMeta": "Файл APK",
+      "getInTelegram": "Получить в Telegram",
       "guideTitle": "Наше приложение",
       "guideNote": "Скачайте Caramba Connect и войдите по ссылке — приложение настроится само, без копирования подписки.",
       "guideOpen": "Открыть Caramba Connect"

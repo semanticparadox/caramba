@@ -389,6 +389,18 @@ pub async fn callback_handler(
                 }
             }
 
+            // Выдача установщика файлом — обход блокировки домена панели.
+            // Кнопка приезжает только когда владелец загрузил APK боту
+            // (`bot::apk_delivery`), но состояние могло измениться между
+            // отрисовкой кнопки и нажатием, поэтому вся проверка — внутри
+            // `send_apk`, а не здесь.
+            "apk_send" => {
+                let _ = bot.answer_callback_query(callback_id).await;
+                if let Some(msg) = q.message {
+                    crate::bot::apk_delivery::send_apk(&bot, msg.chat().id, lang, &state).await;
+                }
+            }
+
             "set_lang_en" | "set_lang_ru" => {
                 // Выбор пользователя перекрывает всё, что мы разрешили выше.
                 let chosen = if data.contains("en") {

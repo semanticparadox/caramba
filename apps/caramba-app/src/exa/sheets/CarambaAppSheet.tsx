@@ -17,7 +17,7 @@ import { openInCarambaApp, requestConnectLink, type ConnectLink } from '../lib/c
 export default function CarambaAppSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
     const { t } = useTranslation()
     const toast = useToast()
-    const { token } = useAuth()
+    const { token, userStats } = useAuth()
     const downloads = useAppDownloads(token)
     const [busy, setBusy] = useState(false)
     const [link, setLink] = useState<ConnectLink | null>(null)
@@ -58,6 +58,11 @@ export default function CarambaAppSheet({ open, onClose }: { open: boolean; onCl
     // не собираемся, — врать.
     const platforms = APP_PLATFORMS.filter((p) => p !== 'linux' || !!downloads.linux)
 
+    // Домен панели могут заблокировать — APK можно получить напрямую от бота
+    // по file_id, в обход домена вообще. Кнопка есть, как только известен
+    // username бота: сам бот решает, готов ли файл (иначе ответит "не загружен").
+    const telegramApkUrl = userStats?.bot_username ? `https://t.me/${userStats.bot_username}?start=apk` : null
+
     return (
         <Sheet open={open} title={t('exa.caramba.title')} subtitle={t('exa.caramba.subtitle')} onClose={onClose}>
             <div className="exa-stack" style={{ gap: 6 }}>
@@ -89,6 +94,13 @@ export default function CarambaAppSheet({ open, onClose }: { open: boolean; onCl
                 <div className="exa-card exa-card--list">
                     {platforms.map((p) => {
                         const url = downloads[p]
+                        const primaryAction = url ? (
+                            <Button variant="secondary" size="sm" block={false} onClick={() => WebApp.openLink(url)}>
+                                {t('exa.caramba.download')}
+                            </Button>
+                        ) : (
+                            <Pill>{t('exa.caramba.soon')}</Pill>
+                        )
                         return (
                             <div key={p} className="exa-row">
                                 <span className="exa-row__body">
@@ -99,12 +111,22 @@ export default function CarambaAppSheet({ open, onClose }: { open: boolean; onCl
                                         <span className="exa-row__meta">{t('exa.caramba.androidMeta')}</span>
                                     ) : null}
                                 </span>
-                                {url ? (
-                                    <Button variant="secondary" size="sm" block={false} onClick={() => WebApp.openLink(url)}>
-                                        {t('exa.caramba.download')}
-                                    </Button>
+                                {p === 'android' && telegramApkUrl ? (
+                                    // Вторая кнопка рядом с обычной: файл из Telegram не зависит
+                                    // от домена панели и не требует настроенной ссылки скачивания.
+                                    <div style={{ display: 'flex', gap: 6 }}>
+                                        {primaryAction}
+                                        <Button
+                                            variant="secondary"
+                                            size="sm"
+                                            block={false}
+                                            onClick={() => WebApp.openTelegramLink(telegramApkUrl)}
+                                        >
+                                            {t('exa.caramba.getInTelegram')}
+                                        </Button>
+                                    </div>
                                 ) : (
-                                    <Pill>{t('exa.caramba.soon')}</Pill>
+                                    primaryAction
                                 )}
                             </div>
                         )

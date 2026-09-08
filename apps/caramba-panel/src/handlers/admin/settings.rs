@@ -42,6 +42,28 @@ fn is_checkbox_enabled(value: Option<&str>) -> bool {
         .unwrap_or(false)
 }
 
+/// Форматирует размер APK (байты, хранятся строкой) в МБ с одним знаком после
+/// запятой для read-only строки в админке. Пустая/битая строка → "?", чтобы
+/// не ронять рендер настроек из-за мусора в поле.
+fn format_apk_size_mb(bytes_str: &str) -> String {
+    match bytes_str.trim().parse::<f64>() {
+        Ok(bytes) if bytes > 0.0 => format!("{:.1}", bytes / 1_048_576.0),
+        _ => "?".to_string(),
+    }
+}
+
+/// Форматирует RFC3339-дату загрузки APK (пишет K1 при захвате документа) в
+/// человекочитаемый вид для админки. Невалидная/пустая дата → "?".
+fn format_apk_uploaded_at(rfc3339: &str) -> String {
+    DateTime::parse_from_rfc3339(rfc3339.trim())
+        .map(|dt| {
+            dt.with_timezone(&Utc)
+                .format("%Y-%m-%d %H:%M UTC")
+                .to_string()
+        })
+        .unwrap_or_else(|_| "?".to_string())
+}
+
 fn normalize_base_url(raw: &str) -> String {
     let mut value = raw.trim().to_string();
     if value.is_empty() {
@@ -390,6 +412,12 @@ pub struct SettingsTemplate {
     pub app_download_url_windows: String,
     pub app_download_url_macos: String,
     pub app_download_url_linux: String,
+    // APK, который бот раздаёт по file_id в обход блокировки домена (K1 apk_delivery.rs).
+    // Ключи настроек — общий контракт с ботом (см. app_apk_tg_file_id_android и др.).
+    pub apk_tg_uploaded_android: bool,
+    pub apk_tg_file_name_android: String,
+    pub apk_tg_file_size_mb_android: String,
+    pub apk_tg_uploaded_at_display_android: String,
     // Подарок при регистрации (акция). Пустой `welcome_gift_plan_id` = выключено.
     pub welcome_gift_plan_id: String,
     pub welcome_gift_days: String,
@@ -598,6 +626,8 @@ pub struct SaveSettingsForm {
     pub app_download_url_windows: Option<String>,
     pub app_download_url_macos: Option<String>,
     pub app_download_url_linux: Option<String>,
+    // Чекбокс-действие «Забыть файл»: при true очищаем четыре ключа APK-file_id (не персистится сам).
+    pub apk_tg_forget_android: Option<String>,
     pub welcome_gift_plan_id: Option<String>,
     pub welcome_gift_days: Option<String>,
     pub welcome_gift_until: Option<String>,
@@ -752,6 +782,28 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .settings
         .get_or_default("app_download_url_linux", "")
         .await;
+    // APK по file_id (K1): читаем те же четыре ключа строковыми литералами,
+    // как условлено в спеке — без общего кода с ботом.
+    let app_apk_tg_file_id_android = state
+        .settings
+        .get_or_default("app_apk_tg_file_id_android", "")
+        .await;
+    let apk_tg_file_name_android = state
+        .settings
+        .get_or_default("app_apk_tg_file_name_android", "")
+        .await;
+    let app_apk_tg_file_size_android = state
+        .settings
+        .get_or_default("app_apk_tg_file_size_android", "")
+        .await;
+    let app_apk_tg_uploaded_at_android = state
+        .settings
+        .get_or_default("app_apk_tg_uploaded_at_android", "")
+        .await;
+    let apk_tg_uploaded_android = !app_apk_tg_file_id_android.trim().is_empty();
+    let apk_tg_file_size_mb_android = format_apk_size_mb(&app_apk_tg_file_size_android);
+    let apk_tg_uploaded_at_display_android =
+        format_apk_uploaded_at(&app_apk_tg_uploaded_at_android);
     let welcome_gift_plan_id = state
         .settings
         .get_or_default("welcome_gift_plan_id", "")
@@ -1346,6 +1398,10 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         app_download_url_windows,
         app_download_url_macos,
         app_download_url_linux,
+        apk_tg_uploaded_android,
+        apk_tg_file_name_android,
+        apk_tg_file_size_mb_android,
+        apk_tg_uploaded_at_display_android,
         welcome_gift_plan_id,
         welcome_gift_days,
         welcome_gift_until,
@@ -1734,6 +1790,15 @@ pub async fn save_settings(
     }
     if let Some(v) = form.app_download_url_linux {
         settings.insert("app_download_url_linux".to_string(), v.trim().to_string());
+    }
+    // «Забыть файл»: чистим все четыре ключа, которыми бот (K1) раздаёт APK по
+    // file_id — так админка может закрыть протухший/ошибочный upload без
+    // прямого доступа к БД. Сам чекбокс — разовое действие, не персистится.
+    if is_checkbox_enabled(form.apk_tg_forget_android.as_deref()) {
+        settings.insert("app_apk_tg_file_id_android".to_string(), "".to_string());
+        settings.insert("app_apk_tg_file_name_android".to_string(), "".to_string());
+        settings.insert("app_apk_tg_file_size_android".to_string(), "".to_string());
+        settings.insert("app_apk_tg_uploaded_at_android".to_string(), "".to_string());
     }
     if let Some(v) = form.welcome_gift_plan_id {
         settings.insert(
