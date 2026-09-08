@@ -106,8 +106,8 @@ Flutter `3.47.2`, Go `1.26` (`libs/caramba-core/go.mod` requires `go 1.26.0`;
 older toolchains refuse the module outright).
 
 ```bash
-gh workflow run client-desktop.yml --ref feat/connect-protocol
-gh workflow run client-android.yml --ref feat/connect-protocol
+gh workflow run client-desktop.yml --ref main
+gh workflow run client-android.yml --ref main
 ```
 
 `workflow_dispatch` on a feature branch only works once the workflow file is on
