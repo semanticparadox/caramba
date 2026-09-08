@@ -129,7 +129,7 @@ jobs:
       # Тот же action, что в release.yml: он дописывает ассеты в уже созданный
       # релиз тега, поэтому гонки с release.yml нет.
       - name: Attach APKs to release (tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}

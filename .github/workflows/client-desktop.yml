@@ -135,7 +135,7 @@ jobs:
           path: apps/caramba-client/build/dist/caramba-connect-macos-arm64.dmg
 
       - name: Attach DMG to release (tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
@@ -247,7 +247,7 @@ jobs:
           path: apps/caramba-client/build/dist/caramba-connect-windows-x64.zip
 
       - name: Attach ZIP to release (tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
@@ -311,7 +311,7 @@ jobs:
           path: apps/caramba-client/build/dist/caramba-connect-linux-x64.tar.gz
 
       - name: Attach tarball to release (tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
