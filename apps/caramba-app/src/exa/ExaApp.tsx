@@ -2,7 +2,8 @@ import { Suspense, lazy, useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { getStartRoute } from '../lib/telegram'
-import { AuthProvider } from '../context/AuthContext'
+import { AuthProvider, useAuth } from '../context/AuthContext'
+import { carambaIconUrl, isCarambaBrand } from './BrandMark'
 import { AppLockProvider } from '../context/AppLockContext'
 import { NotificationProvider } from '../context/NotificationContext'
 import AppLockGate from '../components/AppLockGate'
@@ -47,6 +48,15 @@ const LEGACY: Record<string, string> = {
 
 function Shell() {
     const { t } = useTranslation()
+    const { userStats } = useAuth()
+    useEffect(() => {
+        document.title = userStats?.brand_name?.trim() || 'Caramba'
+        for (const id of ['brand-favicon', 'brand-touch-icon']) {
+            const icon = document.getElementById(id)
+            if (isCarambaBrand(userStats?.brand_name)) icon?.setAttribute('href', carambaIconUrl)
+            else icon?.removeAttribute('href')
+        }
+    }, [userStats?.brand_name])
     useStartParamRedirect()
     useEffect(() => applyTelegramTheme(), [])
 

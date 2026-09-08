@@ -1554,6 +1554,10 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         // No auth, no PII. Different from /api/health which is JSON for monitors.
         .route("/status", axum::routing::get(handlers::status::status_page))
         .route(
+            "/assets/brand/caramba-icon.png",
+            axum::routing::get(handlers::assets::caramba_icon),
+        )
+        .route(
             "/assets/css/modern.css",
             axum::routing::get(handlers::assets::modern_css),
         )
