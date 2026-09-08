@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/atmosphere/atmosphere_layer.dart';
-import 'package:caramba_client/data/brand.dart';
+import 'package:caramba_client/features/branding/brand_wordmark.dart';
 import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/exit_location.dart';
 import 'package:caramba_client/data/models/protocol.dart';
@@ -522,11 +522,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       // Operator brand names can be long; the row must not
                       // overflow on a narrow phone at a large text scale.
                       Flexible(
-                        child: Text(
-                          kBrandName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppType.titleMd.copyWith(color: c.textHi),
+                        child: BrandWordmark(
+                          height: 28,
+                          textStyle: AppType.titleMd.copyWith(color: c.textHi),
                         ),
                       ),
                       const Spacer(),

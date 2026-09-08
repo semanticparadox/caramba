@@ -60,6 +60,18 @@ static void my_application_activate(GApplication* application) {
     gtk_window_set_title(window, "Caramba Connect");
   }
 
+  // Resolve the icon beside the executable so relocatable bundles work too.
+  g_autofree gchar* executable = g_file_read_link("/proc/self/exe", nullptr);
+  if (executable) {
+    g_autofree gchar* bundle_dir = g_path_get_dirname(executable);
+    g_autofree gchar* icon_path =
+        g_build_filename(bundle_dir, "data", "caramba-connect.png", nullptr);
+    g_autoptr(GError) icon_error = nullptr;
+    if (!gtk_window_set_icon_from_file(window, icon_path, &icon_error)) {
+      g_warning("Cannot load Caramba window icon: %s", icon_error->message);
+    }
+  }
+
   gtk_window_set_default_size(window, 1280, 720);
   // Требование window_manager: окно должно быть realized до того, как
   // плагин начнёт им управлять, но показывать его здесь нельзя (см. ниже).

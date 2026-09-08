@@ -107,6 +107,7 @@ flutter:
   # template-PNG (чёрный на прозрачном, система сама инвертирует под тему),
   # на Windows .ico с несколькими размерами, на Linux PNG 22 px.
   assets:
+    - assets/brand/
     - assets/tray/mac/
     - assets/tray/win/
     - assets/tray/linux/

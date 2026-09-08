@@ -22,14 +22,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'package:caramba_client/data/brand.dart';
+import 'package:caramba_client/features/branding/brand_wordmark.dart';
 import 'package:caramba_client/desktop/desktop_platform.dart';
 import 'package:caramba_client/desktop/desktop_strings.dart';
 import 'package:caramba_client/desktop/desktop_tokens.dart';
 import 'package:caramba_client/desktop/shell/desktop_shortcuts.dart';
 import 'package:caramba_client/desktop/shell/sidebar_status.dart';
 import 'package:caramba_client/router/routes.dart';
-import 'package:caramba_client/state/branding_state.dart';
 import 'package:caramba_client/state/vpn_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
@@ -96,7 +95,6 @@ class DesktopSidebar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
-    final name = ref.watch(activeBrandingProvider).displayName(kBrandName);
 
     return Container(
       width: DesktopTokens.sidebarWidth,
@@ -109,7 +107,7 @@ class DesktopSidebar extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _Wordmark(name: name),
+          const _Wordmark(),
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: DesktopTokens.sidebarPad),
             child: SidebarStatus(),
@@ -171,9 +169,7 @@ class DesktopSidebar extends ConsumerWidget {
 /// на одной линии. На macOS слева освобождено место под системные трафик-лайты:
 /// их рисует система, и залезть под них нельзя.
 class _Wordmark extends StatelessWidget {
-  final String name;
-
-  const _Wordmark({required this.name});
+  const _Wordmark();
 
   @override
   Widget build(BuildContext context) {
@@ -189,11 +185,9 @@ class _Wordmark extends StatelessWidget {
         ),
         child: Align(
           alignment: Alignment.centerLeft,
-          child: Text(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppType.titleMd.copyWith(color: c.textHi),
+          child: BrandWordmark(
+            height: 24,
+            textStyle: AppType.bodySm.copyWith(color: c.textHi),
           ),
         ),
       ),

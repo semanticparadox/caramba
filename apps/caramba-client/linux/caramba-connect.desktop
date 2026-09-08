@@ -10,8 +10,7 @@
 #   2. подставляет реальный путь в Exec= (ниже — путь по умолчанию) и кладёт
 #      этот файл в /usr/share/applications/caramba-connect.desktop;
 #   3. кладёт иконку caramba-connect.png в
-#      /usr/share/icons/hicolor/<size>/apps/ (иконки в репозитории пока нет —
-#      Icon= указывает на будущее имя темы, без файла GTK возьмёт заглушку);
+#      /usr/share/icons/hicolor/512x512/apps/ (исходник: linux/icons/);
 #   4. обновляет базы: update-desktop-database и gtk-update-icon-cache.
 #
 # Проверка регистрации схемы после установки:

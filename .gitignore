@@ -137,3 +137,6 @@ graphify-out/
 # Их кладёт туда инсталлятор при установке/апгрейде (и оператор руками);
 # это релизные артефакты, а не исходники — в репозитории им не место.
 apps/caramba-panel/downloads/
+
+# Local visual explorations; published masters live in docs/brand.
+/.design/
