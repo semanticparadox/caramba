@@ -11,8 +11,8 @@
 
 1.  **Clone & Layout**
     ```bash
-    git clone https://github.com/semanticparadox/CARAMBA.git
-    cd CARAMBA
+    git clone https://github.com/semanticparadox/caramba.git
+    cd caramba
     ```
 
 2.  **Environment**
@@ -73,3 +73,25 @@ Targeted fast checks:
 cargo test -p caramba-panel singbox::tests::
 cargo check -p caramba-panel
 ```
+
+## Repository layout
+
+| Directory | Purpose |
+| --- | --- |
+| `apps/caramba-client` | Caramba Connect native Flutter client |
+| `apps/caramba-app` | React + TypeScript Telegram Mini App |
+| `apps/caramba-panel` | Admin UI, APIs and orchestration |
+| `apps/caramba-node` | sing-box node agent |
+| `apps/caramba-sub` | Subscription service |
+| `apps/caramba-bot` | Telegram bot |
+| `apps/caramba-installer` | Installation and upgrade CLI |
+| `libs` | Shared crates and native VPN core |
+| `scripts` | Build and deployment tools |
+
+See [Modules](MODULES.md) for the server architecture and each application's documentation for its build instructions.
+
+## Build profiles and CI
+
+Use `cargo check` during development. The Rust release profile uses LTO, size optimization, stripping and one codegen unit, so release builds are substantially slower.
+
+The Mini App is React/TypeScript (`npm run build`), while Caramba Connect is Flutter. Consult the [workflow definitions](../.github/workflows) for current checks and release jobs. Server and client artifacts have separate release workflows.

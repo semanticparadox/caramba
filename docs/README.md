@@ -1,25 +1,28 @@
-# Caramba — Documentation Index
+# Caramba documentation
 
-## Reference Docs
+[← Caramba](../README.md)
 
-| File | Description (RU) | Description (EN) |
-| --- | --- | --- |
-| [CURRENT_STATE.md](./CURRENT_STATE.md) | Текущее состояние проекта | Current project state |
-| [API.md](./API.md) | API-эндпоинты | API endpoints |
-| [CONFIGURATION.md](./CONFIGURATION.md) | Параметры конфигурации | Configuration reference |
-| [DATABASE.md](./DATABASE.md) | Схема базы данных | Database schema |
-| [DEPLOYMENT.md](./DEPLOYMENT.md) | Руководство по развёртыванию | Deployment guide |
-| [DEVELOPMENT.md](./DEVELOPMENT.md) | Руководство для разработчиков | Development guide |
-| [MODULES.md](./MODULES.md) | Описание модулей системы | System modules |
-| [protocols.md](./protocols.md) | Гайд по выбору протокола | Protocol selection guide |
-| [PAYPALYCH-API-SPEC.md](./PAYPALYCH-API-SPEC.md) | Paypalych (pal24.pro) — спецификация API | Paypalych (pal24.pro) API spec |
-| [PAYPALYCH-MODERATION.md](./PAYPALYCH-MODERATION.md) | Paypalych — модерация и тарифы | Paypalych moderation & tariffs |
-| [PAYPALYCH-REWRITE-PROMPT.md](./PAYPALYCH-REWRITE-PROMPT.md) | Paypalych — prompt на рерайт провайдера | Paypalych provider rewrite prompt |
-| [POST-INCIDENT-ROADMAP.md](./POST-INCIDENT-ROADMAP.md) | Текущие задачи + пост-инцидентный ранаут | Open work + post-incident runbook |
+## Use Caramba
 
-## Additional
+Download Caramba Connect from [Releases](https://github.com/semanticparadox/caramba/releases). Each release includes installation notes and the available platform packages. Your VPN provider supplies your subscription and access to its Telegram Mini App.
 
-- `sing-box/` — документация sing-box 1.13 (справочная копия / reference copy)
+## Run a service
 
-Общий обзор проекта — в корневом [README.md](../README.md).
-Project overview — see root [README.md](../README.md).
+| Guide | What it covers |
+| --- | --- |
+| [Deployment](DEPLOYMENT.md) | Install, upgrade, back up and distribute services |
+| [Configuration](CONFIGURATION.md) | Environment variables and runtime settings |
+| [Protocols](protocols.md) | Supported transports and configuration |
+
+## Develop and integrate
+
+| Reference | What it covers |
+| --- | --- |
+| [Development](DEVELOPMENT.md) | Local setup, builds and tests |
+| [Modules](MODULES.md) | Server architecture and module tour |
+| [HTTP API](API.md) | API endpoints |
+| [Database](DATABASE.md) | Schema and migrations |
+| [Paypalych API](PAYPALYCH-API-SPEC.md) | Payment provider integration |
+| [Visual identity](brand/README.md) | Shared artwork and icon sources |
+
+Internal work notes and historical implementation records are not required to install or use Caramba.
