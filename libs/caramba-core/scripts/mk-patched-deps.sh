@@ -9,7 +9,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${ROOT}/build"
 SRC="${OUT}/mihomo-src"
 mkdir -p "${OUT}"
+# На чистой машине (CI) модуля в кэше ещё нет, и `go list -m` отдаёт пустой
+# Dir — дальше `cp` падал с «cannot stat ''». Скачиваем явно, это идемпотентно.
+( cd "${ROOT}" && go mod download github.com/metacubex/mihomo )
 MOD="$(cd "${ROOT}" && go list -m -f '{{.Dir}}' github.com/metacubex/mihomo)"
+if [ -z "${MOD}" ] || [ ! -d "${MOD}" ]; then
+  echo "mk-patched-deps: не нашёл исходники github.com/metacubex/mihomo в кэше Go" >&2
+  exit 1
+fi
 rm -rf "${SRC}"
 cp -R "${MOD}" "${SRC}"
 chmod -R u+w "${SRC}"
