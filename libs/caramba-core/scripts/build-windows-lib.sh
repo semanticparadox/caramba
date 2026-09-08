@@ -40,6 +40,16 @@
 #
 set -euo pipefail
 
+ts()  { date '+%H:%M:%S'; }
+say() { echo ">> [$(ts)] $*"; }
+
+# Cgo-сборка ядра под Windows — самый длинный молчаливый участок всей цепочки
+# (mihomo + gvisor, около сотни мегабайт DLL). Без отметок времени по логу
+# прогона её невозможно отличить от зависания: именно так выглядел прогон, где
+# джоб отменили после двух часов тишины.
+export GIT_TERMINAL_PROMPT=0
+export GIT_ASKPASS="${GIT_ASKPASS:-echo}"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="$(cd "${ROOT}/../.." && pwd)"
 OUT="${ROOT}/build"
@@ -84,18 +94,30 @@ fi
 mkdir -p "${OUT}"
 # Патчи зависимостей: патченная копия mihomo + альтернативный go.mod
 # (см. patches/README.md); основной go.mod не трогаем.
-bash "${ROOT}/scripts/mk-patched-deps.sh" >/dev/null
+# Вывод НЕ прячем в /dev/null: там единственные признаки жизни у шага, который
+# на холодной машине качает и копирует модуль минутами.
+say "mk-patched-deps.sh"
+bash "${ROOT}/scripts/mk-patched-deps.sh" </dev/null
 export GOFLAGS="-modfile=${OUT}/patched.mod"
 
-echo ">> go build GOOS=windows GOARCH=${ARCH} -tags ${TAGS} -buildmode=c-shared → ${OUT}/${LIB}"
+# -v печатает имена пакетов по мере компиляции: это единственный поток строк за
+# те 10–20 минут, что идёт cgo-сборка, и по нему видно, что процесс жив, а не
+# висит на локе кэша или на ожидании ввода. CARAMBA_GO_BUILD_X=1 добавляет -x
+# (каждая команда компилятора) — для разбора уже конкретного затыка.
+GO_BUILD_FLAGS=(-v)
+if [[ "${CARAMBA_GO_BUILD_X:-0}" == "1" ]]; then
+  GO_BUILD_FLAGS+=(-x)
+fi
+
+say "go build GOOS=windows GOARCH=${ARCH} -tags ${TAGS} -buildmode=c-shared → ${OUT}/${LIB}"
 (
   cd "${ROOT}"
   export GOOS=windows GOARCH="${ARCH}" CGO_ENABLED=1
   if [[ -n "${CC_BIN}" ]]; then export CC="${CC_BIN}"; fi
-  go build -tags "${TAGS}" -buildmode=c-shared -o "${OUT}/${LIB}" "${PKG}"
-)
+  go build "${GO_BUILD_FLAGS[@]}" -tags "${TAGS}" -buildmode=c-shared -o "${OUT}/${LIB}" "${PKG}"
+) </dev/null
 
-echo ">> готово: ${OUT}/${LIB} (+ сгенерированный .h рядом)"
+say "готово: ${OUT}/${LIB} (+ сгенерированный .h рядом)"
 echo ">> каноничный заголовок для FFI: ${ROOT}/ffi/caramba_core.h"
 
 if [[ "${VENDOR}" -eq 1 ]]; then
@@ -104,7 +126,7 @@ if [[ "${VENDOR}" -eq 1 ]]; then
   # Каталог может отсутствовать на чистом клоне — его содержимое gitignored.
   mkdir -p "${PLUGIN_LIB_DIR}"
   cp "${OUT}/${LIB}" "${PLUGIN_LIB_DIR}/${LIB}"
-  echo ">> вендоринг: ${PLUGIN_LIB_DIR}/${LIB}"
+  say "вендоринг: ${PLUGIN_LIB_DIR}/${LIB}"
 fi
 
 echo ">> напоминание: рядом с ${LIB} нужен wintun.dll — scripts/fetch-wintun.sh"

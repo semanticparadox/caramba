@@ -44,6 +44,12 @@ permissions:
 
 concurrency:
   group: client-desktop-${{ github.ref }}
+  # Отмена предыдущего прогона имеет неочевидную цену на Windows: убитый
+  # процесс flutter оставляет каталог bin/cache/.upgrade_lock, а SDK целиком
+  # уезжает в кэш actions/cache (см. ниже, cache: true). Лаунчер flutter в Git
+  # Bash берёт «лок» через mkdir и ждёт его освобождения бесконечным
+  # `sleep .1` — поэтому один отменённый прогон способен подвесить все
+  # следующие. Лок снимается явно (шагом ниже и внутри ci-desktop.sh).
   cancel-in-progress: true
 
 env:
@@ -54,6 +60,12 @@ env:
   # stable-канал Flutter уехал вперёд между двумя тегами. Та же версия, что в
   # client-android.yml.
   FLUTTER_VERSION: '3.47.2'
+  # Ни один инструмент в прогоне не имеет права ждать ввода: stdin у шага не
+  # закрыт, поэтому вопрос git о логине или запрос Credential Manager выглядит
+  # не как ошибка, а как тишина до отмены джоба.
+  GIT_TERMINAL_PROMPT: '0'
+  GCM_INTERACTIVE: 'never'
+  FLUTTER_SUPPRESS_ANALYTICS: 'true'
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -62,6 +74,9 @@ jobs:
   macos:
     name: macOS DMG + iOS compile check
     runs-on: macos-latest
+    # Верхняя граница на джоб: без неё зависший шаг стоит в очереди до общего
+    # лимита GitHub (6 часов) и отменяется руками.
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
@@ -90,6 +105,7 @@ jobs:
           key: ${{ runner.os }}-carambacore-dylib-${{ hashFiles('libs/caramba-core/**/*.go', 'libs/caramba-core/go.mod', 'libs/caramba-core/go.sum', 'libs/caramba-core/patches/*.patch', 'libs/caramba-core/scripts/*.sh') }}
 
       - name: Build macOS DMG
+        timeout-minutes: 60
         env:
           CARAMBA_SKIP_CORE: ${{ steps.cache-dylib.outputs.cache-hit == 'true' && '1' || '0' }}
         run: bash apps/caramba-client/scripts/ci-desktop.sh macos
@@ -105,6 +121,7 @@ jobs:
       # биндингом gomobile, релиз не должен уехать «наполовину». Ассета у iOS
       # нет — это гейт, а не сборка.
       - name: iOS compile check (simulator, no codesign)
+        timeout-minutes: 60
         env:
           CARAMBA_SKIP_CORE: ${{ steps.cache-xcframework.outputs.cache-hit == 'true' && '1' || '0' }}
         run: bash apps/caramba-client/scripts/ci-desktop.sh ios
@@ -132,6 +149,7 @@ jobs:
   windows:
     name: Windows ZIP
     runs-on: windows-latest
+    timeout-minutes: 90
     defaults:
       run:
         # Тот же bash, что локально и на других раннерах: ci-desktop.sh и
@@ -155,11 +173,35 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
+      # Прогон на windows-latest встал на ПЕРВОМ вызове flutter внутри
+      # ci-desktop.sh и два часа не печатал ничего, пока джоб не отменили. Этот
+      # шаг делает тот же вызов раньше, в своих границах по времени и с полным
+      # выводом: следующий такой затык будет виден по имени шага, а не по
+      # последней строке чужого лога.
+      - name: Flutter sanity check (Git Bash)
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          echo "flutter: $(command -v flutter)"
+          echo "FLUTTER_ROOT=${FLUTTER_ROOT:-<не задан>}"
+          # Лаунчер flutter на POSIX-оболочке берёт стартовый лок через mkdir
+          # (в Git Bash нет ни flock, ни shlock) и ждёт его освобождения
+          # бесконечно, сообщая об этом только в stderr через \r. Каталог мог
+          # приехать из кэша SDK от отменённого прогона — снимаем.
+          if [ -n "${FLUTTER_ROOT:-}" ] && [ -e "${FLUTTER_ROOT}/bin/cache/.upgrade_lock" ]; then
+            echo "::warning::снимаю залипший ${FLUTTER_ROOT}/bin/cache/.upgrade_lock"
+            rm -rf -- "${FLUTTER_ROOT}/bin/cache/.upgrade_lock"
+          fi
+          # Без подстановки и без 2>/dev/null: вывод (в том числе «Building
+          # flutter tool...») обязан попасть в лог прогона.
+          flutter --suppress-analytics --no-version-check --version </dev/null
+
       # cgo обязателен (gvisor/sing-tun), значит нужен C-тулчейн. На образе
       # windows-latest gcc из mingw-w64 обычно уже есть; если образ изменится —
       # ставим сами, иначе `go build -buildmode=c-shared` упадёт с невнятным
       # «cgo: C compiler not found».
       - name: Ensure MinGW gcc
+        timeout-minutes: 20
         run: |
           set -euo pipefail
           if command -v gcc >/dev/null 2>&1; then
@@ -167,7 +209,9 @@ jobs:
             exit 0
           fi
           echo "gcc не найден — ставлю mingw через choco"
-          choco install mingw -y --no-progress
+          # -y обязателен: без него choco задаёт вопрос и ждёт ввода, а stdin
+          # шага не закрыт — получится не ошибка, а тишина.
+          choco install mingw -y --no-progress --limit-output
           # Пакет менял место установки между версиями (C:\ProgramData\mingw64\...
           # и .../chocolatey/lib/mingw/tools/install/...), поэтому каталог не
           # зашиваем, а ищем сам gcc.exe.
@@ -189,6 +233,7 @@ jobs:
           key: ${{ runner.os }}-carambacore-dll-${{ hashFiles('libs/caramba-core/**/*.go', 'libs/caramba-core/go.mod', 'libs/caramba-core/go.sum', 'libs/caramba-core/patches/*.patch', 'libs/caramba-core/scripts/*.sh') }}
 
       - name: Build Windows ZIP
+        timeout-minutes: 60
         env:
           CARAMBA_SKIP_CORE: ${{ steps.cache-dll.outputs.cache-hit == 'true' && '1' || '0' }}
         run: bash apps/caramba-client/scripts/ci-desktop.sh windows
@@ -216,6 +261,7 @@ jobs:
   linux:
     name: Linux tar.gz
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -251,6 +297,7 @@ jobs:
           key: ${{ runner.os }}-carambacore-so-${{ hashFiles('libs/caramba-core/**/*.go', 'libs/caramba-core/go.mod', 'libs/caramba-core/go.sum', 'libs/caramba-core/patches/*.patch', 'libs/caramba-core/scripts/*.sh') }}
 
       - name: Build Linux tar.gz
+        timeout-minutes: 45
         env:
           CARAMBA_SKIP_CORE: ${{ steps.cache-so.outputs.cache-hit == 'true' && '1' || '0' }}
         run: bash apps/caramba-client/scripts/ci-desktop.sh linux

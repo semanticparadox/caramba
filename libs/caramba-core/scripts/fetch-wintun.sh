@@ -24,6 +24,9 @@
 #
 set -euo pipefail
 
+ts()  { date '+%H:%M:%S'; }
+say() { echo ">> [$(ts)] $*"; }
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="$(cd "${ROOT}/../.." && pwd)"
 
@@ -66,7 +69,10 @@ sha256_of() {
 extract_dll() {
   local zip="$1" member="$2" out="$3"
   if command -v unzip >/dev/null 2>&1; then
-    unzip -p "${zip}" "${member}" > "${out}"
+    # -o: никогда не спрашивать про перезапись. С -p вопрос и так не должен
+    # возникать, но unzip умеет спросить пароль на архив и уйти ждать stdin —
+    # в CI это выглядит как зависание, поэтому stdin закрываем явно.
+    unzip -o -p "${zip}" "${member}" > "${out}" </dev/null
   elif command -v python3 >/dev/null 2>&1; then
     python3 - "${zip}" "${member}" "${out}" <<'PY'
 import sys, zipfile
@@ -85,8 +91,16 @@ TMP="$(mktemp -d)"
 # проверки суммы (иначе битый архив останется на диске и переживёт запуск).
 trap 'rm -rf "${TMP}"' EXIT
 
-echo ">> скачиваю ${WINTUN_URL}"
-curl -fsSL -o "${TMP}/wintun.zip" "${WINTUN_URL}"
+say "скачиваю ${WINTUN_URL}"
+# --max-time/--connect-timeout: без них зависшее соединение держит шаг до
+# отмены джоба. --retry переживает одиночный сетевой сбой, не требуя ввода.
+# -f (fail) + -S (показать ошибку) оставлены: молчаливая 404 не должна
+# превратиться в «архив с нулевой длиной, SHA не совпала».
+curl -fsSL \
+  --connect-timeout 20 --max-time 300 \
+  --retry 3 --retry-delay 2 \
+  -o "${TMP}/wintun.zip" "${WINTUN_URL}" </dev/null
+say "скачано: $(wc -c < "${TMP}/wintun.zip") байт"
 
 GOT="$(sha256_of "${TMP}/wintun.zip")"
 if [[ "${GOT}" != "${WINTUN_SHA256}" ]]; then
@@ -95,7 +109,7 @@ if [[ "${GOT}" != "${WINTUN_SHA256}" ]]; then
   echo "  получено:  ${GOT}" >&2
   exit 1
 fi
-echo ">> SHA-256 совпала: ${GOT}"
+say "SHA-256 совпала: ${GOT}"
 
 mkdir -p "${DEST}"
 # Пишем во временный файл и только потом переносим на место: прерванная
@@ -105,4 +119,4 @@ extract_dll "${TMP}/wintun.zip" "wintun/bin/${ARCH}/wintun.dll" "${TMP}/wintun.d
 mv "${TMP}/wintun.dll" "${DEST}/wintun.dll"
 chmod 644 "${DEST}/wintun.dll"
 
-echo ">> готово: ${DEST}/wintun.dll (wintun ${WINTUN_VERSION}, ${ARCH})"
+say "готово: ${DEST}/wintun.dll (wintun ${WINTUN_VERSION}, ${ARCH})"

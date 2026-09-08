@@ -26,6 +26,10 @@
 #   CARAMBA_GOMOBILE_VERSION — версия gomobile для цели ios (по умолчанию из go.mod)
 #   USE_NATIVE_VPN=false     — собрать на моке (build.sh экспортирует флаг, его
 #                              видит и podspec на Darwin во время pod install)
+#   CARAMBA_NO_TIMEOUT=1     — не ограничивать шаги по времени (по умолчанию
+#                              каждый длинный шаг обёрнут в timeout, см. T_* ниже)
+#   CARAMBA_T_CORE, CARAMBA_T_BUILD, CARAMBA_T_PUB, CARAMBA_T_FETCH,
+#   CARAMBA_T_ZIP, CARAMBA_T_TOOLCHECK — лимиты соответствующих шагов, секунды
 #
 # Артефакты (все gitignored, см. .gitignore:51 «build/»):
 #   macos   → apps/caramba-client/build/dist/caramba-connect-macos-arm64.dmg
@@ -43,15 +47,170 @@ CORE_DIR="${REPO_ROOT}/libs/caramba-core"
 PLUGIN_DIR="${CLIENT_DIR}/packages/caramba_vpn"
 DIST_DIR="${CLIENT_DIR}/build/dist"
 
-log()  { echo "==> $*"; }
-warn() { echo "предупреждение: $*" >&2; }
-die()  { echo "ошибка: $*" >&2; exit 1; }
+# --- вывод ---------------------------------------------------------------------
+# Метка времени в каждой строке — не украшение. Windows-прогон в GitHub Actions
+# однажды простоял ДВА ЧАСА без единой строки и был отменён руками: последняя
+# строка была «go version», следующая (flutter) так и не напечаталась, и по
+# логу нельзя было сказать ни что висит, ни сколько. Теперь у каждого шага есть
+# начало, конец и длительность.
+ts()   { date '+%H:%M:%S'; }
+log()  { echo "==> [$(ts)] $*"; }
+warn() { echo "предупреждение: [$(ts)] $*" >&2; }
+die()  { echo "ошибка: [$(ts)] $*" >&2; exit 1; }
+
+# Ни один инструмент в этой цепочке не имеет права ждать ввода. В GitHub Actions
+# stdin шага не закрыт, поэтому вопрос вида «Username for https://github.com:»
+# или «Skip this patch? [y]» выглядит не как ошибка, а как тишина до отмены
+# джоба. Отдельно душим Git Credential Manager: на windows-раннере он всплывает
+# именно из git-вызовов внутри лаунчера Flutter.
+export GIT_TERMINAL_PROMPT=0
+export GIT_ASKPASS="${GIT_ASKPASS:-echo}"
+export GCM_INTERACTIVE=never
+export FLUTTER_SUPPRESS_ANALYTICS=true
+
+# Лимиты шагов (секунды). Смысл не в точности, а в том, чтобы зависший шаг
+# уронил прогон с внятным текстом, а не молчал до ручной отмены.
+T_TOOLCHECK="${CARAMBA_T_TOOLCHECK:-600}"
+T_CORE="${CARAMBA_T_CORE:-3600}"
+T_FETCH="${CARAMBA_T_FETCH:-600}"
+T_PUB="${CARAMBA_T_PUB:-900}"
+T_BUILD="${CARAMBA_T_BUILD:-2700}"
+T_ZIP="${CARAMBA_T_ZIP:-900}"
+
+# GNU timeout есть в Git Bash и в coreutils на Linux; на macOS его нет вовсе
+# (только gtimeout из brew, если поставлен). Отдельная засада — Windows: в PATH
+# раньше msys-овского /usr/bin/timeout может оказаться C:\Windows\System32\
+# timeout.exe, совершенно другая программа (пауза на N секунд), которая к тому же
+# падает при перенаправлённом stdin. Поэтому берём только тот бинарь, который сам
+# представляется coreutils, а если такого нет — работаем без лимитов, но честно
+# об этом говорим.
+TIMEOUT_BIN=""
+pick_timeout() {
+  if [[ "${CARAMBA_NO_TIMEOUT:-0}" == "1" ]]; then
+    log "лимиты шагов отключены (CARAMBA_NO_TIMEOUT=1)"
+    return 0
+  fi
+  local cand
+  for cand in /usr/bin/timeout gtimeout timeout; do
+    command -v "${cand}" >/dev/null 2>&1 || continue
+    if "${cand}" --version </dev/null 2>/dev/null | head -1 | grep -qi coreutils; then
+      TIMEOUT_BIN="${cand}"
+      log "лимиты шагов через ${cand}"
+      return 0
+    fi
+  done
+  warn "GNU timeout не найден — шаги пойдут без ограничения по времени"
+}
+
+# Запуск внешнего шага: отметка времени до и после, stdin закрыт, вывод идёт
+# ПРЯМО в лог прогона. Не в файл и не в $( ... ): именно подстановка с
+# «2>/dev/null» превратила зависший flutter в два часа тишины.
+_run() {
+  local soft="$1" secs="$2" name="$3"; shift 3
+  local rc=0 start end
+  start="$(date +%s)"
+  log "начало: ${name} (лимит ${secs}s)"
+  if [[ -n "${TIMEOUT_BIN}" ]]; then
+    "${TIMEOUT_BIN}" -k 30 "${secs}" "$@" </dev/null || rc=$?
+  else
+    "$@" </dev/null || rc=$?
+  fi
+  end="$(date +%s)"
+  local took=$(( end - start ))
+  if [[ "${rc}" -eq 124 || "${rc}" -eq 137 ]]; then
+    if [[ "${soft}" == "soft" ]]; then
+      warn "${name}: не уложился в ${secs}s и был убит — шаг завис"
+      return 0
+    fi
+    die "${name}: не уложился в ${secs}s и был убит — шаг завис (вывод шага выше)"
+  fi
+  if [[ "${rc}" -ne 0 ]]; then
+    if [[ "${soft}" == "soft" ]]; then
+      warn "${name}: код возврата ${rc} за ${took}s — продолжаю (шаг диагностический)"
+      return 0
+    fi
+    die "${name}: код возврата ${rc} (через ${took}s)"
+  fi
+  log "готово: ${name} (${took}s)"
+}
+run_step() { _run hard "$@"; }
+# То же, но провал не роняет прогон: для диагностики, а не для сборки.
+run_soft() { _run soft "$@"; }
 
 # -s обязателен: без него du по каталогу (.app, xcframework) печатает строку на
 # каждый вложенный файл, и лог прогона превращается в простыню.
 size_of() { du -sh "$1" 2>/dev/null | cut -f1; }
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || die "$1 не найден в PATH"; }
+
+# --- стартовый лок Flutter -----------------------------------------------------
+# Лаунчер flutter на POSIX-оболочке (bin/internal/shared.sh) берёт «стартовый
+# лок» так:
+#     _lock() { if hash flock;  then flock --nonblock --exclusive 7
+#               elif hash shlock; then shlock -f "$1" -p $$
+#               else mkdir "$1" 2>/dev/null; fi }
+#     _wait_for_lock() { while ! _lock "$LOCK"; do sleep .1; done }
+# В Git Bash нет ни flock, ни shlock — остаётся mkdir, а это НЕ лок, а просто
+# каталог: если предыдущий процесс flutter убили (отменили прогон, сработал
+# timeout), каталог bin/cache/.upgrade_lock остаётся на диске, и КАЖДЫЙ
+# следующий flutter крутит `sleep .1` вечно. Единственный признак жизни —
+# printf с \r в stderr. На раннере SDK ещё и кэшируется целиком
+# (subosito/flutter-action, cache: true), поэтому один отменённый прогон
+# отравляет кэш и вешает все последующие.
+#
+# В PATH на Windows лежат и `flutter` (sh-скрипт), и `flutter.bat`; Git Bash
+# выбирает первый, то есть ровно этот код, — поэтому чистим лок сами.
+flutter_root() {
+  if [[ -n "${FLUTTER_ROOT:-}" && -d "${FLUTTER_ROOT}/bin/internal" ]]; then
+    echo "${FLUTTER_ROOT}"
+    return 0
+  fi
+  local bin resolved target guard=0 dir
+  bin="$(command -v flutter 2>/dev/null || true)"
+  [[ -n "${bin}" ]] || return 1
+  # Не readlink -f: в macOS он появился только в 12.3, а flutter из brew лежит
+  # за симлинком.
+  resolved="${bin}"
+  while [[ -L "${resolved}" && ${guard} -lt 10 ]]; do
+    target="$(readlink "${resolved}")"
+    case "${target}" in
+      /*) resolved="${target}" ;;
+      *)  resolved="$(cd "$(dirname "${resolved}")" && pwd -P)/${target}" ;;
+    esac
+    guard=$(( guard + 1 ))
+  done
+  dir="$(cd "$(dirname "${resolved}")" && pwd -P)"
+  [[ -d "${dir}/internal" ]] || return 1
+  (cd "${dir}/.." && pwd -P)
+}
+
+mtime_of() {
+  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0
+}
+
+clear_stale_flutter_lock() {
+  local root lock age
+  root="$(flutter_root || true)"
+  if [[ -z "${root}" ]]; then
+    warn "не удалось определить FLUTTER_ROOT — проверку .upgrade_lock пропускаю"
+    return 0
+  fi
+  log "FLUTTER_ROOT=${root}"
+  lock="${root}/bin/cache/.upgrade_lock"
+  [[ -e "${lock}" ]] || return 0
+  if [[ "${CI:-}" == "true" ]]; then
+    warn "нашёл ${lock}: в CI параллельного flutter быть не может, это мусор от убитого процесса — удаляю"
+    rm -rf -- "${lock}"
+    return 0
+  fi
+  age=$(( $(date +%s) - $(mtime_of "${lock}") ))
+  if [[ "${age}" -gt 600 ]]; then
+    warn "нашёл протухший ${lock} (возраст ${age}s) — удаляю"
+    rm -rf -- "${lock}"
+  else
+    warn "есть ${lock} (возраст ${age}s): похоже, рядом работает другой flutter — не трогаю, но следующий шаг может ждать"
+  fi
+}
 
 # Кросс-сборки Flutter-раннера не существует: `flutter build windows` идёт
 # только на Windows, `linux` — только на Linux. Падать честно и сразу лучше,
@@ -73,9 +232,24 @@ esac
 
 need_cmd go
 need_cmd flutter
+# git нужен не только чекауту: mk-patched-deps.sh накладывает патчи mihomo
+# через `git apply` (раньше — утилитой patch, см. комментарий там).
+need_cmd git
+pick_timeout
 log "цель: ${TARGET}"
+log "go: $(command -v go)"
 log "$(go version)"
-log "flutter $(flutter --version 2>/dev/null | head -1)"
+log "flutter: $(command -v flutter)"
+clear_stale_flutter_lock
+# Версия печатается НАПРЯМУЮ. Здесь раньше стояло
+#     log "flutter $(flutter --version 2>/dev/null | head -1)"
+# и именно эта строка два часа висела в Windows-прогоне: подстановка забирала
+# stdout, 2>/dev/null съедал stderr (а там единственное сообщение зависшего
+# лаунчера — «Waiting for another flutter command to release the startup
+# lock...»), `| head -1` рвал канал нативному процессу, лимита времени не было.
+# Диагностика не имеет права быть тише того, что она диагностирует.
+run_soft "${T_TOOLCHECK}" "flutter --version" \
+  flutter --suppress-analytics --no-version-check --version
 mkdir -p "${DIST_DIR}"
 
 # Ядро собирается ОДИН раз на прогон и переиспользуется из кэша, если workflow
@@ -94,8 +268,8 @@ build_macos() {
   if core_cached "${dylib}"; then
     log "ядро из кэша: ${dylib} ($(size_of "${dylib}"))"
   else
-    log "собираю universal dylib ядра (build-desktop-lib.sh macos)"
-    bash "${CORE_DIR}/scripts/build-desktop-lib.sh" macos
+    run_step "${T_CORE}" "сборка universal dylib ядра (build-desktop-lib.sh macos)" \
+      bash "${CORE_DIR}/scripts/build-desktop-lib.sh" macos
   fi
   [[ -s "${dylib}" ]] || die "ядро не собралось: ${dylib}"
   log "срезы ядра: $(lipo -archs "${dylib}")"
@@ -108,13 +282,13 @@ build_macos() {
   log "ядро → ${vendored} ($(size_of "${vendored}"))"
 
   cd "${CLIENT_DIR}"
-  log "flutter pub get"
-  flutter pub get
+  run_step "${T_PUB}" "flutter pub get" flutter pub get
 
   # macos-dmg = flutter build macos --release + hdiutil. Отдельной команды
   # hdiutil здесь нет намеренно: локальная проверка и CI обязаны выполнять
   # байт-в-байт одну последовательность (см. build.sh).
-  bash "${SCRIPT_DIR}/build.sh" macos-dmg
+  run_step "${T_BUILD}" "flutter build macos --release + DMG (build.sh macos-dmg)" \
+    bash "${SCRIPT_DIR}/build.sh" macos-dmg
 
   local app
   app="$(/usr/bin/find "${CLIENT_DIR}/build/macos/Build/Products/Release" -maxdepth 1 -name '*.app' -print -quit)"
@@ -150,8 +324,8 @@ build_linux() {
   if core_cached "${so}"; then
     log "ядро из кэша: ${so} ($(size_of "${so}"))"
   else
-    log "собираю ядро (build-desktop-lib.sh linux)"
-    bash "${CORE_DIR}/scripts/build-desktop-lib.sh" linux
+    run_step "${T_CORE}" "сборка ядра (build-desktop-lib.sh linux)" \
+      bash "${CORE_DIR}/scripts/build-desktop-lib.sh" linux
   fi
   [[ -s "${so}" ]] || die "ядро не собралось: ${so}"
 
@@ -163,9 +337,9 @@ build_linux() {
   log "ядро → ${vendored} ($(size_of "${vendored}"))"
 
   cd "${CLIENT_DIR}"
-  log "flutter pub get"
-  flutter pub get
-  bash "${SCRIPT_DIR}/build.sh" linux --release
+  run_step "${T_PUB}" "flutter pub get" flutter pub get
+  run_step "${T_BUILD}" "flutter build linux --release (build.sh)" \
+    bash "${SCRIPT_DIR}/build.sh" linux --release
 
   local bundle="${CLIENT_DIR}/build/linux/x64/release/bundle"
   [[ -d "${bundle}" ]] || die "не найден бандл: ${bundle}"
@@ -207,13 +381,20 @@ make_zip() {
     src_native="$(cygpath -w "${src_dir}")"
   fi
   rm -f "${out}"
+  # Флаги везде подобраны так, чтобы архиватор физически не мог задать вопрос:
+  # 7z -y (на всё «да») + -bso0/-bsp0 (без простыни файлов и без прогресс-бара,
+  # но stderr остаётся), zip -q, powershell -NonInteractive + -Force.
+  # Вывод при этом не уходит в файл: зависший шаг должен быть виден по времени
+  # начала и концу, а не по отсутствию строк.
   if command -v 7z >/dev/null 2>&1; then
-    ( cd "${src_dir}" && 7z a -tzip -mx=7 "${out_native}" ./* >/dev/null )
+    ( cd "${src_dir}" && run_step "${T_ZIP}" "7z a -tzip → ${out}" \
+        7z a -tzip -mx=7 -y -bso0 -bsp0 "${out_native}" ./* )
   elif command -v zip >/dev/null 2>&1; then
-    ( cd "${src_dir}" && zip -qr "${out}" . )
+    ( cd "${src_dir}" && run_step "${T_ZIP}" "zip -qr → ${out}" zip -qr "${out}" . )
   elif command -v powershell >/dev/null 2>&1; then
-    powershell -NoProfile -NonInteractive -Command \
-      "Compress-Archive -Path '${src_native}\\*' -DestinationPath '${out_native}' -Force"
+    run_step "${T_ZIP}" "Compress-Archive → ${out}" \
+      powershell -NoLogo -NoProfile -NonInteractive -Command \
+      "\$ProgressPreference='SilentlyContinue'; Compress-Archive -Path '${src_native}\\*' -DestinationPath '${out_native}' -Force"
   else
     die "нечем упаковать zip (нет 7z, zip и powershell)"
   fi
@@ -227,7 +408,7 @@ ensure_python3_shim() {
   command -v unzip >/dev/null 2>&1 && return 0
   command -v python3 >/dev/null 2>&1 && return 0
   command -v python >/dev/null 2>&1 || return 0
-  python -c 'import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)' >/dev/null 2>&1 || return 0
+  python -c 'import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)' </dev/null >/dev/null 2>&1 || return 0
   local shim_dir="${CLIENT_DIR}/build/ci-bin"
   mkdir -p "${shim_dir}"
   printf '#!/usr/bin/env bash\nexec python "$@"\n' > "${shim_dir}/python3"
@@ -238,11 +419,10 @@ ensure_python3_shim() {
 
 build_windows() {
   need_host windows
-  # mk-patched-deps.sh (его зовёт сборка ядра) накладывает патч на mihomo
-  # утилитой patch. На macOS/Linux она есть всегда, а Git Bash — единственная
-  # среда, где её может не оказаться; без явной проверки прогон падал бы внутри
-  # чужого скрипта с «patch: command not found» через несколько минут работы.
-  need_cmd patch
+  # Утилита patch больше не нужна: mk-patched-deps.sh перешёл на `git apply`
+  # (её в Git Bash могло не быть вовсе, а при неудачном применении она уходит в
+  # диалог и читает stdin — в CI это тишина до отмены прогона). Проверка на git
+  # стоит выше, на общем пути.
   local dll="${CORE_DIR}/build/libcaramba_core.dll"
   local lib_dir="${PLUGIN_DIR}/windows/lib"
 
@@ -251,13 +431,13 @@ build_windows() {
     mkdir -p "${lib_dir}"
     cp "${dll}" "${lib_dir}/libcaramba_core.dll"
   else
-    log "собираю ядро (build-windows-lib.sh; он же вендорит DLL в плагин)"
-    bash "${CORE_DIR}/scripts/build-windows-lib.sh"
+    run_step "${T_CORE}" "сборка ядра (build-windows-lib.sh; он же вендорит DLL в плагин)" \
+      bash "${CORE_DIR}/scripts/build-windows-lib.sh"
   fi
 
   ensure_python3_shim
-  log "wintun.dll (fetch-wintun.sh, SHA-256 зашита в скрипте)"
-  bash "${CORE_DIR}/scripts/fetch-wintun.sh"
+  run_step "${T_FETCH}" "wintun.dll (fetch-wintun.sh, SHA-256 зашита в скрипте)" \
+    bash "${CORE_DIR}/scripts/fetch-wintun.sh"
 
   # CMake плагина объявляет ОБА файла в caramba_vpn_bundled_libraries без
   # if(EXISTS): отсутствие любого валит конфигурацию, но с невнятным текстом.
@@ -267,9 +447,9 @@ build_windows() {
   log "wintun → ${lib_dir}/wintun.dll ($(size_of "${lib_dir}/wintun.dll"))"
 
   cd "${CLIENT_DIR}"
-  log "flutter pub get"
-  flutter pub get
-  bash "${SCRIPT_DIR}/build.sh" windows --release
+  run_step "${T_PUB}" "flutter pub get" flutter pub get
+  run_step "${T_BUILD}" "flutter build windows --release (build.sh)" \
+    bash "${SCRIPT_DIR}/build.sh" windows --release
 
   local rel="${CLIENT_DIR}/build/windows/x64/runner/Release"
   [[ -d "${rel}" ]] || die "не найден каталог сборки: ${rel}"
@@ -286,6 +466,7 @@ build_windows() {
   log "содержимое Release проверено (exe + ядро + wintun)"
 
   local out="${DIST_DIR}/caramba-connect-windows-x64.zip"
+  log "упаковываю ${rel} → ${out}"
   make_zip "${rel}" "${out}"
   log "артефакт: ${out} ($(size_of "${out}"))"
   # Ни подписи кода, ни манифеста с requireAdministrator: SmartScreen будет
@@ -323,23 +504,24 @@ check_ios() {
         xmobile="$(cd "${CORE_DIR}" && go list -m -f '{{.Version}}' golang.org/x/mobile 2>/dev/null || true)"
       fi
       [[ -n "${xmobile}" ]] || xmobile="latest"
-      log "ставлю gomobile/gobind @ ${xmobile}"
-      go install "golang.org/x/mobile/cmd/gomobile@${xmobile}"
-      go install "golang.org/x/mobile/cmd/gobind@${xmobile}"
-      gomobile init
+      run_step "${T_FETCH}" "go install gomobile@${xmobile}" \
+        go install "golang.org/x/mobile/cmd/gomobile@${xmobile}"
+      run_step "${T_FETCH}" "go install gobind@${xmobile}" \
+        go install "golang.org/x/mobile/cmd/gobind@${xmobile}"
+      run_step "${T_FETCH}" "gomobile init" gomobile init
     fi
-    log "gomobile bind ios (build-mobile.sh ios; он же вендорит xcframework)"
-    bash "${CORE_DIR}/scripts/build-mobile.sh" ios
+    run_step "${T_CORE}" "gomobile bind ios (build-mobile.sh ios; он же вендорит xcframework)" \
+      bash "${CORE_DIR}/scripts/build-mobile.sh" ios
   fi
   [[ -d "${xcf_dst}" ]] || die "xcframework не довендорился: ${xcf_dst}"
 
   cd "${CLIENT_DIR}"
-  log "flutter pub get"
-  flutter pub get
+  run_step "${T_PUB}" "flutter pub get" flutter pub get
   # Порядок критичен: podspec решает mock/native во время pod install по наличию
   # этого xcframework и по USE_NATIVE_VPN из окружения (build.sh его экспортирует).
   # ios/Pods gitignored, на чистом чекауте flutter сам сделает pod install.
-  bash "${SCRIPT_DIR}/build.sh" ios --simulator --debug --no-codesign
+  run_step "${T_BUILD}" "flutter build ios (симулятор, без подписи)" \
+    bash "${SCRIPT_DIR}/build.sh" ios --simulator --debug --no-codesign
 
   # Exarobot линкуется СТАТИЧЕСКИ: отдельного Exarobot.framework в Runner.app не
   # будет, символы ядра лежат внутри бинаря плагина.
