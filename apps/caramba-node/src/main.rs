@@ -1,6 +1,6 @@
 use caramba_shared::api::{HeartbeatRequest, HeartbeatResponse};
 use caramba_shared::config::ConfigResponse;
-use caramba_shared::self_update::{apply_self_update, restart_service};
+use caramba_shared::self_update::{apply_self_update, restart_service, sha256_hex_of_file};
 use clap::Parser;
 use std::collections::HashSet;
 use std::path::Path;
@@ -226,6 +226,86 @@ fn is_newer_version(target: &str, current: &str) -> bool {
     }
 }
 
+/// Решение о самообновлении агента.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpdateDecision {
+    /// Качать и подменять бинарник.
+    Apply,
+    /// Панель назвала версию не новее нашей.
+    SkipNotNewer,
+    /// В релизе лежит ровно тот бинарь, который уже запущен: версия крейта
+    /// не поднята при сборке релиза. Обновляться некуда.
+    SkipSameBinary,
+    /// Этот же ассет уже применялся в текущем процессе.
+    SkipAlreadyApplied,
+}
+
+/// Чистое решение «обновляться ли», вынесенное отдельно ради тестов.
+///
+/// Зачем вообще: релизы v0.9.81…v0.9.87 собирали агента с неподнятой версией
+/// крейта 0.9.80. Панель видела latest v0.9.87, агент считал её новее своей
+/// 0.9.80, скачивал ассет (тоже 0.9.80, sha256 совпадал с `agent_update_hash`),
+/// подменял бинарник, перезапускался — и версия не менялась. Цикл шёл раз в
+/// секунду двое суток и выглядел как «медленный VPN».
+///
+/// Сравнение версий обмануть легко, сравнение содержимого файла — нет, поэтому
+/// решающим признаком стал sha256 запущенного бинарника.
+///
+/// `running_hash == None` означает «не смогли посчитать» — в этом случае не
+/// блокируем обновление, иначе одна ошибка чтения /proc заморозила бы выкатку.
+fn should_apply_update(
+    target_newer: bool,
+    asset_hash: &str,
+    running_hash: Option<&str>,
+    already_skipped: Option<&str>,
+    already_applied: Option<&str>,
+) -> UpdateDecision {
+    if !target_newer {
+        return UpdateDecision::SkipNotNewer;
+    }
+    let asset = asset_hash.trim().to_ascii_lowercase();
+    if asset.is_empty() {
+        return UpdateDecision::SkipNotNewer;
+    }
+    let same = |other: Option<&str>| {
+        other.is_some_and(|h| {
+            let h = h.trim().to_ascii_lowercase();
+            !h.is_empty() && h == asset
+        })
+    };
+    if same(already_applied) {
+        return UpdateDecision::SkipAlreadyApplied;
+    }
+    if same(running_hash) || same(already_skipped) {
+        return UpdateDecision::SkipSameBinary;
+    }
+    UpdateDecision::Apply
+}
+
+/// sha256 запущенного исполняемого файла, посчитанный один раз за процесс.
+///
+/// Один раз — потому что heartbeat идёт раз в секунду, а бинарник под ногами не
+/// меняется: после успешной подмены агент сразу выходит (`exit(0)`).
+/// `None` — «посчитать не удалось»; это НЕ повод блокировать обновление.
+fn running_exe_sha256() -> Option<&'static str> {
+    static RUNNING_EXE_SHA256: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    RUNNING_EXE_SHA256
+        .get_or_init(|| match std::env::current_exe() {
+            Ok(path) => match sha256_hex_of_file(&path) {
+                Ok(hex) => Some(hex),
+                Err(e) => {
+                    warn!("не удалось посчитать sha256 своего бинарника: {e}");
+                    None
+                }
+            },
+            Err(e) => {
+                warn!("не удалось определить путь к своему бинарнику: {e}");
+                None
+            }
+        })
+        .as_deref()
+}
+
 /// Current Clash API secret, parsed from the active sing-box config.
 /// The panel now emits `experimental.clash_api.secret`, so all local Clash
 /// queries (:9090) must send it as a Bearer token (caramba-4cs).
@@ -324,6 +404,14 @@ struct AgentState {
     /// so the panel can react (e.g. blacklist the SNI / rotate the whole group).
     /// `None` once consumed by a heartbeat.
     pending_block_signals: Option<caramba_shared::api::BlockSignals>,
+    /// sha256 ассета релиза, обновление на который уже пропущено как «тот же
+    /// бинарь». Хранится, чтобы предупреждать один раз, а не на каждом
+    /// heartbeat: в инциденте 2026-09 такой цикл писал в журнал ~4400 раз в час.
+    skipped_update_hash: Option<String>,
+    /// sha256 ассета, для которого self-update уже выполнялся в ЭТОМ процессе.
+    /// Обычно после обновления мы сразу выходим, но если exit не случился —
+    /// второй заход по тому же хешу бессмыслен и опасен.
+    applied_update_hash: Option<String>,
 }
 
 #[tokio::main]
@@ -390,6 +478,8 @@ async fn main() -> anyhow::Result<()> {
         open_firewall_ports: HashSet::new(),
         sni_block_failure_streak: 0,
         pending_block_signals: None,
+        skipped_update_hash: None,
+        applied_update_hash: None,
     };
 
     // Initialize HTTP Client with timeouts so a hung panel doesn't stall the heartbeat loop.
@@ -539,12 +629,9 @@ async fn main() -> anyhow::Result<()> {
                     // check was a string equality test — it happily triggered
                     // "updates" to OLDER versions, then SIGTERM on the post-update
                     // restart bricked the node via systemd's start-limit-hit.
-                    if is_newer_version(&target_ver, current_version) && target_ver != "0.0.0" {
-                        info!(
-                            "📣 New version available: {} (Current: {})",
-                            target_ver, current_version
-                        );
-
+                    let target_newer =
+                        is_newer_version(&target_ver, current_version) && target_ver != "0.0.0";
+                    if target_newer {
                         // Fetch update info
                         let info_url = format!("{}/api/v2/node/update-info", panel_url);
                         match client
@@ -559,20 +646,67 @@ async fn main() -> anyhow::Result<()> {
                                     let hash = json["hash"].as_str().unwrap_or("");
 
                                     if !download_url.is_empty() && !hash.is_empty() {
-                                        match apply_self_update(
-                                            download_url,
-                                            Some(hash),
-                                            "caramba-node",
-                                        )
-                                        .await
-                                        {
-                                            Ok(_) => {
-                                                restart_service("caramba-node");
-                                                std::process::exit(0);
+                                        // Версии врут (релиз могли собрать с
+                                        // неподнятой версией крейта), содержимое
+                                        // файла — нет. Сравниваем sha256 ассета
+                                        // с sha256 уже запущенного бинарника.
+                                        let asset_hash = hash.trim().to_ascii_lowercase();
+                                        let decision = should_apply_update(
+                                            target_newer,
+                                            &asset_hash,
+                                            running_exe_sha256(),
+                                            state.skipped_update_hash.as_deref(),
+                                            state.applied_update_hash.as_deref(),
+                                        );
+                                        match decision {
+                                            UpdateDecision::Apply => {
+                                                info!(
+                                                    "📣 New version available: {} (Current: {})",
+                                                    target_ver, current_version
+                                                );
+                                                state.applied_update_hash =
+                                                    Some(asset_hash.clone());
+                                                match apply_self_update(
+                                                    download_url,
+                                                    Some(hash),
+                                                    "caramba-node",
+                                                )
+                                                .await
+                                                {
+                                                    Ok(_) => {
+                                                        restart_service("caramba-node");
+                                                        std::process::exit(0);
+                                                    }
+                                                    Err(e) => {
+                                                        // Обновление не легло —
+                                                        // пусть следующий заход
+                                                        // попробует снова.
+                                                        state.applied_update_hash = None;
+                                                        error!("Self-update failed: {}", e);
+                                                    }
+                                                }
                                             }
-                                            Err(e) => {
-                                                error!("Self-update failed: {}", e);
+                                            UpdateDecision::SkipSameBinary => {
+                                                // Предупреждаем ОДИН раз на хеш:
+                                                // heartbeat раз в секунду, иначе
+                                                // журнал узла превращается в шум.
+                                                if state.skipped_update_hash.as_deref()
+                                                    != Some(asset_hash.as_str())
+                                                {
+                                                    warn!(
+                                                        "⛔ релиз {} содержит тот же бинарь, что уже запущен (sha256 {}, версия крейта не поднята) — обновление пропущено",
+                                                        target_ver, asset_hash
+                                                    );
+                                                    state.skipped_update_hash = Some(asset_hash);
+                                                }
                                             }
+                                            UpdateDecision::SkipAlreadyApplied => {
+                                                warn!(
+                                                    "⛔ обновление на {} уже применялось в этом процессе — повтор пропущен",
+                                                    target_ver
+                                                );
+                                            }
+                                            UpdateDecision::SkipNotNewer => {}
                                         }
                                     }
                                 }
@@ -1274,13 +1408,19 @@ async fn check_and_update_config(
                 if let Some(prev) = backup {
                     if let Err(e) = tokio::fs::write(config_path, &prev).await {
                         error!("⚠️ Rollback write failed: {} — config left as-is", e);
+                        // На диске новый (невалидный) конфиг, а sidecar описывает
+                        // старый — состояние разъехалось, убираем sidecar.
+                        clear_config_hash_sidecar(config_path).await;
                     } else {
                         info!("↩️ Rolled back to previous config. Keeping sing-box running.");
+                        // Откат вернул ровно тот конфиг, который описывает
+                        // существующий sidecar, — трогать его не нужно.
                     }
                 } else {
                     warn!(
                         "No previous config to roll back to; leaving new (invalid) config in place."
                     );
+                    clear_config_hash_sidecar(config_path).await;
                 }
                 // current_hash/last_applied stay as they were → panel knows apply failed.
                 anyhow::bail!("sing-box rejected new config; rolled back");
@@ -1302,6 +1442,9 @@ async fn check_and_update_config(
 
         // U22: only ACK the applied hash AFTER a successful restart. The panel
         // reads this in the heartbeat to confirm the rollout actually landed.
+        // Тем же моментом кладём sidecar: следующий старт агента прочитает
+        // панельный хеш и не станет перезапускать sing-box «на ровном месте».
+        persist_config_hash(config_path, &config_resp.hash).await;
         state.last_applied_config_hash = Some(config_resp.hash);
 
         info!("✅ Config updated, validated and service restarted");
@@ -1327,11 +1470,67 @@ async fn update_config(
     check_and_update_config(client, panel_url, token, config_path, state).await
 }
 
+/// Путь к sidecar-файлу с хешем конфига, посчитанным ПАНЕЛЬЮ.
+fn config_hash_sidecar_path(config_path: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(format!("{}.hash", config_path))
+}
+
+/// Запоминает панельный хеш конфига рядом с самим конфигом.
+///
+/// Зачем: `load_current_hash` считал md5 от файла на диске, а сравнивал его с
+/// `config_resp.hash`, который панель считает от СВОЕЙ сериализации. Совпасть
+/// они не могут никогда (мы пишем `to_string_pretty`), поэтому КАЖДЫЙ старт
+/// агента выглядел как «Config hash changed» и тянул за собой перезапуск
+/// sing-box. В инциденте 2026-09 агент рестартовал раз в секунду — и вместе с
+/// ним рвался VPN, хотя конфиг не менялся (в журнале одна и та же пара
+/// 2db2ce8b… -> 2d8364b4… тысячи раз).
+///
+/// Пишем ТОЛЬКО после успешного перезапуска sing-box: sidecar означает
+/// «этот конфиг реально применён», а не «файл записан». Иначе упавший рестарт
+/// оставил бы узел на старом конфиге, но с sidecar «всё применено».
+async fn persist_config_hash(config_path: &str, hash: &str) {
+    let sidecar = config_hash_sidecar_path(config_path);
+    if let Err(e) = tokio::fs::write(&sidecar, hash.as_bytes()).await {
+        warn!(
+            "не удалось записать {} ({e}) — агент вернётся к md5-сравнению и может лишний раз перезапустить sing-box",
+            sidecar.display()
+        );
+    }
+}
+
+/// Убирает sidecar, когда состояние на диске перестало ему соответствовать.
+///
+/// Нужен на пути отката (U22 safe-apply): если восстановить прежний конфиг не
+/// удалось, на диске лежит новый (невалидный) конфиг, а sidecar описывает
+/// старый. Лучше остаться совсем без sidecar — md5 файла заведомо не совпадёт с
+/// панельным хешем, и узел честно попробует применить конфиг заново.
+async fn clear_config_hash_sidecar(config_path: &str) {
+    let sidecar = config_hash_sidecar_path(config_path);
+    if let Err(e) = tokio::fs::remove_file(&sidecar).await
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        warn!("не удалось удалить {}: {e}", sidecar.display());
+    }
+}
+
 async fn load_current_hash(config_path: &str) -> Option<String> {
     if !Path::new(config_path).exists() {
         return None;
     }
 
+    // Сначала sidecar с панельным хешем — только он сравним с `config_resp.hash`.
+    let sidecar = config_hash_sidecar_path(config_path);
+    if let Ok(saved) = tokio::fs::read_to_string(&sidecar).await {
+        let saved = saved.trim().to_string();
+        if !saved.is_empty() {
+            info!("📄 Loaded config hash from sidecar: {}", saved);
+            return Some(saved);
+        }
+    }
+
+    // Старое поведение — для узлов, где sidecar ещё не появился. Такой хеш с
+    // панельным не совпадёт и вызовет ровно одно применение конфига, после
+    // которого sidecar появится и лишние перезапуски прекратятся.
     match tokio::fs::read_to_string(config_path).await {
         Ok(content) => {
             let hash = format!("{:x}", md5::compute(content.as_bytes()));
@@ -2311,5 +2510,194 @@ mod v2ray_stats_tests {
     #[test]
     fn a_blank_user_is_not_a_user() {
         assert_eq!(parse_stat_user("user>>>   >>>traffic>>>uplink"), None);
+    }
+}
+
+#[cfg(test)]
+mod self_update_guard_tests {
+    use super::{UpdateDecision, should_apply_update};
+
+    const RUNNING: &str = "aa11bb22cc33dd44ee55ff66aa11bb22cc33dd44ee55ff66aa11bb22cc33dd44";
+    const OTHER: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    /// Обычная нормальная выкатка: версия новее, бинарь другой.
+    #[test]
+    fn a_genuinely_new_binary_is_applied() {
+        assert_eq!(
+            should_apply_update(true, OTHER, Some(RUNNING), None, None),
+            UpdateDecision::Apply
+        );
+    }
+
+    /// Версия не новее — до сравнения хешей дело не доходит.
+    #[test]
+    fn an_older_or_equal_target_is_never_applied() {
+        assert_eq!(
+            should_apply_update(false, OTHER, Some(RUNNING), None, None),
+            UpdateDecision::SkipNotNewer
+        );
+    }
+
+    /// Сердцевина инцидента: панель обещает v0.9.87, а в ассете лежит ровно тот
+    /// бинарь, который уже работает. Обновление здесь — бесконечный цикл.
+    #[test]
+    fn the_same_binary_is_never_reapplied() {
+        assert_eq!(
+            should_apply_update(true, RUNNING, Some(RUNNING), None, None),
+            UpdateDecision::SkipSameBinary
+        );
+    }
+
+    /// Регистр хеша не должен решать судьбу узла.
+    #[test]
+    fn hash_comparison_ignores_case_and_padding() {
+        let upper = RUNNING.to_ascii_uppercase();
+        assert_eq!(
+            should_apply_update(true, &format!("  {upper}  "), Some(RUNNING), None, None),
+            UpdateDecision::SkipSameBinary
+        );
+    }
+
+    /// Однажды пропущенный хеш остаётся пропущенным, даже если посчитать
+    /// sha256 своего бинарника больше не получается.
+    #[test]
+    fn a_previously_skipped_hash_stays_skipped() {
+        assert_eq!(
+            should_apply_update(true, RUNNING, None, Some(RUNNING), None),
+            UpdateDecision::SkipSameBinary
+        );
+    }
+
+    /// Повтор того же обновления внутри одного процесса запрещён: exit(0) мог
+    /// не случиться, и второй заход крутил бы тот же цикл.
+    #[test]
+    fn the_same_update_is_not_applied_twice_in_one_process() {
+        assert_eq!(
+            should_apply_update(true, OTHER, Some(RUNNING), None, Some(OTHER)),
+            UpdateDecision::SkipAlreadyApplied
+        );
+    }
+
+    /// Не смогли посчитать свой хеш — это не повод замораживать выкатку.
+    #[test]
+    fn an_uncomputable_running_hash_does_not_block_updates() {
+        assert_eq!(
+            should_apply_update(true, OTHER, None, None, None),
+            UpdateDecision::Apply
+        );
+    }
+
+    /// Пустой хеш в update-info — доверять нечему, не обновляемся.
+    #[test]
+    fn an_empty_asset_hash_is_not_applied() {
+        assert_eq!(
+            should_apply_update(true, "   ", Some(RUNNING), None, None),
+            UpdateDecision::SkipNotNewer
+        );
+    }
+
+    /// Пустые sidecar-значения не должны случайно совпасть с пустым хешем.
+    #[test]
+    fn blank_bookkeeping_values_never_match() {
+        assert_eq!(
+            should_apply_update(true, OTHER, Some(""), Some(""), Some("")),
+            UpdateDecision::Apply
+        );
+    }
+}
+
+#[cfg(test)]
+mod config_hash_sidecar_tests {
+    use super::{clear_config_hash_sidecar, load_current_hash, persist_config_hash};
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "caramba-node-hash-{tag}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    const PANEL_HASH: &str = "2d8364b4c0de4f118a7a2f2a9b1c33ee";
+
+    /// Записали панельный хеш — читаем его же. Именно это и обрывает цикл
+    /// «старт агента = Config hash changed = перезапуск sing-box».
+    #[tokio::test]
+    async fn a_saved_panel_hash_is_read_back_verbatim() {
+        let dir = temp_dir("roundtrip");
+        let cfg = dir.join("config.json");
+        std::fs::write(&cfg, "{\n  \"log\": {}\n}").unwrap();
+        let cfg = cfg.to_str().unwrap();
+
+        persist_config_hash(cfg, PANEL_HASH).await;
+        assert_eq!(load_current_hash(cfg).await.as_deref(), Some(PANEL_HASH));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Узел без sidecar (ещё не обновлённый агент) должен вести себя как раньше:
+    /// md5 самого файла.
+    #[tokio::test]
+    async fn without_a_sidecar_the_old_md5_behaviour_is_kept() {
+        let dir = temp_dir("legacy");
+        let cfg = dir.join("config.json");
+        let content = "{\n  \"log\": {}\n}";
+        std::fs::write(&cfg, content).unwrap();
+        let cfg = cfg.to_str().unwrap();
+
+        let expected = format!("{:x}", md5::compute(content.as_bytes()));
+        assert_eq!(load_current_hash(cfg).await.as_deref(), Some(&expected[..]));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Пустой/битый sidecar не должен подменять хеш пустой строкой — иначе узел
+    /// решил бы, что конфиг «никакой», и перезапускал бы sing-box снова.
+    #[tokio::test]
+    async fn an_empty_sidecar_falls_back_to_the_file_hash() {
+        let dir = temp_dir("empty");
+        let cfg = dir.join("config.json");
+        let content = "{\n  \"log\": {}\n}";
+        std::fs::write(&cfg, content).unwrap();
+        std::fs::write(dir.join("config.json.hash"), "   \n").unwrap();
+        let cfg = cfg.to_str().unwrap();
+
+        let expected = format!("{:x}", md5::compute(content.as_bytes()));
+        assert_eq!(load_current_hash(cfg).await.as_deref(), Some(&expected[..]));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Путь отката: sidecar снят — значит следующий цикл обязан применить конфиг
+    /// заново, а не поверить в несуществующее «уже применено».
+    #[tokio::test]
+    async fn clearing_the_sidecar_returns_to_the_file_hash() {
+        let dir = temp_dir("rollback");
+        let cfg = dir.join("config.json");
+        let content = "{\n  \"log\": {}\n}";
+        std::fs::write(&cfg, content).unwrap();
+        let cfg = cfg.to_str().unwrap();
+
+        persist_config_hash(cfg, PANEL_HASH).await;
+        clear_config_hash_sidecar(cfg).await;
+        // Повторное снятие отсутствующего sidecar — не ошибка.
+        clear_config_hash_sidecar(cfg).await;
+
+        let expected = format!("{:x}", md5::compute(content.as_bytes()));
+        assert_eq!(load_current_hash(cfg).await.as_deref(), Some(&expected[..]));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Нет конфига — нет и хеша, даже если sidecar по какой-то причине остался.
+    #[tokio::test]
+    async fn a_missing_config_has_no_hash() {
+        let dir = temp_dir("missing");
+        let cfg = dir.join("config.json");
+        let cfg = cfg.to_str().unwrap();
+        assert_eq!(load_current_hash(cfg).await, None);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

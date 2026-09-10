@@ -709,7 +709,7 @@ dependencies = [
 
 [[package]]
 name = "caramba-bot"
-version = "0.9.80"
+version = "0.9.88"
 dependencies = [
  "anyhow",
  "caramba-shared",
@@ -730,7 +730,7 @@ dependencies = [
 
 [[package]]
 name = "caramba-db"
-version = "0.9.80"
+version = "0.9.88"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -746,7 +746,7 @@ dependencies = [
 
 [[package]]
 name = "caramba-installer"
-version = "0.9.80"
+version = "0.9.88"
 dependencies = [
  "anyhow",
  "chrono",
@@ -771,7 +771,7 @@ dependencies = [
 
 [[package]]
 name = "caramba-node"
-version = "0.9.80"
+version = "0.9.88"
 dependencies = [
  "anyhow",
  "caramba-shared",
@@ -801,7 +801,7 @@ dependencies = [
 
 [[package]]
 name = "caramba-panel"
-version = "0.9.87"
+version = "0.9.88"
 dependencies = [
  "anyhow",
  "askama",
@@ -860,7 +860,7 @@ dependencies = [
 
 [[package]]
 name = "caramba-shared"
-version = "0.9.80"
+version = "0.9.88"
 dependencies = [
  "anyhow",
  "base64",
@@ -880,7 +880,7 @@ dependencies = [
 
 [[package]]
 name = "caramba-sub"
-version = "0.9.87"
+version = "0.9.88"
 dependencies = [
  "anyhow",
  "axum 0.8.9",

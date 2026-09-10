@@ -1,6 +1,6 @@
 [package]
 name = "caramba-db"
-version = "0.9.80"
+version = "0.9.88"
 edition = "2024"
 
 [dependencies]
