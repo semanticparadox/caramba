@@ -269,12 +269,13 @@ jobs:
 
       # Набор проверен по FLUTTER_PLUGIN_LIST для linux: caramba_vpn (gtk+-3.0),
       # flutter_secure_storage_linux (libsecret-1), gtk, url_launcher_linux.
-      # libayatana-appindicator3-dev НЕ нужен — трей-плагинов в проекте нет.
+      # tray_manager (десктопный трей) требует ayatana-appindicator3 уже на
+      # этапе CMake — без пакета сборка Linux падает до компиляции.
       - name: Install system deps
         run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build pkg-config \
-            libgtk-3-dev liblzma-dev libsecret-1-dev
+            libgtk-3-dev liblzma-dev libsecret-1-dev libayatana-appindicator3-dev
 
       - name: Setup Go
         uses: actions/setup-go@v5
