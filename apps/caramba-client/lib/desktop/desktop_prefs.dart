@@ -8,8 +8,6 @@
 /// снимке не должно выглядеть потерей настроек.
 library;
 
-import 'dart:async';
-
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -144,12 +142,22 @@ class DesktopPrefs {
 
 /// Пишет каждое изменение в [PrefsStore] и умеет принять снимок с диска.
 ///
-/// Записи идут через `unawaited`: настройка применяется в UI сразу, диск
+/// Записи не ожидаются вызывающим: настройка применяется в UI сразу, диск
 /// догоняет. Так же устроены [SettingsNotifier] и остальные локальные снимки.
+/// Но начатую запись помним ([flush]): выход из приложения обязан её дождаться,
+/// иначе ⌘Q сразу после переключения тумблера теряет само переключение.
 class DesktopPrefsNotifier extends StateNotifier<DesktopPrefs> {
   final PrefsStore? _prefs;
 
   DesktopPrefsNotifier([this._prefs]) : super(const DesktopPrefs());
+
+  Future<void> _pendingWrite = Future<void>.value();
+
+  /// Ждёт, пока последняя начатая запись настроек доедет до диска.
+  ///
+  /// Отказ диска проглатывается: барьер выхода не имеет права уронить
+  /// завершение приложения.
+  Future<void> flush() => _pendingWrite;
 
   /// Ставит снимок, прочитанный с диска, БЕЗ обратной записи: иначе гидратация
   /// перезаписывала бы только что прочитанное и один битый ключ размножался бы
@@ -159,7 +167,9 @@ class DesktopPrefsNotifier extends StateNotifier<DesktopPrefs> {
   @override
   set state(DesktopPrefs value) {
     super.state = value;
-    unawaited(_prefs?.writeJson(kDesktopPrefsKey, value.toJson()));
+    final write = _prefs?.writeJson(kDesktopPrefsKey, value.toJson());
+    if (write == null) return;
+    _pendingWrite = write.catchError((Object _) {});
   }
 
   void setCloseToTray(bool v) => state = state.copyWith(closeToTray: v);

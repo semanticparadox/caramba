@@ -17,10 +17,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:caramba_client/data/connection_profiles_store.dart';
+import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/server.dart';
 import 'package:caramba_client/desktop/desktop_prefs.dart';
 import 'package:caramba_client/desktop/ports/window_port.dart';
 import 'package:caramba_client/desktop/window_service.dart';
+import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/state/vpn_state.dart';
 import 'package:caramba_client/vpn/vpn_service.dart';
@@ -175,6 +178,47 @@ class FakeVpnConnection with FakeCsmDevice implements VpnConnection {
   }
 }
 
+/// Хранилище профилей, которое пишет НЕ мгновенно.
+///
+/// Задержка здесь — не выдумка теста, а сама связка ключей: запись уходит по
+/// каналу в AppKit и возвращается своим оборотом. Именно в этот промежуток и
+/// попадал ⌘Q, из-за чего импортированная подписка не пережила перезапуск
+/// (дефект D-10 ручной проверки).
+class SlowProfilesStore extends ConnectionProfilesStore {
+  final Duration delay;
+
+  List<ConnectionProfile> written = const <ConnectionProfile>[];
+
+  SlowProfilesStore({this.delay = const Duration(milliseconds: 20)});
+
+  @override
+  Future<List<ConnectionProfile>> readProfiles() async =>
+      const <ConnectionProfile>[];
+
+  @override
+  Future<String?> readActiveId() async => null;
+
+  @override
+  Future<void> writeProfiles(List<ConnectionProfile> profiles) async {
+    await Future<void>.delayed(delay);
+    written = profiles;
+  }
+
+  @override
+  Future<void> writeActiveId(String? id) async {}
+
+  @override
+  Future<void> clear() async {}
+}
+
+ConnectionProfile _importedProfile() => const ConnectionProfile(
+  id: 'cp_imported',
+  type: ProfileType.rawSub,
+  displayName: 'Подписка',
+  source: 'https://example.test/sub',
+  rawConfig: 'proxies: []',
+);
+
 /// Прокрутить очередь, чтобы кадры статуса и `unawaited`-вызовы доехали.
 Future<void> pump() => Future<void>.delayed(Duration.zero);
 
@@ -199,6 +243,7 @@ void main() {
     DesktopPrefs initial = const DesktopPrefs(),
     Duration stopLimit = const Duration(milliseconds: 200),
     Duration boundsDebounce = const Duration(milliseconds: 10),
+    Future<void> Function()? flushWrites,
   }) {
     prefs = initial;
     service = WindowService(
@@ -226,6 +271,7 @@ void main() {
       },
       exitProcess: () async => order.add('exit'),
       beforeExit: () async => order.add('tray'),
+      flushWrites: flushWrites,
       stopLimit: stopLimit,
       boundsDebounce: boundsDebounce,
     );
@@ -410,6 +456,102 @@ void main() {
 
     await service.toggle();
     expect(port.visible, isTrue);
+  });
+
+  // D-10: профиль подписки не пережил ⌘Q. Причин было две — «айфонная» связка
+  // ключей, куда ad-hoc сборка писать не вправе (её лечит
+  // `secure_storage_options.dart`), и гонка выхода с записью: она проверяется
+  // здесь.
+  group('выход не обрывает начатые записи', () {
+    test('процесс не умирает, пока запись не доехала', () async {
+      final flushed = Completer<void>();
+      final service = build(
+        flushWrites: () async {
+          order.add('flush-start');
+          await flushed.future;
+          order.add('flush-done');
+        },
+      );
+
+      final quit = service.quitApplication();
+      await pump();
+
+      // Значок погашен, барьер начат — но выхода ещё нет.
+      expect(order, <String>['tray', 'flush-start']);
+
+      flushed.complete();
+      await quit;
+
+      expect(order, <String>['tray', 'flush-start', 'flush-done', 'exit']);
+    });
+
+    test('⌘Q системой ждёт записи так же, как наш собственный выход', () async {
+      build(flushWrites: () async => order.add('flush')).attach();
+
+      final response = await WidgetsBinding.instance.handleRequestAppExit();
+
+      // Процесс убьёт система, как только получит этот ответ, поэтому барьер
+      // обязан отработать ДО него.
+      expect(response, AppExitResponse.exit);
+      expect(order, <String>['tray', 'flush']);
+    });
+
+    test('импортированный профиль доезжает до хранилища раньше выхода', () async {
+      final store = SlowProfilesStore();
+      final wired = ProviderContainer(
+        overrides: <Override>[
+          vpnConnectionProvider.overrideWithValue(core),
+          windowPortProvider.overrideWithValue(port),
+          connectionProfilesStoreProvider.overrideWithValue(store),
+        ],
+      );
+      addTearDown(wired.dispose);
+
+      final profiles = wired.read(connectionProfilesProvider.notifier);
+      await pump();
+
+      final service = wired.read(windowServiceProvider);
+      // Человек нажал ⌘Q сразу после импорта: запись ещё в пути.
+      unawaited(profiles.add(_importedProfile()));
+      expect(store.written, isEmpty, reason: 'запись ещё не доехала');
+
+      // `exitSelf: false` — путь ⌘Q: процесс завершает система по нашему
+      // ответу, значит всё, что должно быть на диске, обязано лежать там уже.
+      await service.quitApplication(exitSelf: false);
+
+      expect(
+        store.written.map((p) => p.id),
+        <String>['cp_imported'],
+        reason: 'профиль пережил бы перезапуск',
+      );
+    });
+
+    test('настройки окна тоже дожидаются диска', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final wired = ProviderContainer(
+        overrides: <Override>[
+          vpnConnectionProvider.overrideWithValue(core),
+          windowPortProvider.overrideWithValue(port),
+          // Барьер выхода ждёт оба хранилища; профили здесь не проверяются, но
+          // живой secure storage в тесте ушёл бы в несуществующий канал.
+          connectionProfilesStoreProvider.overrideWithValue(
+            SlowProfilesStore(delay: Duration.zero),
+          ),
+        ],
+      );
+      addTearDown(wired.dispose);
+      await wired.read(prefsStoreProvider).load();
+
+      wired.read(desktopPrefsProvider.notifier).setLaunchAtLogin(true);
+      await wired.read(windowServiceProvider).quitApplication(exitSelf: false);
+
+      expect(
+        wired
+            .read(prefsStoreProvider)
+            .readJson(kDesktopPrefsKey)['launch_at_login'],
+        isTrue,
+      );
+    });
   });
 
   test('провайдер собирает сервис на подставленном порту', () async {

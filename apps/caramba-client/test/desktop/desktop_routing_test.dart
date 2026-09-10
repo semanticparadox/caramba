@@ -26,10 +26,12 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/features/auth/login_screen.dart';
+import 'package:caramba_client/features/connections/connection_import_screen.dart';
 import 'package:caramba_client/features/home/home_screen.dart';
 import 'package:caramba_client/features/profile/profile_desktop.dart';
 import 'package:caramba_client/features/profile/profile_screen.dart';
@@ -37,6 +39,9 @@ import 'package:caramba_client/features/servers/servers_screen.dart';
 import 'package:caramba_client/features/settings/settings_desktop.dart';
 import 'package:caramba_client/features/settings/settings_screen.dart';
 import 'package:caramba_client/router/app_router.dart';
+import 'package:caramba_client/theme/app_theme.dart';
+import 'package:caramba_client/widgets/lucide.dart';
+import 'package:caramba_client/widgets/ui.dart';
 import 'package:caramba_client/router/routes.dart';
 
 /// Маршруты таблицы по полному пути.
@@ -253,5 +258,38 @@ void main() {
       isA<SettingsDesktopScreen>(),
     );
     debugDefaultTargetPlatformOverride = null;
+  });
+
+  // D-09 ручной проверки: «Добавить подключение» открывалось накладной панелью,
+  // а в шапке стояла стрелка «←» — жест мобильного стека. У панели со скримом
+  // назад идти некуда, её закрывают крестиком, как «Правила по сайтам» и
+  // «Серверы»; стрелка обещала возврат на предыдущий экран, которого нет.
+  group('шапка «Добавить подключение»', () {
+    Future<String> pumpHeadGlyph(WidgetTester tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            theme: AppTheme.dark(),
+            home: const ConnectionImportScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final head = tester.widget<ScreenHead>(find.byType(ScreenHead));
+      return (head.trailing! as IconBtn).glyph;
+    }
+
+    testWidgets('на десктопе закрывается крестиком', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      try {
+        expect(await pumpHeadGlyph(tester), Lucide.x);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('на мобильном остаётся стрелка стека', (tester) async {
+      expect(await pumpHeadGlyph(tester), Lucide.arrowLeft);
+    });
   });
 }

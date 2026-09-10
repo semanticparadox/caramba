@@ -383,6 +383,63 @@ void main() {
     });
   });
 
+  // Ручная проверка увидела ⌘1/⌘2/⌘3, которые «не срабатывают»: сочетание
+  // объявлено, интент летит — а ветка не меняется. Проверять только пункт меню
+  // мало: он проверяет ПРОВОДКУ сочетания, а не то, что интент вообще кто-то
+  // обрабатывает. Здесь интент подаётся напрямую в [Actions] шелла — то, во что
+  // превращаются оба пути (и меню macOS, и [Shortcuts] других платформ).
+  testWidgets('Actions шелла обрабатывают SelectTabIntent и меняют ветку', (
+    tester,
+  ) async {
+    await _desktop(tester, () async {
+      await _pump(tester);
+
+      // Контекст ПОД [Actions]: сайдбар лежит внутри той же обёртки, что и
+      // весь контент, — оттуда интент и поднимается у живого приложения.
+      final inside = tester.element(find.byType(DesktopSidebar));
+
+      Actions.invoke(inside, const SelectTabIntent(2));
+      await tester.pumpAndSettle();
+      expect(find.text('settings-screen'), findsOneWidget);
+      expect(find.text('home-screen'), findsNothing);
+
+      Actions.invoke(inside, const SelectTabIntent(1));
+      await tester.pumpAndSettle();
+      expect(find.text('profile-screen'), findsOneWidget);
+
+      Actions.invoke(inside, const SelectTabIntent(0));
+      await tester.pumpAndSettle();
+      expect(find.text('home-screen'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  // Обратная сторона того же решения: где строки меню нет, сочетания обязаны
+  // быть в [Shortcuts] и доходить до ветки настоящим нажатием.
+  testWidgets('без строки меню ветку переключает Ctrl+3', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    tester.view
+      ..physicalSize = const Size(1280, 800)
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    try {
+      await _pump(tester);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit3);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+
+      expect(find.text('settings-screen'), findsOneWidget);
+      expect(find.text('home-screen'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   testWidgets('на macOS сочетания живут только в строке меню', (tester) async {
     await _desktop(tester, () async {
       await _pump(tester);

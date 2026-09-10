@@ -22,6 +22,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/desktop/desktop_prefs.dart';
 import 'package:caramba_client/desktop/ports/window_port.dart';
+import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/vpn_state.dart';
 import 'package:caramba_client/vpn/vpn_status.dart';
 
@@ -61,6 +62,17 @@ class WindowService {
   /// значок исчезнувшего процесса остаётся в строке меню до перезахода).
   Future<void> Function()? beforeExit;
 
+  /// Дождаться начатых записей на диск (профиль подписки в связке ключей,
+  /// снимок окна в prefs).
+  ///
+  /// ЗАЧЕМ ОТДЕЛЬНО ОТ [beforeExit]. Тот занят гашением значка, а слот один;
+  /// но главное — это разные обязательства. Значок гасим, чтобы не оставить
+  /// мусор в строке меню, а здесь ждём, чтобы не потерять данные: мутации
+  /// профиля пишут в secure storage своим оборотом, и ⌘Q сразу после импорта
+  /// подписки убивал бы процесс раньше записи. Именно так профиль и не пережил
+  /// перезапуск в ручной проверке (D-10).
+  Future<void> Function()? flushWrites;
+
   WindowPortListener? _listener;
   AppLifecycleListener? _lifecycle;
   Timer? _boundsTimer;
@@ -79,6 +91,7 @@ class WindowService {
     listenStage,
     Future<void> Function()? exitProcess,
     this.beforeExit,
+    this.flushWrites,
     this.stopLimit = kStopConfirmationLimit,
     this.boundsDebounce = kWindowBoundsDebounce,
   }) : _readPrefs = readPrefs,
@@ -180,6 +193,10 @@ class WindowService {
     if (_tunnelIsUp(_readStage())) await _stopTunnel();
 
     await beforeExit?.call();
+    // Барьер стоит ДО `exitSelf`: при ⌘Q процесс убивает система, как только
+    // мы ответим ей `AppExitResponse.exit`, и «не наш» выход теряет записи
+    // ровно так же, как наш собственный.
+    await flushWrites?.call();
     if (!exitSelf) return;
     await _exitProcess();
   }
@@ -242,6 +259,12 @@ final windowServiceProvider = Provider<WindowService>((ref) {
         (_, next) => onStage(next),
       );
       return sub.close;
+    },
+    // Читаем нотифаеры ЛЕНИВО, внутри замыкания: провайдер окна собирается на
+    // старте, а профили подключения к этому моменту поднимать незачем.
+    flushWrites: () async {
+      await ref.read(connectionProfilesProvider.notifier).flush();
+      await ref.read(desktopPrefsProvider.notifier).flush();
     },
   );
   ref.onDispose(service.detach);

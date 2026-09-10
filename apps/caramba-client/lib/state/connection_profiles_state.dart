@@ -100,7 +100,30 @@ class ConnectionProfilesNotifier
     await _persist();
   }
 
-  Future<void> _persist() async {
+  /// Незавершённая запись в хранилище — барьер для выхода из приложения.
+  ///
+  /// ЗАЧЕМ ОН ЗДЕСЬ. Мутация отдаёт управление UI сразу, а запись в связку
+  /// ключей доезжает своим оборотом. На десктопе ⌘Q убивает процесс вызовом
+  /// `exitApplication`, и импорт подписки, пойманный между мутацией и записью,
+  /// после перезапуска выглядит несохранённым — ровно то, что владелец увидел
+  /// как дефект D-10. Поэтому путь выхода ([WindowService.quitApplication])
+  /// ждёт [flush] перед тем, как процесс исчезнет.
+  Future<void> _pendingWrite = Future<void>.value();
+
+  /// Ждёт, пока последняя начатая запись профилей доедет до хранилища.
+  ///
+  /// Отказ хранилища здесь ПРОГЛАТЫВАЕТСЯ намеренно: барьер выхода не имеет
+  /// права уронить завершение приложения — вызывающий мутации получает ту же
+  /// ошибку как обычно.
+  Future<void> flush() => _pendingWrite;
+
+  Future<void> _persist() {
+    final write = _write();
+    _pendingWrite = write.catchError((Object _) {});
+    return write;
+  }
+
+  Future<void> _write() async {
     await _store.writeProfiles(state.profiles);
     await _store.writeActiveId(state.activeId);
   }
