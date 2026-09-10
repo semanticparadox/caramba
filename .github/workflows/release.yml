@@ -20,6 +20,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      # Версии всех Rust-крейтов обязаны совпадать с тегом. В сентябре 2026
+      # релизы v0.9.81…v0.9.87 подняли версию только панели и зеркала, а нода
+      # осталась 0.9.80: панель объявила нодам «есть v0.9.87», нода скачала
+      # бинарь с той же версией и два дня перезапускалась раз в секунду,
+      # роняя sing-box и весь VPN. Этот шаг делает такой релиз невозможным.
+      - name: Verify crate versions match the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          bad=0
+          for f in apps/*/Cargo.toml libs/*/Cargo.toml; do
+            v=$(sed -n 's/^version = "\(.*\)"/\1/p' "$f" | head -1)
+            if [ "$v" != "$tag" ]; then echo "::error file=$f::version $v != tag $tag"; bad=1; fi
+          done
+          [ "$bad" = 0 ] || exit 1
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
