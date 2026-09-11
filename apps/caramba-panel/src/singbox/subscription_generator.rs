@@ -477,6 +477,71 @@ fn build_singbox_outbound(
 
 // ─── Relay outbound factory ───────────────────────────────────────────────────
 
+/// Тег инфраструктурного outbound релея.
+///
+/// Первый релей страны получает короткий `relay 🇷🇺` — ровно тот тег, что
+/// уже лежит в выданных конфигах и на который ссылаются `detour` цепочек.
+/// Второй релей ТОЙ ЖЕ страны раньше получал тот же самый тег: два outbound
+/// с одним тегом и разными server/port в одном массиве — sing-box такой
+/// конфиг отвергает целиком. Поэтому тег занимается в `used_tags` наравне с
+/// тегами прокси, а при коллизии дополняется именем узла (оно у релеев одной
+/// страны разное по построению: это имя карточки в панели), и лишь потом,
+/// если и имя совпало, порядковым номером.
+fn relay_outbound_tag(
+    relay: &NodeInfo,
+    used_tags: &mut std::collections::HashSet<String>,
+) -> String {
+    let base = format!("relay {}", country_flag(relay.country_code.as_deref()));
+    if used_tags.insert(base.clone()) {
+        return base;
+    }
+    let name = relay.name.trim();
+    if !name.is_empty() {
+        let named = format!("{} {}", base, name);
+        if used_tags.insert(named.clone()) {
+            return named;
+        }
+    }
+    for i in 2..100 {
+        let candidate = format!("{} {}", base, i);
+        if used_tags.insert(candidate.clone()) {
+            return candidate;
+        }
+    }
+    base
+}
+
+/// Подпись релея в имени цепочки `{exit} {proto} via {relay}`.
+///
+/// Один релей на страну — подпись это флаг, как и было. Два и больше релеев
+/// в одной стране — к флагу добавляется имя узла: иначе пользователь sing-box
+/// видел бы «via 🇷🇺» и «via 🇷🇺 2» и не мог понять, какой из них Москва.
+fn relay_chain_label(relay: &NodeInfo, relays_in_country: usize) -> String {
+    let flag = format_node_label(relay);
+    let name = relay.name.trim();
+    if relays_in_country > 1 && !name.is_empty() {
+        format!("{} {}", flag, name)
+    } else {
+        flag
+    }
+}
+
+/// Сколько релеев в списке делят страну с каждым — ключ ISO-2 в верхнем
+/// регистре, релеи без страны считаются отдельной «страной» `""`.
+fn relays_per_country(relay_nodes: &[NodeInfo]) -> std::collections::HashMap<String, usize> {
+    let mut out = std::collections::HashMap::new();
+    for r in relay_nodes {
+        let cc = r
+            .country_code
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_uppercase();
+        *out.entry(cc).or_insert(0) += 1;
+    }
+    out
+}
+
 /// Ensure a relay outbound exists in `outbounds` for the given relay node.
 /// Uses a cache keyed by relay node address to avoid duplicate entries.
 /// Picks the best available relay inbound: prefers SS2022, then Hy2, then any.
@@ -486,6 +551,7 @@ fn ensure_relay_outbound(
     user_keys: &UserKeys,
     outbounds: &mut Vec<serde_json::Value>,
     cache: &mut std::collections::HashMap<String, String>,
+    used_tags: &mut std::collections::HashSet<String>,
 ) -> Option<String> {
     let cache_key = relay.address.clone();
     if let Some(existing) = cache.get(&cache_key) {
@@ -506,7 +572,7 @@ fn ensure_relay_outbound(
 
     let ri = pick?;
     let r_si = parse_stream_settings(&ri.stream_settings, relay);
-    let r_tag = format!("relay {}", country_flag(relay.country_code.as_deref()));
+    let r_tag = relay_outbound_tag(relay, used_tags);
 
     let ob = build_singbox_outbound(&r_tag, ri, &relay.address, &r_si, user_keys, None)?;
 
@@ -1779,6 +1845,10 @@ pub fn generate_singbox_config(
         base // should never reach here
     };
 
+    // Сколько релеев делят страну: от этого зависит, войдёт ли имя узла в
+    // подпись цепочки (см. relay_chain_label).
+    let per_country = relays_per_country(relay_nodes);
+
     // ─── Build outbounds ──────────────────────────────────────────────────────
     for node in nodes {
         // Skip pure infrastructure relay nodes – users should not connect to
@@ -1806,10 +1876,21 @@ pub fn generate_singbox_config(
 
             // ── Relay-chained outbounds (auto-matched) ─────────────────────
             for relay in relay_nodes {
-                if let Some(relay_ob_tag) =
-                    ensure_relay_outbound(relay, user_keys, &mut proxy_outbounds, &mut relay_cache)
-                {
-                    let relay_label = format_node_label(relay);
+                if let Some(relay_ob_tag) = ensure_relay_outbound(
+                    relay,
+                    user_keys,
+                    &mut proxy_outbounds,
+                    &mut relay_cache,
+                    &mut used_tags,
+                ) {
+                    let cc = relay
+                        .country_code
+                        .as_deref()
+                        .unwrap_or("")
+                        .trim()
+                        .to_ascii_uppercase();
+                    let relay_label =
+                        relay_chain_label(relay, per_country.get(&cc).copied().unwrap_or(1));
                     let via_tag = unique_tag(
                         format!("{} {} via {}", node_label, proto_label, relay_label),
                         &mut used_tags,
@@ -2491,6 +2572,137 @@ mod clash_group_tests {
                 );
             }
         }
+    }
+
+    // ── Два релея в одной стране: теги не сталкиваются ─────────────────────
+
+    fn ru_relay(name: &str, address: &str, inbound_id: i64) -> NodeInfo {
+        let mut relay = node(
+            name,
+            "ru",
+            vec![inbound(
+                inbound_id,
+                "hysteria2",
+                11464,
+                r#"{"network":"udp","security":"tls","tlsSettings":{"serverName":"relay.example"}}"#,
+            )],
+        );
+        relay.address = address.into();
+        relay.is_relay = true;
+        relay
+    }
+
+    /// Инфраструктурный outbound релея раньше получал тег `relay 🇷🇺` мимо
+    /// дедупликатора: второй релей той же страны выпускал второй outbound с
+    /// тем же тегом, и sing-box отвергал конфиг целиком. Не стреляло только
+    /// потому, что релей на страну был один; владелец собирается добавлять
+    /// ещё, и первый же второй RU-релей сломал бы подписки всем.
+    #[test]
+    fn two_relays_in_one_country_get_distinct_outbound_tags_and_valid_detours() {
+        let exit = node(
+            "de1",
+            "de",
+            vec![inbound(
+                400,
+                "vless",
+                443,
+                r#"{"network":"tcp","security":"reality","reality_settings":{"server_names":["www.dekulta.de"],"public_key":"pk","short_ids":["00"]}}"#,
+            )],
+        );
+        let relays = vec![
+            ru_relay("msk-1", "203.0.113.10", 1),
+            ru_relay("spb-1", "203.0.113.11", 2),
+        ];
+        let body = generate_singbox_config(&sub(), std::slice::from_ref(&exit), &keys(), &relays)
+            .expect("sing-box-тело");
+        let doc: Value = serde_json::from_str(&body).expect("валидный JSON");
+        let outbounds = doc["outbounds"].as_array().expect("outbounds");
+
+        let mut tags: Vec<&str> = outbounds.iter().filter_map(|o| o["tag"].as_str()).collect();
+        let total = tags.len();
+        tags.sort_unstable();
+        tags.dedup();
+        assert_eq!(
+            tags.len(),
+            total,
+            "теги outbound обязаны быть уникальны: {tags:?}"
+        );
+
+        let relay_tags: Vec<&str> = tags
+            .iter()
+            .copied()
+            .filter(|t| t.starts_with("relay "))
+            .collect();
+        assert_eq!(
+            relay_tags.len(),
+            2,
+            "по одному outbound на релей: {relay_tags:?}"
+        );
+        assert!(
+            relay_tags.contains(&"relay 🇷🇺"),
+            "первый релей страны сохраняет прежний короткий тег: {relay_tags:?}"
+        );
+        assert!(
+            relay_tags
+                .iter()
+                .any(|t| t.ends_with("spb-1") || t.ends_with("msk-1")),
+            "второй релей той же страны получает тег с именем узла: {relay_tags:?}"
+        );
+
+        // Каждый detour ссылается на существующий outbound, и цепочек ровно
+        // две — по одной на релей.
+        let tag_set: HashSet<&str> = tags.iter().copied().collect();
+        let detours: Vec<&str> = outbounds
+            .iter()
+            .filter_map(|o| o["detour"].as_str())
+            .collect();
+        assert_eq!(detours.len(), 2, "две цепочки через два релея: {detours:?}");
+        for d in &detours {
+            assert!(tag_set.contains(d), "detour «{d}» указывает в никуда");
+        }
+
+        // Подписи цепочек различают релеи по имени, а не только номером.
+        let via: Vec<&str> = tags
+            .iter()
+            .copied()
+            .filter(|t| t.contains(" via "))
+            .collect();
+        assert!(
+            via.iter().any(|t| t.contains("msk-1")) && via.iter().any(|t| t.contains("spb-1")),
+            "подпись цепочки называет релей: {via:?}"
+        );
+    }
+
+    /// Один релей на страну — ничего не меняется: короткий тег и подпись
+    /// «via 🇷🇺» без имени, как в уже выданных конфигах.
+    #[test]
+    fn a_single_relay_per_country_keeps_the_short_label() {
+        let exit = node(
+            "de1",
+            "de",
+            vec![inbound(
+                400,
+                "vless",
+                443,
+                r#"{"network":"tcp","security":"reality","reality_settings":{"server_names":["www.dekulta.de"],"public_key":"pk","short_ids":["00"]}}"#,
+            )],
+        );
+        let relays = vec![ru_relay("msk-1", "203.0.113.10", 1)];
+        let body = generate_singbox_config(&sub(), std::slice::from_ref(&exit), &keys(), &relays)
+            .expect("sing-box-тело");
+        let doc: Value = serde_json::from_str(&body).expect("валидный JSON");
+        let tags: Vec<String> = doc["outbounds"]
+            .as_array()
+            .expect("outbounds")
+            .iter()
+            .filter_map(|o| o["tag"].as_str().map(str::to_string))
+            .collect();
+        assert!(tags.iter().any(|t| t == "relay 🇷🇺"), "{tags:?}");
+        assert!(
+            tags.iter().any(|t| t.ends_with(" via 🇷🇺")),
+            "подпись без имени при одном релее: {tags:?}"
+        );
+        assert!(!tags.iter().any(|t| t.contains("msk-1")), "{tags:?}");
     }
 
     // ── Регрессии круга «три входа из восьми не могут работать в принципе» ──

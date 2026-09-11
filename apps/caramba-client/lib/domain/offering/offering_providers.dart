@@ -52,11 +52,13 @@ final offeringProvider = Provider<Offering>((ref) {
   // управления, а не узлы флота.
   final relayRows = <RelayCountryRow>[
     for (final r in ref.watch(apiRelaysProvider).valueOrNull ?? const <Relay>[])
-      if (!r.isOff && !r.isAuto && (r.country ?? r.id) != null)
+      // Строки-узлы (`node:<id>`) носят ту же страну, что и их строка-страна:
+      // без фильтра страна попала бы в предложение дважды.
+      if (r.isCountry && (r.country ?? r.id) != null)
         RelayCountryRow(
           countryCode: (r.country ?? r.id)!,
           countryName: r.name,
-          nodeCount: 0,
+          nodeCount: r.nodeCount,
         ),
   ];
 

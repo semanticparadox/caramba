@@ -39,6 +39,15 @@
 #define AppName "Caramba Connect"
 #define AppExeName "caramba_client.exe"
 #define AppPublisher "Caramba"
+; Имя задачи планировщика = имя приложения: то же имя использует тумблер
+; «Запускать при входе в систему» внутри приложения
+; (lib/desktop/ports/windows_task_autostart.dart), поэтому включённая здесь
+; галочка видна тумблеру как включённое состояние, а выключение тумблера
+; удаляет именно эту задачу.
+#define AutostartTask "Caramba Connect"
+; Тот же флаг, что kAutostartFlag в lib/desktop/launch_args.dart: по нему
+; приложение отличает запуск при входе от ручного и не показывает окно.
+#define AutostartFlag "--autostart"
 
 [Setup]
 ; AppId сгенерирован один раз и зашит навсегда: по нему Windows понимает, что
@@ -101,6 +110,18 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 ; Ярлык на рабочем столе — по желанию, галочка снята по умолчанию.
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+; Автозапуск при входе в систему, по умолчанию включён (просьба владельца).
+; checkedonce: при обновлении галочка помнит прошлый выбор, а не
+; возвращается во включённое положение поверх решения человека.
+Name: "autostart"; Description: "{cm:AutostartTask}"; GroupDescription: "{cm:AutostartGroup}"; Flags: checkedonce
+
+[CustomMessages]
+ru.AutostartTask=Запускать при входе в систему (свернутым в трей)
+ru.AutostartGroup=Автозапуск:
+ru.AutostartStatus=Регистрация автозапуска в планировщике задач...
+en.AutostartTask=Start when I sign in to Windows (minimized to tray)
+en.AutostartGroup=Startup:
+en.AutostartStatus=Registering startup task...
 
 [Files]
 ; Весь каталог staging (exe, data\, libcaramba_core.dll, wintun.dll,
@@ -138,9 +159,33 @@ Root: HKA; Subkey: "Software\Classes\carambaconnect\DefaultIcon"; ValueType: str
 Root: HKA; Subkey: "Software\Classes\carambaconnect\shell\open\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" ""%1"""
 
 [Run]
+; Автозапуск — задача планировщика, а не ключ реестра Run. Программа требует
+; прав администратора (manifest), а Windows не запускает из Run программы,
+; которым нужно повышение: диалога UAC на входе быть не может, и такой запуск
+; молча блокируется. Задача с RunLevel Highest и триггером «при входе»
+; запускается без диалога. PowerShell вместо schtasks /Create: только так
+; снимается лимит 72 часа на выполнение (иначе планировщик убил бы VPN) и
+; разрешается запуск от батареи. Текст скрипта повторяет
+; lib/desktop/ports/windows_task_autostart.dart, одинарные кавычки намеренно:
+; двойные пришлось бы экранировать и здесь, и в PowerShell. Задача создаётся
+; для пользователя, запустившего Setup (при UAC-повышении из-под обычной
+; учётки это администратор, ограничение Inno; приложение при первом запуске
+; всё равно сверит и поправит задачу под себя).
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ""$ErrorActionPreference = 'Stop'; $user = $env:USERDOMAIN + '\' + $env:USERNAME; $action = New-ScheduledTaskAction -Execute '{app}\{#AppExeName}' -Argument '{#AutostartFlag}' -WorkingDirectory '{app}'; $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user; $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Seconds 0); $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest; Register-ScheduledTask -TaskName '{#AutostartTask}' -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null"""; StatusMsg: "{cm:AutostartStatus}"; Flags: runhidden waituntilterminated; Tasks: autostart
+; Галочка снята: задача от прошлой установки (если была) убирается, иначе
+; выбор человека в мастере ничего бы не значил. Отсутствующую задачу
+; schtasks считает ошибкой; код выхода [Run] игнорируется, и это нам подходит.
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""{#AutostartTask}"" /F"; Flags: runhidden waituntilterminated; Tasks: not autostart
 ; Запуск после установки — галочка на последней странице, по умолчанию снята:
 ; приложение стартует с правами администратора (manifest), и лучше, чтобы
 ; человек запустил его сам, чем получил ещё один UAC-запрос сразу после
 ; установки. runascurrentuser: для postinstall-записей Inno по умолчанию
 ; сбрасывает повышение (runasoriginaluser), а нашему exe оно как раз нужно.
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: postinstall nowait skipifsilent unchecked runascurrentuser
+
+[UninstallRun]
+; Задача планировщика при удалении программы обязана исчезнуть: иначе при
+; следующем входе планировщик попытается запустить несуществующий exe и
+; запишет ошибку в журнал. RunOnceId нужен Inno, чтобы не выполнять запись
+; дважды при нескольких записях в логе удаления.
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""{#AutostartTask}"" /F"; Flags: runhidden waituntilterminated; RunOnceId: "DeleteAutostartTask"

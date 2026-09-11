@@ -35,6 +35,38 @@ struct AppNotification {
     created_at: String,
     /// `true`, если статус не "unread" (read/archived считаются прочитанными).
     read: bool,
+    /// Сырой `payload_json` уведомления (`{"ticket_id":..,"url":..}` у
+    /// support_ticket). Отдаём как есть: клиент решает, куда вести тап.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload: Option<serde_json::Value>,
+    /// Тикет, к которому относится уведомление, вынутый из payload — чтобы
+    /// клиенту не разбирать JSON ради навигации «уведомление -> тикет».
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ticket_id: Option<i64>,
+}
+
+/// Достаёт `ticket_id` из payload уведомления. Основной источник — числовое
+/// поле `ticket_id`; запасной — `url` вида `/support/{id}`, которым старые
+/// записи могли обходиться без явного id.
+fn ticket_id_from_payload(payload: Option<&serde_json::Value>) -> Option<i64> {
+    let p = payload?;
+    if let Some(id) = p.get("ticket_id").and_then(|v| v.as_i64()) {
+        return Some(id);
+    }
+    // Строковый id тоже принимаем: часть уведомлений писалась через json!
+    // с уже отформатированными значениями.
+    if let Some(id) = p
+        .get("ticket_id")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.trim().parse::<i64>().ok())
+    {
+        return Some(id);
+    }
+    p.get("url")
+        .and_then(|v| v.as_str())
+        .and_then(|u| u.strip_prefix("/support/"))
+        .and_then(|rest| rest.split(['/', '?']).next())
+        .and_then(|s| s.parse::<i64>().ok())
 }
 
 #[derive(Serialize)]
@@ -91,6 +123,8 @@ pub async fn list_notifications(
             kind: n.category,
             created_at: n.created_at.to_rfc3339(),
             read: n.status != "unread",
+            ticket_id: ticket_id_from_payload(n.payload_json.as_ref()),
+            payload: n.payload_json,
         })
         .collect();
 
@@ -173,12 +207,22 @@ const MAX_MESSAGE_CHARS: usize = 5000;
 struct AppTicketSummary {
     id: i64,
     subject: String,
+    /// Категория из `ALLOWED_TICKET_CATEGORIES` — клиент подписывает её в
+    /// списке и в форме нового тикета.
+    category: String,
     status: String,
+    created_at: String,
     updated_at: String,
-    /// Число непрочитанных ответов поддержки/системы (сообщения после
-    /// последнего сообщения пользователя). Клиент рисует бейдж по этому
-    /// счётчику (`unread_for_user > 0`). Считается в `list_user_tickets`.
+    /// Первые 120 символов последнего сообщения — превью в карточке списка.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_message_preview: Option<String>,
+    /// Число непрочитанных ответов поддержки/системы: сообщения новее и
+    /// последнего открытия переписки владельцем (`tickets.user_last_read_at`),
+    /// и его последнего сообщения. Считается в `list_user_tickets`.
     unread_for_user: i64,
+    /// `unread_for_user > 0` — булев флаг для бейджа «новое» и для счётчика
+    /// тикетов с непрочитанным ответом в профиле.
+    has_unread: bool,
 }
 
 /// GET /api/v2/app/tickets — список тикетов пользователя.
@@ -199,9 +243,13 @@ pub async fn list_tickets(
         .map(|t| AppTicketSummary {
             id: t.id,
             subject: t.subject,
+            category: t.category,
             status: t.status,
+            created_at: t.created_at.to_rfc3339(),
             updated_at: t.updated_at.to_rfc3339(),
+            last_message_preview: t.last_message_preview,
             unread_for_user: t.unread_for_user,
+            has_unread: t.unread_for_user > 0,
         })
         .collect();
 
@@ -287,12 +335,17 @@ struct AppTicketMessage {
 struct AppTicketDetail {
     id: i64,
     subject: String,
+    category: String,
     status: String,
+    created_at: String,
+    updated_at: String,
     messages: Vec<AppTicketMessage>,
 }
 
 /// GET /api/v2/app/tickets/{id} — тикет с перепиской. Владение проверяет
-/// сервис (`get_ticket` с is_admin=false и Some(user_id)).
+/// сервис (`get_ticket` с is_admin=false и Some(user_id)); он же отмечает
+/// переписку прочитанной владельцем, поэтому после этого вызова список
+/// тикетов отдаёт `has_unread = false` для этого тикета.
 pub async fn get_ticket(
     State(state): State<AppState>,
     axum::Extension(auth): axum::Extension<AuthUser>,
@@ -328,7 +381,10 @@ pub async fn get_ticket(
     Json(AppTicketDetail {
         id: ticket.id,
         subject: ticket.subject,
+        category: ticket.category,
         status: ticket.status,
+        created_at: ticket.created_at.to_rfc3339(),
+        updated_at: ticket.updated_at.to_rfc3339(),
         messages,
     })
     .into_response()
@@ -382,5 +438,40 @@ pub async fn reply_ticket(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Основной путь: числовой ticket_id из payload, как его пишет
+    /// tickets_service (add_admin_message / set_status / auto_close_stale).
+    #[test]
+    fn ticket_id_comes_from_numeric_payload_field() {
+        let p = json!({"ticket_id": 42, "url": "/support/42"});
+        assert_eq!(ticket_id_from_payload(Some(&p)), Some(42));
+    }
+
+    /// Строковый id и голый url тоже разбираются: старые записи и
+    /// уведомления, собранные вручную, не должны терять переход к тикету.
+    #[test]
+    fn ticket_id_falls_back_to_string_and_url() {
+        let s = json!({"ticket_id": "7"});
+        assert_eq!(ticket_id_from_payload(Some(&s)), Some(7));
+        let u = json!({"url": "/support/13?from=bot"});
+        assert_eq!(ticket_id_from_payload(Some(&u)), Some(13));
+    }
+
+    /// Не-тикетные payload (billing, устройства) и пустой payload дают None,
+    /// а не 0: клиент по None не рисует переход.
+    #[test]
+    fn ticket_id_is_none_for_foreign_or_missing_payload() {
+        assert_eq!(ticket_id_from_payload(None), None);
+        let billing = json!({"payment_id": 5, "url": "/pay"});
+        assert_eq!(ticket_id_from_payload(Some(&billing)), None);
+        let junk = json!({"url": "/support/abc"});
+        assert_eq!(ticket_id_from_payload(Some(&junk)), None);
     }
 }

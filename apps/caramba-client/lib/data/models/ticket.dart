@@ -35,14 +35,52 @@ extension TicketStatusX on TicketStatus {
   };
 }
 
+/// Категория тикета. Значения — `ALLOWED_TICKET_CATEGORIES` панели
+/// (`app_support.rs`): неизвестное значение панель откатывает в `general`,
+/// поэтому список здесь обязан совпадать с серверным один в один.
+enum TicketCategory {
+  general('general', 'Общий вопрос', 'General'),
+  billing('billing', 'Оплата и подписка', 'Billing'),
+  connection('connection', 'Не подключается', 'Connection'),
+  device('device', 'Устройства', 'Devices'),
+  technical('technical', 'Техническая проблема', 'Technical issue'),
+  featureRequest('feature_request', 'Предложение', 'Feature request'),
+  other('other', 'Другое', 'Other');
+
+  const TicketCategory(this.value, this.labelRu, this.labelEn);
+
+  /// Значение, которое уходит в `POST /app/tickets` и приходит в `category`.
+  final String value;
+  final String labelRu;
+  final String labelEn;
+
+  /// Подпись под язык интерфейса: русский по умолчанию, английский для
+  /// `en*`. Приложение сейчас на русском, поэтому по умолчанию [labelRu].
+  String labelFor(String languageCode) =>
+      languageCode.toLowerCase().startsWith('en') ? labelEn : labelRu;
+
+  String get label => labelRu;
+
+  /// Категория по значению панели; неизвестное или пустое даёт [general],
+  /// как и панель на своей стороне.
+  static TicketCategory parse(String? raw) {
+    final v = (raw ?? '').trim().toLowerCase();
+    for (final c in TicketCategory.values) {
+      if (c.value == v) return c;
+    }
+    return TicketCategory.general;
+  }
+}
+
 /// Сводка тикета для списка. Контракт панели (`app_support.rs::AppTicketSummary`):
 /// ```json
-/// { "id":3, "subject":"...", "status":"open", "updated_at":"RFC3339",
-///   "unread": true }
+/// { "id":3, "subject":"...", "category":"billing", "status":"open",
+///   "created_at":"RFC3339", "updated_at":"RFC3339",
+///   "last_message_preview":"...", "unread_for_user":1, "has_unread":true }
 /// ```
-/// `unread` — булев флаг «есть непрочитанное» (не счётчик). `category` и
-/// `last_message_preview` панель не присылает; читаем их опционально, чтобы
-/// пережить расширение DTO, и не рисуем, когда их нет.
+/// `has_unread` — булев флаг «есть непрочитанное», `unread_for_user` — счётчик.
+/// Читаем оба (и старый `unread`), чтобы пережить и старую панель без флага,
+/// и мини-аппный контракт без него.
 class TicketSummary {
   final int id;
   final String category;
@@ -68,14 +106,22 @@ class TicketSummary {
   /// поэтому это надёжнее точного счётчика.
   bool get hasUnread => unread > 0;
 
+  /// Категория для подписи в списке.
+  TicketCategory get categoryKind => TicketCategory.parse(category);
+
   factory TicketSummary.fromJson(Map<String, dynamic> json) {
-    // Панель отдаёт unread как bool. Поддерживаем и числовой unread_for_user.
-    final u = json['unread'];
-    final unread = (u is bool)
-        ? (u ? 1 : 0)
-        : (u is num)
-        ? u.toInt()
-        : (json['unread_for_user'] as num?)?.toInt() ?? 0;
+    // Счётчик `unread_for_user` первичен; булев `has_unread` (или старый
+    // `unread`) даёт 1, если счётчика нет. Так бейдж не гаснет от того, что
+    // какая-то из панелей прислала только одно из полей.
+    final count = (json['unread_for_user'] as num?)?.toInt();
+    final flag = json['has_unread'] ?? json['unread'];
+    final unread =
+        count ??
+        ((flag is bool)
+            ? (flag ? 1 : 0)
+            : (flag is num)
+            ? flag.toInt()
+            : 0);
     return TicketSummary(
       id: (json['id'] as num?)?.toInt() ?? 0,
       category: (json['category'] as String?) ?? '',
@@ -162,6 +208,12 @@ class TicketDetail {
     this.updatedAt,
     this.messages = const [],
   });
+
+  TicketCategory get categoryKind => TicketCategory.parse(category);
+
+  /// Число сообщений не от пользователя — по нему экран тикета замечает
+  /// новый ответ поддержки между опросами.
+  int get supportMessageCount => messages.where((m) => !m.fromUser).length;
 
   factory TicketDetail.fromJson(Map<String, dynamic> json) {
     // Допускаем как плоский тикет с `messages`, так и вложенный `{ticket, messages}`.

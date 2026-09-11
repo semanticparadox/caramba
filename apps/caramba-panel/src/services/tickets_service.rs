@@ -161,19 +161,24 @@ impl TicketsService {
                  ORDER BY tm.created_at DESC
                  LIMIT 1) AS last_message_preview,
                 -- "Непрочитанные" для пользователя — это ответы поддержки/системы,
-                -- пришедшие после последнего сообщения самого пользователя. Отдельного
-                -- маркера last_read нет, поэтому собственное сообщение пользователя
-                -- считается признаком того, что он видел всё до этого момента.
+                -- пришедшие после того, как он в последний раз ОТКРЫВАЛ переписку
+                -- (tickets.user_last_read_at, ставится в get_ticket) или писал в неё
+                -- сам: собственное сообщение по-прежнему означает, что всё до него
+                -- прочитано. Берём более позднюю из двух отметок; NULL в обеих даёт
+                -- '-infinity', и тогда непрочитано всё, что написала поддержка.
                 (SELECT COUNT(*)
                  FROM ticket_messages tm
                  WHERE tm.ticket_id = t.id
                    AND tm.sender_role <> 'user'
-                   AND tm.created_at > COALESCE(
-                       (SELECT MAX(tm2.created_at)
-                        FROM ticket_messages tm2
-                        WHERE tm2.ticket_id = t.id
-                          AND tm2.sender_role = 'user'),
-                       '-infinity'::timestamptz
+                   AND tm.created_at > GREATEST(
+                       COALESCE(t.user_last_read_at, '-infinity'::timestamptz),
+                       COALESCE(
+                           (SELECT MAX(tm2.created_at)
+                            FROM ticket_messages tm2
+                            WHERE tm2.ticket_id = t.id
+                              AND tm2.sender_role = 'user'),
+                           '-infinity'::timestamptz
+                       )
                    )) AS unread_for_user
             FROM tickets t
             WHERE t.user_id = $1
@@ -259,7 +264,11 @@ impl TicketsService {
 
     /// Возвращает тикет с сообщениями.
     ///
-    /// `is_admin = false` — проверяем, что тикет принадлежит пользователю `requester_user_id`.
+    /// `is_admin = false` — проверяем, что тикет принадлежит пользователю
+    /// `requester_user_id`, и заодно отмечаем, что владелец переписку открыл
+    /// (`mark_read_for_user`): именно этот вызов стоит за экраном тикета в
+    /// приложении и в мини-аппе, а отдельного «прочитано» клиенты не шлют.
+    /// Админские пути (`is_admin = true`) отметку не трогают.
     pub async fn get_ticket(
         &self,
         ticket_id: i64,
@@ -301,7 +310,39 @@ impl TicketsService {
         .await
         .context("Ошибка запроса сообщений тикета")?;
 
+        // Владелец увидел переписку целиком — снимаем «непрочитано». Только для
+        // пользовательского пути: админ, читающий тикет, за пользователя его не
+        // прочитал. Сбой отметки не должен прятать сам тикет, поэтому ошибку
+        // логируем, а не возвращаем.
+        if !is_admin
+            && let Some(uid) = requester_user_id
+            && let Err(e) = self.mark_read_for_user(ticket_id, uid).await
+        {
+            error!(
+                "Не удалось отметить тикет #{} прочитанным для user {}: {}",
+                ticket_id, uid, e
+            );
+        }
+
         Ok((ticket, messages))
+    }
+
+    /// Ставит `tickets.user_last_read_at = NOW()` владельцу тикета.
+    ///
+    /// `updated_at` намеренно не трогаем: он двигает тикет в списках и
+    /// участвует в автозакрытии по `awaiting_user`, а прочтение ответа — не
+    /// активность в тикете. Чужой/несуществующий тикет просто не меняет строк.
+    pub async fn mark_read_for_user(&self, ticket_id: i64, user_id: i64) -> Result<bool> {
+        let affected = sqlx::query(
+            "UPDATE tickets SET user_last_read_at = NOW() WHERE id = $1 AND user_id = $2",
+        )
+        .bind(ticket_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .context("Ошибка отметки тикета прочитанным")?
+        .rows_affected();
+        Ok(affected > 0)
     }
 
     /// Добавляет сообщение от пользователя.

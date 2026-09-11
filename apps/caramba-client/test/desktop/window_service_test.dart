@@ -98,6 +98,23 @@ class FakeWindowPort implements WindowPort {
   @override
   Future<void> setTitle(String value) async => title = value;
 
+  /// Что раннер знает о настройке «сворачивать в трей». `null` — ему ещё
+  /// ничего не говорили.
+  bool? minimizeToTray;
+
+  @override
+  Future<void> setMinimizeToTray(bool value) async {
+    calls.add('setMinimizeToTray($value)');
+    minimizeToTray = value;
+  }
+
+  /// Как раннер Windows: окно спрятано вместо сворачивания, сворачивания не
+  /// было.
+  void hideByRunner() {
+    visible = false;
+    listener?.onHiddenToTray?.call();
+  }
+
   @override
   void addListener(WindowPortListener value) => listener = value;
 
@@ -256,6 +273,17 @@ void main() {
   /// Настройки держим локальной переменной, а не провайдером: проверяется
   /// решение сервиса, а не гидратация снимка (у неё свой тест). Стадия зато
   /// идёт через настоящий [vpnProvider] — ждать кадр остановки иначе негде.
+  /// Подписчики на смену настройки «сворачивать в трей», как их держит
+  /// провайдер; тест переключает настройку через [setCloseToTray].
+  late List<void Function(bool)> closeToTrayListeners;
+
+  void setCloseToTray(bool value) {
+    prefs = prefs.copyWith(closeToTray: value);
+    for (final l in closeToTrayListeners.toList()) {
+      l(value);
+    }
+  }
+
   WindowService build({
     DesktopPrefs initial = const DesktopPrefs(),
     Duration stopLimit = const Duration(milliseconds: 200),
@@ -266,6 +294,10 @@ void main() {
     service = WindowService(
       port: port,
       readPrefs: () => prefs,
+      listenCloseToTray: (onChange) {
+        closeToTrayListeners.add(onChange);
+        return () => closeToTrayListeners.remove(onChange);
+      },
       writeBounds: (bounds, {bool maximized = false}) {
         order.add('bounds');
         prefs = prefs.copyWith(
@@ -308,6 +340,7 @@ void main() {
     port = FakeWindowPort();
     core = FakeVpnConnection();
     order = <String>[];
+    closeToTrayListeners = <void Function(bool)>[];
     container = ProviderContainer(
       overrides: <Override>[vpnConnectionProvider.overrideWithValue(core)],
     );
@@ -363,6 +396,68 @@ void main() {
     expect(port.visible, isFalse);
     expect(port.minimized, isFalse);
     expect(order, isEmpty, reason: 'ни выхода, ни опускания туннеля');
+  });
+
+  // Раннер Windows перехватывает сворачивание сам, но только по флагу, который
+  // ставит сервис: при подписке и при каждой смене настройки. Без первого
+  // раннер не знал бы о настройке до первого переключения, без второго
+  // сворачивание работало бы по устаревшему значению.
+  group('флаг «сворачивать в трей» для раннера', () {
+    test('уходит в порт при attach', () async {
+      build(initial: const DesktopPrefs()).attach();
+      await pump();
+
+      expect(port.minimizeToTray, isTrue);
+      expect(port.calls, contains('setMinimizeToTray(true)'));
+    });
+
+    test('выключенная настройка уходит выключенной', () async {
+      build(initial: const DesktopPrefs(closeToTray: false)).attach();
+      await pump();
+
+      expect(port.minimizeToTray, isFalse);
+    });
+
+    test('смена настройки доезжает до порта', () async {
+      build(initial: const DesktopPrefs()).attach();
+      await pump();
+
+      setCloseToTray(false);
+      await pump();
+      expect(port.minimizeToTray, isFalse);
+
+      setCloseToTray(true);
+      await pump();
+      expect(port.minimizeToTray, isTrue);
+    });
+
+    test('после detach смена настройки в порт не идёт', () async {
+      final service = build(initial: const DesktopPrefs())..attach();
+      await pump();
+      service.detach();
+
+      setCloseToTray(false);
+      await pump();
+
+      expect(port.minimizeToTray, isTrue, reason: 'подписка снята');
+      expect(closeToTrayListeners, isEmpty);
+    });
+
+    test('окно, спрятанное раннером, сервис помнит как спрятанное', () async {
+      final service = build(initial: const DesktopPrefs())..attach();
+      await pump();
+
+      port.hideByRunner();
+
+      expect(service.hiddenToTray, isTrue);
+      // Сворачивания не было: разворачивать и прятать заново нечего.
+      expect(port.calls, isNot(contains('restore')));
+      expect(port.calls, isNot(contains('hide')));
+
+      await service.show();
+      expect(service.hiddenToTray, isFalse);
+      expect(port.visible, isTrue);
+    });
   });
 
   test('с выключенным closeToTray сворачивание остаётся обычным', () async {
@@ -551,35 +646,36 @@ void main() {
       expect(order, <String>['tray', 'flush']);
     });
 
-    test('импортированный профиль доезжает до хранилища раньше выхода', () async {
-      final store = SlowProfilesStore();
-      final wired = ProviderContainer(
-        overrides: <Override>[
-          vpnConnectionProvider.overrideWithValue(core),
-          windowPortProvider.overrideWithValue(port),
-          connectionProfilesStoreProvider.overrideWithValue(store),
-        ],
-      );
-      addTearDown(wired.dispose);
+    test(
+      'импортированный профиль доезжает до хранилища раньше выхода',
+      () async {
+        final store = SlowProfilesStore();
+        final wired = ProviderContainer(
+          overrides: <Override>[
+            vpnConnectionProvider.overrideWithValue(core),
+            windowPortProvider.overrideWithValue(port),
+            connectionProfilesStoreProvider.overrideWithValue(store),
+          ],
+        );
+        addTearDown(wired.dispose);
 
-      final profiles = wired.read(connectionProfilesProvider.notifier);
-      await pump();
+        final profiles = wired.read(connectionProfilesProvider.notifier);
+        await pump();
 
-      final service = wired.read(windowServiceProvider);
-      // Человек нажал ⌘Q сразу после импорта: запись ещё в пути.
-      unawaited(profiles.add(_importedProfile()));
-      expect(store.written, isEmpty, reason: 'запись ещё не доехала');
+        final service = wired.read(windowServiceProvider);
+        // Человек нажал ⌘Q сразу после импорта: запись ещё в пути.
+        unawaited(profiles.add(_importedProfile()));
+        expect(store.written, isEmpty, reason: 'запись ещё не доехала');
 
-      // `exitSelf: false` — путь ⌘Q: процесс завершает система по нашему
-      // ответу, значит всё, что должно быть на диске, обязано лежать там уже.
-      await service.quitApplication(exitSelf: false);
+        // `exitSelf: false` — путь ⌘Q: процесс завершает система по нашему
+        // ответу, значит всё, что должно быть на диске, обязано лежать там уже.
+        await service.quitApplication(exitSelf: false);
 
-      expect(
-        store.written.map((p) => p.id),
-        <String>['cp_imported'],
-        reason: 'профиль пережил бы перезапуск',
-      );
-    });
+        const reason = 'профиль пережил бы перезапуск';
+        final ids = store.written.map((p) => p.id);
+        expect(ids, <String>['cp_imported'], reason: reason);
+      },
+    );
 
     test('настройки окна тоже дожидаются диска', () async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -628,5 +724,12 @@ void main() {
 
     expect(port.preventClose, isTrue);
     expect(port.calls, contains('hide'));
+    // Раннер узнал о дефолте при подписке...
+    expect(port.minimizeToTray, isTrue);
+
+    // ...и о смене настройки через провайдер.
+    wired.read(desktopPrefsProvider.notifier).setCloseToTray(false);
+    await pump();
+    expect(port.minimizeToTray, isFalse);
   });
 }

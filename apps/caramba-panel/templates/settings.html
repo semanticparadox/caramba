@@ -232,6 +232,72 @@
                     </div>
 
                     <div class="pt-6 border-t border-border-default">
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-1 ml-1">Client updates</p>
+                        <p class="text-xs text-slate-500 mb-4 ml-1">The panel reads the CI manifests <code>Caramba-Connect-&lt;platform&gt;.json</code> from <code>downloads/</code> (placed there by the installer together with the builds) and serves <code>GET /api/v2/app/version</code> to the app: a banner on the main screen, the «Updates» screen, and a blocking «Update required» screen when the installed build is below the minimum. A new build is announced by the bot once (event <code>notify.client_update</code> on the Notifications page), never per platform. The background loop runs every 10 minutes.</p>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Announce new builds in the bot</label>
+                            <select form="main-settings-form" name="client_update_notify" class="input-field">
+                                <option value="true" {% if client_update_notify %}selected{% endif %}>On</option>
+                                <option value="false" {% if !client_update_notify %}selected{% endif %}>Off</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Minimum build (all platforms)</label>
+                            <input type="number" min="0" form="main-settings-form" name="client_min_build" value="{{ client_min_build }}"
+                                placeholder="0 = not required" class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Manual latest version / build</label>
+                            <div class="flex gap-2">
+                                <input type="text" form="main-settings-form" name="client_latest_version" value="{{ client_latest_version }}"
+                                    placeholder="1.0.0" class="input-field">
+                                <input type="number" min="0" form="main-settings-form" name="client_latest_build" value="{{ client_latest_build }}"
+                                    placeholder="110" class="input-field">
+                            </div>
+                            <p class="text-[11px] text-slate-600 mt-1 ml-1">Used only when no manifest is on disk.</p>
+                        </div>
+                        </div>
+                        <div class="mt-4">
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">What's new (release notes)</label>
+                            <textarea form="main-settings-form" name="client_release_notes" rows="3" class="input-field"
+                                placeholder="Windows tray, TUN by default, autostart">{{ client_release_notes }}</textarea>
+                            <p class="text-[11px] text-slate-600 mt-1 ml-1">Goes into the bot message ({1}) and the in-app banner. Set it BEFORE the new build lands in downloads/.</p>
+                        </div>
+                        <div class="mt-4 p-4 bg-black/20 border border-border-default rounded-2xl">
+                            <span class="block text-xs text-slate-400 font-medium">Builds on disk (manifests in downloads/)</span>
+                            <div class="mt-3 divide-y divide-border-default">
+                            {% for p in client_platforms %}
+                            <div class="flex items-center justify-between gap-4 py-2">
+                                <div>
+                                    <span class="block text-xs text-slate-300 font-medium">{{ p.label }}</span>
+                                    {% if p.has_manifest %}
+                                    <span class="block text-[11px] text-slate-500 mt-1 font-mono">{{ p.version }}+{{ p.build }} · {{ p.file }} · {{ p.published_at }}</span>
+                                    {% else %}
+                                    <span class="block text-[11px] text-slate-600 mt-1">no manifest (Caramba-Connect-{{ p.id }}.json)</span>
+                                    {% endif %}
+                                </div>
+                                <div class="shrink-0 w-40">
+                                    <input type="number" min="0" form="main-settings-form" name="client_min_build_{{ p.id }}" value="{{ p.min_build }}"
+                                        placeholder="min build" class="input-field" title="Minimum build for {{ p.label }}; empty = use the global value">
+                                </div>
+                            </div>
+                            {% endfor %}
+                            </div>
+                        </div>
+                        {% if !client_notices.is_empty() %}
+                        <div class="mt-4 p-4 bg-black/20 border border-border-default rounded-2xl">
+                            <span class="block text-xs text-slate-400 font-medium">Announced builds</span>
+                            <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                            {% for n in client_notices %}
+                            <span class="block text-[11px] text-slate-500 font-mono">{{ n.platform }} {{ n.version }}+{{ n.build }} · {{ n.notified_at_display }} · sent {{ n.sent_count }}</span>
+                            {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="pt-6 border-t border-border-default">
                         <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-1 ml-1">Welcome gift (promo)</p>
                         <p class="text-xs text-slate-500 mb-4 ml-1">Granted once per account on sign-up through Telegram, before the free plan. Pick «Off» to stop the promo. Leave the end date empty to run it indefinitely.</p>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">

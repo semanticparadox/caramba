@@ -1759,6 +1759,20 @@ pub async fn get_subscription_devices(
         .filter(|row| !should_hide_device_ip(&row.client_ip, &infra_ips))
         .collect();
 
+    // Версия приложения на устройстве (заголовок X-Caramba-App-Version,
+    // колонка app_version лизы). Отдельным запросом, а не полем модели:
+    // SubscriptionIpTracking общий с легаси-трекингом, у которого версии нет.
+    let app_versions: HashMap<i64, String> = sqlx::query_as::<_, (i64, String)>(
+        "SELECT id, app_version FROM subscription_device_leases \
+         WHERE subscription_id = $1 AND app_version IS NOT NULL",
+    )
+    .bind(sub_id)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .collect();
+
     let admin_path = state.admin_path.clone();
 
     let mut html = String::new();
@@ -1794,7 +1808,13 @@ pub async fn get_subscription_devices(
     for ip_record in ips {
         let time_ago = format_duration(chrono::Utc::now() - ip_record.last_seen_at);
         // Экранируем строки из БД перед вставкой в HTML — user_agent может содержать <script>
-        let device = escape_html(ip_record.user_agent.as_deref().unwrap_or("Unknown"));
+        let mut device = escape_html(ip_record.user_agent.as_deref().unwrap_or("Unknown"));
+        if let Some(v) = app_versions.get(&ip_record.id) {
+            device.push_str(&format!(
+                " <span class='text-[10px] text-slate-500 font-mono'>app {}</span>",
+                escape_html(v)
+            ));
+        }
         let ip_escaped = escape_html(&ip_record.client_ip);
         let time_ago_escaped = escape_html(&time_ago);
         html.push_str(&format!(

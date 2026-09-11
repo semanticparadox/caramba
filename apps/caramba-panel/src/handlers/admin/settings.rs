@@ -21,6 +21,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::bot::apk_delivery::{FilePlatform, SettingField};
+use crate::services::client_release_service as releases;
 use crate::services::onboarding_service as onboarding;
 
 use super::auth::{get_auth_user, is_authenticated};
@@ -407,6 +408,75 @@ pub(crate) async fn fetch_worker_inventory(pool: &sqlx::PgPool) -> Vec<WorkerInv
 // Templates
 // ============================================================================
 
+/// Строка блока «Client updates»: что панель знает о сборке платформы.
+#[derive(Debug, Clone)]
+pub struct ClientPlatformRow {
+    pub id: &'static str,
+    pub label: &'static str,
+    /// Есть ли манифест CI в downloads/.
+    pub has_manifest: bool,
+    pub version: String,
+    pub build: String,
+    pub file: String,
+    pub published_at: String,
+    /// Платформенная минимальная сборка (пусто = глобальная).
+    pub min_build: String,
+}
+
+/// Строка журнала рассылок о новых версиях.
+#[derive(Debug, Clone)]
+pub struct ClientNoticeRow {
+    pub platform: String,
+    pub build: i64,
+    pub version: String,
+    pub sent_count: i64,
+    pub notified_at_display: String,
+}
+
+fn client_platform_label(platform: &str) -> &'static str {
+    match platform {
+        "android" => "Android",
+        "windows" => "Windows",
+        "macos" => "Mac",
+        "linux" => "Linux",
+        _ => "?",
+    }
+}
+
+async fn client_platform_rows(state: &AppState) -> Vec<ClientPlatformRow> {
+    let mut rows = Vec::with_capacity(releases::PLATFORMS.len());
+    for platform in releases::PLATFORMS {
+        let manifest = releases::cached_manifest(platform);
+        let min_build = state
+            .settings
+            .get_or_default(&format!("{}_{platform}", releases::SETTING_MIN_BUILD), "")
+            .await;
+        rows.push(match manifest {
+            Some(m) => ClientPlatformRow {
+                id: platform,
+                label: client_platform_label(platform),
+                has_manifest: true,
+                version: m.version,
+                build: m.build.to_string(),
+                file: m.file,
+                published_at: m.published_at,
+                min_build,
+            },
+            None => ClientPlatformRow {
+                id: platform,
+                label: client_platform_label(platform),
+                has_manifest: false,
+                version: String::new(),
+                build: String::new(),
+                file: String::new(),
+                published_at: String::new(),
+                min_build,
+            },
+        });
+    }
+    rows
+}
+
 #[derive(Template, WebTemplate)]
 #[template(path = "settings.html")]
 pub struct SettingsTemplate {
@@ -465,6 +535,16 @@ pub struct SettingsTemplate {
     pub onboarding_enabled: bool,
     pub onboarding_day1_hours: String,
     pub onboarding_day3_hours: String,
+    // Обновления клиента (services::client_release_service): рассылка,
+    // минимальная сборка, «что нового», ручная последняя версия и то, что
+    // сейчас лежит в downloads/ по манифестам CI.
+    pub client_update_notify: bool,
+    pub client_min_build: String,
+    pub client_release_notes: String,
+    pub client_latest_version: String,
+    pub client_latest_build: String,
+    pub client_platforms: Vec<ClientPlatformRow>,
+    pub client_notices: Vec<ClientNoticeRow>,
     pub panel_url: String,
     pub panel_url_display: String,
     pub admin_ui_url_display: String,
@@ -689,6 +769,15 @@ pub struct SaveSettingsForm {
     pub onboarding_enabled: Option<String>,
     pub onboarding_day1_hours: Option<String>,
     pub onboarding_day3_hours: Option<String>,
+    pub client_update_notify: Option<String>,
+    pub client_min_build: Option<String>,
+    pub client_min_build_android: Option<String>,
+    pub client_min_build_windows: Option<String>,
+    pub client_min_build_macos: Option<String>,
+    pub client_min_build_linux: Option<String>,
+    pub client_release_notes: Option<String>,
+    pub client_latest_version: Option<String>,
+    pub client_latest_build: Option<String>,
     pub panel_url: Option<String>,
     pub bot_username: Option<String>,
     pub brand_name: Option<String>,
@@ -843,6 +932,38 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
             &onboarding::DEFAULT_DAY3_HOURS.to_string(),
         )
         .await;
+    let client_update_notify = state
+        .settings
+        .get_bool_or_default(releases::SETTING_NOTIFY, true)
+        .await;
+    let client_min_build = state
+        .settings
+        .get_or_default(releases::SETTING_MIN_BUILD, "0")
+        .await;
+    let client_release_notes = state
+        .settings
+        .get_or_default(releases::SETTING_RELEASE_NOTES, "")
+        .await;
+    let client_latest_version = state
+        .settings
+        .get_or_default(releases::SETTING_LATEST_VERSION, "")
+        .await;
+    let client_latest_build = state
+        .settings
+        .get_or_default(releases::SETTING_LATEST_BUILD, "")
+        .await;
+    let client_platforms = client_platform_rows(&state).await;
+    let client_notices: Vec<ClientNoticeRow> = releases::recent_notices(&state.pool, 12)
+        .await
+        .into_iter()
+        .map(|n| ClientNoticeRow {
+            platform: n.platform,
+            build: n.build,
+            version: n.version,
+            sent_count: n.sent_count,
+            notified_at_display: n.notified_at.format("%Y-%m-%d %H:%M").to_string(),
+        })
+        .collect();
     let app_download_url_android = state
         .settings
         .get_or_default("app_download_url_android", "")
@@ -1484,6 +1605,13 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         onboarding_enabled,
         onboarding_day1_hours,
         onboarding_day3_hours,
+        client_update_notify,
+        client_min_build,
+        client_release_notes,
+        client_latest_version,
+        client_latest_build,
+        client_platforms,
+        client_notices,
         panel_url,
         panel_url_display,
         admin_ui_url_display,
@@ -1902,6 +2030,70 @@ pub async fn save_settings(
             settings.insert(key.to_string(), hours.to_string());
         }
     }
+    // Обновления клиента. Сборки — целые числа, мусор и минус превращаются в
+    // ноль («не требовать»): опечатка в минимальной сборке иначе заблокировала
+    // бы всех пользователей экраном «Нужно обновиться».
+    if let Some(v) = form.client_update_notify {
+        settings.insert(
+            releases::SETTING_NOTIFY.to_string(),
+            if is_checkbox_enabled(Some(&v)) {
+                "true"
+            } else {
+                "false"
+            }
+            .to_string(),
+        );
+    }
+    let build_or_zero = |v: &str| {
+        v.trim()
+            .parse::<i64>()
+            .ok()
+            .filter(|b| *b >= 0)
+            .unwrap_or(0)
+            .to_string()
+    };
+    if let Some(v) = form.client_min_build {
+        settings.insert(releases::SETTING_MIN_BUILD.to_string(), build_or_zero(&v));
+    }
+    for (field, platform) in [
+        (form.client_min_build_android, "android"),
+        (form.client_min_build_windows, "windows"),
+        (form.client_min_build_macos, "macos"),
+        (form.client_min_build_linux, "linux"),
+    ] {
+        if let Some(v) = field {
+            // Пустое поле — «как глобальная»; ноль хранится нулём.
+            let value = if v.trim().is_empty() {
+                String::new()
+            } else {
+                build_or_zero(&v)
+            };
+            settings.insert(format!("{}_{platform}", releases::SETTING_MIN_BUILD), value);
+        }
+    }
+    if let Some(v) = form.client_release_notes {
+        settings.insert(
+            releases::SETTING_RELEASE_NOTES.to_string(),
+            v.trim().chars().take(2000).collect(),
+        );
+    }
+    if let Some(v) = form.client_latest_version {
+        settings.insert(
+            releases::SETTING_LATEST_VERSION.to_string(),
+            v.trim().to_string(),
+        );
+    }
+    if let Some(v) = form.client_latest_build {
+        let value = if v.trim().is_empty() {
+            String::new()
+        } else {
+            build_or_zero(&v)
+        };
+        settings.insert(releases::SETTING_LATEST_BUILD.to_string(), value);
+    }
+    // Ручные значения и заметки читает /api/v2/app/version: кэш манифестов
+    // сбрасываем, чтобы правка была видна сразу, а не через пять минут.
+    releases::invalidate_cache();
     if let Some(v) = form.app_download_url_android {
         settings.insert("app_download_url_android".to_string(), v.trim().to_string());
     }

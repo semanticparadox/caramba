@@ -60,3 +60,17 @@ func TestNewClientAllowsEmptyPanelURL(t *testing.T) {
 		t.Error("ожидалась ошибка панельного Up без panelURL")
 	}
 }
+
+// Кандидаты релея для AutoTune едут CSV-строкой (gomobile не умеет []string):
+// разбор — тот же splitCSV, нормализацию делает autotune.NormalizeCandidates.
+// Пустая строка обязана давать nil, а не срез из пустого элемента — иначе
+// Recommend увидел бы «кандидата» и посоветовал вход через страну "".
+func TestAutoTuneCandidatesCSVEmptyIsNil(t *testing.T) {
+	if got := splitCSV(""); got != nil {
+		t.Errorf("пустой CSV обязан давать nil, получено %v", got)
+	}
+	got := splitCSV("ru, kz")
+	if len(got) != 2 || got[0] != "ru" || got[1] != "kz" {
+		t.Errorf("ожидалось [ru kz], получено %v", got)
+	}
+}

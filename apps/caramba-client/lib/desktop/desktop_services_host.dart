@@ -1,4 +1,5 @@
-/// Хозяин десктопных сервисов: окно, значок в строке меню, автозапуск.
+/// Хозяин десктопных сервисов: окно, значок в строке меню, автозапуск,
+/// автоподключение.
 ///
 /// ЗАЧЕМ ОТДЕЛЬНЫЙ ВИДЖЕТ. Все три сервиса собраны провайдерами, но ни один из
 /// них себя не запускает: `WindowService.attach()`, `TrayService.start()` и
@@ -24,6 +25,7 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:caramba_client/desktop/autoconnect_service.dart';
 import 'package:caramba_client/desktop/autostart_service.dart';
 import 'package:caramba_client/desktop/desktop_platform.dart';
 import 'package:caramba_client/desktop/tray_service.dart';
@@ -76,6 +78,10 @@ class _DesktopServicesHostState extends ConsumerState<DesktopServicesHost> {
     // (система может не уметь автозапуск вовсе — macOS 12).
     unawaited(ref.read(autostartServiceProvider).start());
 
+    // Автоподключение: ждёт готовности профилей и серверов подпиской и
+    // поднимает туннель один раз, если тумблер включён.
+    ref.read(autoConnectServiceProvider).start();
+
     // Диплинк при спрятанном окне. Навигацией занимается `DeepLinkHandler` в
     // роутере; здесь нужно ровно одно — ПОКАЗАТЬ окно, иначе переход случится
     // там, где его никто не видит, и ссылка выглядит проглоченной.
@@ -104,6 +110,7 @@ class _DesktopServicesHostState extends ConsumerState<DesktopServicesHost> {
       ref.watch(windowServiceProvider);
       ref.watch(trayServiceProvider);
       ref.watch(autostartServiceProvider);
+      ref.watch(autoConnectServiceProvider);
     }
     return widget.child;
   }

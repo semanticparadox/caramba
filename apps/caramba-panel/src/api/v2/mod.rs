@@ -7,6 +7,7 @@ pub mod app_enroll;
 pub mod app_partner;
 pub mod app_plans;
 pub mod app_support;
+pub mod app_version;
 pub mod bot_auth;
 pub mod bot_rate_limit;
 pub mod client;
@@ -139,8 +140,8 @@ pub fn bot_routes(state: AppState) -> axum::Router<AppState> {
 ///
 /// Публичные эндпоинты (без JWT): регистрация и логины, refresh, logout.
 /// Защищённые эндпоинты (require_app_jwt): профиль, подписка, серверы.
-/// `state` передаётся явно ради единообразия с `bot_routes`, хотя сам
-/// `require_app_jwt` состояния не требует (валидирует JWT по env-секрету).
+/// `state` нужен слою учёта версии приложения (`app_version::record_app_version`);
+/// сам `require_app_jwt` состояния не требует (валидирует JWT по env-секрету).
 pub fn app_routes(_state: AppState) -> axum::Router<AppState> {
     // Публичные маршруты — без middleware.
     let public = axum::Router::new()
@@ -158,7 +159,11 @@ pub fn app_routes(_state: AppState) -> axum::Router<AppState> {
         .route("/enroll/redeem", post(app_enroll::redeem_connect_code))
         // Публичный branding (до логина): тир-гейт + brand_* из settings.
         // READ-ONLY; отдаёт только brand_* + флаги, никаких секретов.
-        .route("/branding", get(app_branding::get_branding));
+        .route("/branding", get(app_branding::get_branding))
+        // Последняя версия клиента по платформе. Публичный, как /downloads:
+        // приложение спрашивает до входа и в generic-режиме, а в ответе нет
+        // ничего, чего нет в открытом релизе.
+        .route("/version", get(app_version::get_version));
 
     // Защищённые маршруты — за require_app_jwt.
     let protected = axum::Router::new()
@@ -226,6 +231,13 @@ pub fn app_routes(_state: AppState) -> axum::Router<AppState> {
             get(app_partner::list_codes).post(app_partner::create_code),
         )
         .route("/partner/codes/{code}", delete(app_partner::delete_code))
+        // Версия приложения (X-Caramba-App-Version) → лиза устройства. Слой
+        // добавлен ПЕРЕД require_app_jwt и потому выполняется после него
+        // (route_layer — LIFO): AuthUser уже в расширениях запроса.
+        .route_layer(axum::middleware::from_fn_with_state(
+            _state.clone(),
+            app_version::record_app_version,
+        ))
         .route_layer(axum::middleware::from_fn(app_auth::require_app_jwt));
 
     public.merge(protected)

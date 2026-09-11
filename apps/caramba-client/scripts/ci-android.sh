@@ -39,6 +39,7 @@
 #   libs/caramba-core/build/exarobot.aar
 #   apps/caramba-client/packages/caramba_vpn/android/libs/caramba.aar
 #   apps/caramba-client/build/dist/Caramba-Connect-Android-{arm64,armv7}.apk
+#   apps/caramba-client/build/dist/Caramba-Connect-android.json (манифест версии)
 #   (единая схема имён Caramba-Connect-<OS>-<arch>.<ext>, та же, что ищут
 #   apps/caramba-installer и /api/client/app/downloads в панели)
 #
@@ -185,6 +186,14 @@ rename_apk() {
 log "релизные артефакты:"
 rename_apk app-arm64-v8a-release.apk   Caramba-Connect-Android-arm64.apk
 rename_apk app-armeabi-v7a-release.apk Caramba-Connect-Android-armv7.apk
+
+# --- 7b. манифест версии ------------------------------------------------------
+# Единственный машиночитаемый ответ на вопрос «какая это версия»: панель отдаёт
+# его приложению (GET /api/v2/app/version), бот рассылает по нему «вышла новая
+# версия». Один файл на платформу, оба APK внутри (см. ci-manifest.sh).
+bash "${SCRIPT_DIR}/ci-manifest.sh" android "${DIST_DIR}/Caramba-Connect-android.json" \
+  "${DIST_DIR}/Caramba-Connect-Android-arm64.apk" \
+  "${DIST_DIR}/Caramba-Connect-Android-armv7.apk"
 
 # --- 8. подпись в лог ---------------------------------------------------------
 # Печатается только открытая часть (subject/fingerprint) — по ней видно, тот же

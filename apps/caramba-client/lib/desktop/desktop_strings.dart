@@ -10,6 +10,7 @@
 /// запятая, двоеточие или средняя точка.
 library;
 
+import 'package:caramba_client/desktop/desktop_platform.dart';
 import 'package:caramba_client/vpn/vpn_status.dart';
 
 abstract final class DesktopStrings {
@@ -198,11 +199,59 @@ abstract final class DesktopStrings {
 
   static const String onWindowCloseQuit = 'Завершать приложение';
 
-  static const String onLaunchTitle = 'При запуске';
-  static const String onLaunchShowWindow = 'Показывать окно';
+  // --- Настройки, раздел «Запуск» ---
 
-  static String onLaunchTrayOnly({required bool isMac}) =>
-      isMac ? 'Только значок в строке меню' : 'Только значок в трее';
+  static const String settingsLaunchSection = 'Запуск';
+
+  /// Подопция автозапуска: окна при входе в систему не будет, только значок.
+  static String launchInTrayTitle({required bool isMac}) =>
+      isMac ? 'Свернутым в строку меню' : 'Свернутым в трей';
+
+  /// На Windows и Linux запуск при входе подписан флагом, и ручной запуск
+  /// всегда показывает окно. macOS причину запуска не сообщает, и там подопция
+  /// действует при каждом запуске: подпись обязана это сказать, иначе человек
+  /// ищет пропавшее окно.
+  static String launchInTrayHint({required bool isMac}) => isMac
+      ? 'macOS не сообщает, что запуск был автоматическим: без окна '
+            'приложение откроется и по клику в Dock или Launchpad. Вернуть окно '
+            'можно из строки меню.'
+      : 'Действует только при запуске вместе с системой. Запуск вручную '
+            'всегда показывает окно.';
+
+  /// Подопция автозапуска: туннель поднимается сам, без клика по дайлу.
+  static const String launchAutoConnectTitle = 'Подключаться автоматически';
+
+  static const String launchAutoConnectHint =
+      'При каждом запуске приложения, если есть подключение.';
+
+  /// Подпись тумблера автозапуска на Windows: путь через планировщик задач.
+  static const String launchAtLoginHintWindows =
+      'Через планировщик задач Windows: программе нужны права администратора, '
+      'и обычный автозапуск для таких программ система блокирует.';
+
+  // --- Настройки, захват трафика ---
+
+  /// Подсказка к пикеру «Захват трафика», по платформе.
+  ///
+  /// На Windows права уже есть (манифест), на Linux их даёт install.sh:
+  /// пугать словом «требует прав» там не за что, а «по умолчанию» человеку
+  /// важнее. На macOS честно называется причина, почему TUN недоступен.
+  static String tunnelModeHint({required bool isMac, required int mixedPort}) =>
+      isMac
+      ? 'На macOS без системного расширения доступен только локальный прокси '
+            '127.0.0.1:$mixedPort: браузеры и система берут его сами. TUN '
+            'появится вместе с расширением.'
+      : 'TUN заворачивает весь трафик системы (по умолчанию). Прокси '
+            'поднимает 127.0.0.1:$mixedPort, и трафик в него направляют сами '
+            'приложения.';
+
+  /// Та же подсказка для общего экрана настроек, где платформа не известна
+  /// заранее: на десктопе по платформе, на мобильном прежний текст (там TUN
+  /// строит система, и слово «права» относится к разрешению VPN).
+  static String tunnelModePickerHint(int mixedPort) => isDesktopPlatform
+      ? tunnelModeHint(isMac: isMacOSPlatform, mixedPort: mixedPort)
+      : 'TUN заворачивает весь трафик системы и требует прав. '
+            'Прокси поднимает 127.0.0.1:$mixedPort без прав.';
 
   static const String signOut = 'Выйти из аккаунта';
 

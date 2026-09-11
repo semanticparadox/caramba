@@ -93,6 +93,9 @@ class _FakeWindowPort implements WindowPort {
   Future<void> setTitle(String title) async {}
 
   @override
+  Future<void> setMinimizeToTray(bool value) async {}
+
+  @override
   void addListener(WindowPortListener listener) {}
 
   @override
@@ -142,57 +145,57 @@ const _profile = ConnectionProfile(
 /// Таблица той же ФОРМЫ, что боевая: накладные маршруты сиблингами шелла с
 /// тремя ветками. Экраны заменены текстом — проверяется оболочка, а не они.
 List<RouteBase> _routes(GlobalKey<NavigatorState> root) => <RouteBase>[
-      GoRoute(
-        path: AppRoute.servers,
-        parentNavigatorKey: root,
-        // Панель на десктопе полупрозрачная и НЕ снимает шелл со сцены: без
-        // `opaque: false` страница под ней ушла бы offstage, и проверка «сайдбар
-        // виден из-под панели» стала бы бессмысленной.
-        pageBuilder: (context, state) => CustomTransitionPage<void>(
-          key: state.pageKey,
-          opaque: false,
-          transitionsBuilder: (_, __, ___, child) => child,
-          child: const Align(
-            alignment: Alignment.centerRight,
-            child: SizedBox(width: 720, child: Text('servers')),
-          ),
-        ),
+  GoRoute(
+    path: AppRoute.servers,
+    parentNavigatorKey: root,
+    // Панель на десктопе полупрозрачная и НЕ снимает шелл со сцены: без
+    // `opaque: false` страница под ней ушла бы offstage, и проверка «сайдбар
+    // виден из-под панели» стала бы бессмысленной.
+    pageBuilder: (context, state) => CustomTransitionPage<void>(
+      key: state.pageKey,
+      opaque: false,
+      transitionsBuilder: (_, __, ___, child) => child,
+      child: const Align(
+        alignment: Alignment.centerRight,
+        child: SizedBox(width: 720, child: Text('servers')),
       ),
-      GoRoute(
-        path: AppRoute.connectionImport,
-        parentNavigatorKey: root,
-        builder: (_, __) => const Text('import'),
-      ),
-      StatefulShellRoute.indexedStack(
-        builder: (_, __, shell) => DesktopShell(navigationShell: shell),
-        branches: <StatefulShellBranch>[
-          StatefulShellBranch(
-            routes: <RouteBase>[
-              GoRoute(
-                path: AppRoute.home,
-                builder: (_, __) => const Text('home-screen'),
-              ),
-            ],
-          ),
-          StatefulShellBranch(
-            routes: <RouteBase>[
-              GoRoute(
-                path: AppRoute.profile,
-                builder: (_, __) => const Text('profile-screen'),
-              ),
-            ],
-          ),
-          StatefulShellBranch(
-            routes: <RouteBase>[
-              GoRoute(
-                path: AppRoute.settings,
-                builder: (_, __) => const Text('settings-screen'),
-              ),
-            ],
+    ),
+  ),
+  GoRoute(
+    path: AppRoute.connectionImport,
+    parentNavigatorKey: root,
+    builder: (_, __) => const Text('import'),
+  ),
+  StatefulShellRoute.indexedStack(
+    builder: (_, __, shell) => DesktopShell(navigationShell: shell),
+    branches: <StatefulShellBranch>[
+      StatefulShellBranch(
+        routes: <RouteBase>[
+          GoRoute(
+            path: AppRoute.home,
+            builder: (_, __) => const Text('home-screen'),
           ),
         ],
       ),
-    ];
+      StatefulShellBranch(
+        routes: <RouteBase>[
+          GoRoute(
+            path: AppRoute.profile,
+            builder: (_, __) => const Text('profile-screen'),
+          ),
+        ],
+      ),
+      StatefulShellBranch(
+        routes: <RouteBase>[
+          GoRoute(
+            path: AppRoute.settings,
+            builder: (_, __) => const Text('settings-screen'),
+          ),
+        ],
+      ),
+    ],
+  ),
+];
 
 /// Секретное хранилище и строка меню живут за метод-каналами: без заглушек
 /// первый же кадр уходит в `MissingPluginException`.
@@ -254,9 +257,9 @@ Future<CarambaRouter> _pump(WidgetTester tester, {bool empty = false}) async {
 /// Пункт сайдбара по подписи. Через сайдбар, а не по тексту: заголовок раздела
 /// в тулбаре называется теми же словами.
 Finder _navRow(String label) => find.descendant(
-      of: find.byType(DesktopSidebar),
-      matching: find.text(label),
-    );
+  of: find.byType(DesktopSidebar),
+  matching: find.text(label),
+);
 
 /// Фон строки навигации: активная стоит на surface2, спящая прозрачна.
 Color? _navBackground(WidgetTester tester, String label) {
@@ -346,10 +349,7 @@ void main() {
       final label = find.text('Добавить подключение');
       expect(label, findsOneWidget);
       final paragraph = tester.renderObject<RenderParagraph>(
-        find.descendant(
-          of: label,
-          matching: find.byType(RichText),
-        ),
+        find.descendant(of: label, matching: find.byType(RichText)),
       );
       expect(paragraph.didExceedMaxLines, isFalse);
       expect(tester.takeException(), isNull);

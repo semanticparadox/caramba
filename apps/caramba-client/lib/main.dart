@@ -5,6 +5,7 @@ import 'package:caramba_client/data/brand.dart';
 import 'package:caramba_client/desktop/desktop_bootstrap.dart';
 import 'package:caramba_client/desktop/desktop_platform.dart';
 import 'package:caramba_client/desktop/desktop_services_host.dart';
+import 'package:caramba_client/desktop/launch_args.dart';
 import 'package:caramba_client/router/app_router.dart';
 import 'package:caramba_client/state/bootstrap_state.dart';
 import 'package:caramba_client/state/csm_profile_binding.dart';
@@ -12,12 +13,14 @@ import 'package:caramba_client/state/branding_state.dart';
 import 'package:caramba_client/state/settings_state.dart';
 import 'package:caramba_client/theme/app_theme.dart';
 
-void main() async {
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   // Окно готовится ДО первого кадра: размер и позиция читаются с диска, и
   // окно, которое сначала открылось дефолтом, а потом прыгнуло на своё место,
   // человек читает как сбой. На мобильном шаг отсутствует целиком.
-  if (isDesktopPlatform) await initDesktop();
+  // Аргументы командной строки нужны только здесь: по `--autostart`
+  // (регистрация автозапуска на Windows и Linux) решается, показывать ли окно.
+  if (isDesktopPlatform) await initDesktop(launch: LaunchArgs.parse(args));
   runApp(const ProviderScope(child: CarambaApp()));
 }
 

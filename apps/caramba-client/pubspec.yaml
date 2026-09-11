@@ -86,6 +86,8 @@ dependencies:
   # 'launch_at_startup' реализован в macos/Runner/AppDelegate.swift через
   # SMAppService, см. комментарий там.
   launch_at_startup: ^0.5.1
+  package_info_plus: ^9.0.1
+  crypto: ^3.0.7
 
 
 dev_dependencies:

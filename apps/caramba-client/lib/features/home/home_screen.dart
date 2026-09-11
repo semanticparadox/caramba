@@ -24,6 +24,7 @@ import 'package:caramba_client/features/csm/config_age_card.dart';
 import 'package:caramba_client/features/csm/keep_or_revert_card.dart';
 import 'package:caramba_client/features/home/autopilot_button.dart';
 import 'package:caramba_client/features/home/home_desktop_layout.dart';
+import 'package:caramba_client/features/home/tun_permission_banner.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
 import 'package:caramba_client/features/protocol/protocol_truth.dart';
 import 'package:caramba_client/features/servers/access_card.dart';
@@ -31,6 +32,7 @@ import 'package:caramba_client/features/servers/relay_screen.dart'
     show effectiveRelayIndex;
 import 'package:caramba_client/features/settings/applied_route_card.dart';
 import 'package:caramba_client/features/settings/reconnect_banner.dart';
+import 'package:caramba_client/features/updates/update_banner.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/access_guard.dart';
 import 'package:caramba_client/state/account_state.dart';
@@ -480,6 +482,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         cards: noConnections
             ? const <Widget>[]
             : <Widget>[
+                // Новая версия приложения и «нет прав на TUN» — первыми
+                // карточками правой колонки: на десктопе левая панель занята
+                // дайлом и соединением.
+                const UpdateBanner(),
+                const TunPermissionBanner(),
                 const CsmConfigAgeCard(),
                 const CsmPendingChangesSection(),
                 ...cards,
@@ -559,6 +566,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         const ReconnectBanner(),
                         const SizedBox(height: AppSpace.s4),
                       ],
+                      // Новая версия приложения: предложение, а не стена, и
+                      // ниже переподключения, потому что то — про текущее
+                      // соединение, а это — про следующий запуск. Сам виджет
+                      // пуст, пока обновляться не на что. Следом — «нет прав
+                      // на TUN» (десктоп): тоже пуст, пока причины нет.
+                      const UpdateBanner(),
+                      const TunPermissionBanner(),
                       // Стена, в которую упирается человек, стоит там же, где
                       // он в неё упирается: под дайлом, который отказался
                       // подключаться. Раньше единственное объяснение жило в

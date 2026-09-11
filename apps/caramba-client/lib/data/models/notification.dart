@@ -3,10 +3,13 @@
 /// Контракт панели (`app_support.rs::AppNotification`):
 /// ```json
 /// { "id":42, "title":"...", "body":"...", "kind":"billing",
-///   "created_at":"RFC3339", "read":false }
+///   "created_at":"RFC3339", "read":false,
+///   "ticket_id":7, "payload":{"ticket_id":7,"url":"/support/7"} }
 /// ```
 /// Поле статуса прочитанности приходит явным `read:bool`. Категория — в `kind`
-/// (исторически могла называться `category`, поэтому читаем оба).
+/// (исторически могла называться `category`, поэтому читаем оба). `ticket_id`
+/// и `payload` есть только у уведомлений, привязанных к сущности; старая
+/// панель их не шлёт, тогда тап по уведомлению лишь помечает его прочитанным.
 class AppNotification {
   final int id;
   final String category;
@@ -16,6 +19,14 @@ class AppNotification {
   final DateTime? createdAt;
   final DateTime? readAt;
 
+  /// Тикет, к которому ведёт уведомление (`support_ticket`). Null для всех
+  /// остальных категорий и для ответов старой панели без payload.
+  final int? ticketId;
+
+  /// Сырой payload панели: остальные ссылки (`url`, `payment_id`) читаются
+  /// отсюда, когда появятся переходы к другим сущностям.
+  final Map<String, dynamic>? payload;
+
   const AppNotification({
     required this.id,
     this.category = '',
@@ -24,7 +35,16 @@ class AppNotification {
     this.read = false,
     this.createdAt,
     this.readAt,
+    this.ticketId,
+    this.payload,
   });
+
+  /// Категория уведомлений о тикетах поддержки (`tickets_service.rs`).
+  static const String supportTicketKind = 'support_ticket';
+
+  /// Тап ведёт к тикету: панель прислала положительный id. Категорию не
+  /// требуем: id без категории надёжнее категории без id.
+  bool get opensTicket => (ticketId ?? 0) > 0;
 
   /// Человекочитаемое «когда» (плоский текст, без em-dash).
   String get whenLabel {
@@ -42,6 +62,11 @@ class AppNotification {
   factory AppNotification.fromJson(Map<String, dynamic> json) {
     final readAt = _parseDate(json['read_at']);
     final status = (json['status'] as String?)?.toLowerCase();
+    // Панель отдаёт `payload`; мини-аппный контракт называет его `payload_json`.
+    final rawPayload = json['payload'] ?? json['payload_json'];
+    final payload = (rawPayload is Map)
+        ? rawPayload.cast<String, dynamic>()
+        : null;
     return AppNotification(
       id: (json['id'] as num?)?.toInt() ?? 0,
       category:
@@ -51,6 +76,8 @@ class AppNotification {
       read: (json['read'] as bool?) ?? (status == 'read' || readAt != null),
       createdAt: _parseDate(json['created_at']),
       readAt: readAt,
+      ticketId: _parseTicketId(json['ticket_id']) ?? _ticketIdFrom(payload),
+      payload: payload,
     );
   }
 
@@ -62,7 +89,32 @@ class AppNotification {
     read: read ?? this.read,
     createdAt: createdAt,
     readAt: readAt ?? this.readAt,
+    ticketId: ticketId,
+    payload: payload,
   );
+
+  /// id тикета из payload: числовое/строковое `ticket_id`, иначе из `url`
+  /// вида `/support/{id}` (так панель писала до появления явного поля).
+  static int? _ticketIdFrom(Map<String, dynamic>? payload) {
+    if (payload == null) return null;
+    final direct = _parseTicketId(payload['ticket_id']);
+    if (direct != null) return direct;
+    final url = payload['url'];
+    if (url is String) {
+      final m = RegExp(r'^/support/(\d+)').firstMatch(url);
+      if (m != null) return int.tryParse(m.group(1)!);
+    }
+    return null;
+  }
+
+  static int? _parseTicketId(Object? v) {
+    if (v is num) return v.toInt() > 0 ? v.toInt() : null;
+    if (v is String) {
+      final n = int.tryParse(v.trim());
+      return (n != null && n > 0) ? n : null;
+    }
+    return null;
+  }
 
   static DateTime? _parseDate(Object? v) {
     if (v is String && v.isNotEmpty) return DateTime.tryParse(v)?.toLocal();

@@ -44,6 +44,7 @@ import 'package:caramba_client/features/settings/reconnect_banner.dart';
 import 'package:caramba_client/features/settings/route_picker.dart';
 import 'package:caramba_client/features/settings/route_report.dart';
 import 'package:caramba_client/router/routes.dart';
+import 'package:caramba_client/state/app_update_state.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
 import 'package:caramba_client/state/csm_state.dart';
@@ -128,6 +129,20 @@ class _SettingsDesktopScreenState extends ConsumerState<SettingsDesktopScreen> {
 
   GlobalKey _keyFor(String id) =>
       _sectionKeys.putIfAbsent(id, () => GlobalKey());
+
+  /// Включение автозапуска включает и его подопции: «запускать при входе»
+  /// из коробки значит «тихо поднялся в трей и подключился». Выключение
+  /// подопции не трогает: они скрыты вместе с ним и вернутся, как были.
+  static void _setLaunchAtLogin(
+    bool value,
+    DesktopPrefsNotifier prefsN,
+    CoreConfigNotifier cfgN,
+  ) {
+    prefsN.setLaunchAtLogin(value);
+    if (!value) return;
+    prefsN.setStartInTray(true);
+    cfgN.setAutoConnect(true);
+  }
 
   /// Активен раздел, чей заголовок ПОСЛЕДНИМ прошёл верхнюю кромку формы.
   ///
@@ -367,9 +382,13 @@ class _SettingsDesktopScreenState extends ConsumerState<SettingsDesktopScreen> {
           ),
           FormRow(
             label: 'Захват трафика',
-            description:
-                'TUN заворачивает весь трафик системы и требует прав. '
-                'Прокси поднимает 127.0.0.1:$kMixedPort без прав.',
+            // По платформе: на Windows и Linux TUN стоит по умолчанию и прав
+            // не просит, на macOS его нет вовсе, и подпись обязана сказать
+            // почему.
+            description: DesktopStrings.tunnelModeHint(
+              isMac: isMac,
+              mixedPort: kMixedPort,
+            ),
             control: DesktopPicker(
               options: _kTunnelOptions,
               selected: tunnelMode == TunnelMode.tun ? 0 : 1,
@@ -485,29 +504,65 @@ class _SettingsDesktopScreenState extends ConsumerState<SettingsDesktopScreen> {
         ],
       ),
 
-      // Вопросы, которых у мобильной сборки нет вовсе: окно, значок в строке
-      // меню, вход в систему.
+      // Запуск вместе с системой: один тумблер и две его подопции. Раньше
+      // «запуск без окна» был отдельным пикером в разделе «Приложение», и
+      // человек, включивший автозапуск, не догадывался, что тихий старт
+      // надо включать отдельно; включив же его, терял окно при ручном
+      // запуске. Теперь подопции включаются вместе с автозапуском и
+      // показываются только при нём.
       _Section(
-        id: 'app',
-        title: DesktopStrings.settingsAppSection,
+        id: 'launch',
+        title: DesktopStrings.settingsLaunchSection,
         rows: <Widget>[
           FormRow(
             label: DesktopStrings.launchAtLoginTitle,
-            // Описание появляется ТОЛЬКО когда система отказала. Подпись «нужна
-            // macOS 13 или новее», висящая на любой macOS, врёт каждому, у кого
-            // версия новее, — а таких большинство.
+            // Описание появляется, когда система отказала (подпись «нужна
+            // macOS 13 или новее», висящая на любой macOS, врёт каждому, у
+            // кого версия новее), когда macOS ждёт разрешения, и на Windows,
+            // где путь через планировщик стоит одной строки объяснения.
             description: autostartSupported
                 ? (approvalPending
                       ? DesktopStrings.launchAtLoginNeedsApproval
-                      : null)
+                      : (isWindowsPlatform
+                            ? DesktopStrings.launchAtLoginHintWindows
+                            : null))
                 : ref.watch(autostartUnavailableMessageProvider),
             control: Switch(
               value: prefs.launchAtLogin,
               // Тумблер, который система не примет, не должен нажиматься:
               // включённый и ничего не делающий он хуже выключенного.
-              onChanged: autostartSupported ? prefsN.setLaunchAtLogin : null,
+              onChanged: autostartSupported
+                  ? (v) => _setLaunchAtLogin(v, prefsN, cfgN)
+                  : null,
             ),
           ),
+          if (prefs.launchAtLogin) ...<Widget>[
+            FormRow(
+              label: DesktopStrings.launchInTrayTitle(isMac: isMac),
+              description: DesktopStrings.launchInTrayHint(isMac: isMac),
+              control: Switch(
+                value: prefs.startInTray,
+                onChanged: prefsN.setStartInTray,
+              ),
+            ),
+            FormRow(
+              label: DesktopStrings.launchAutoConnectTitle,
+              description: DesktopStrings.launchAutoConnectHint,
+              control: Switch(
+                value: cfg.autoConnect,
+                onChanged: cfgN.setAutoConnect,
+              ),
+            ),
+          ],
+        ],
+      ),
+
+      // Вопросы, которых у мобильной сборки нет вовсе: окно и значок в строке
+      // меню.
+      _Section(
+        id: 'app',
+        title: DesktopStrings.settingsAppSection,
+        rows: <Widget>[
           FormRow(
             label: DesktopStrings.onWindowCloseTitle,
             control: DesktopPicker(
@@ -527,24 +582,25 @@ class _SettingsDesktopScreenState extends ConsumerState<SettingsDesktopScreen> {
               onSelected: (i) => prefsN.setCloseToTray(i == 0),
             ),
           ),
-          FormRow(
-            label: DesktopStrings.onLaunchTitle,
-            control: DesktopPicker(
-              options: <({String name, String desc, String? icon})>[
-                (
-                  name: DesktopStrings.onLaunchShowWindow,
-                  desc: 'Обычный запуск.',
-                  icon: null,
+          // Версия и обновления: та же строка, что в мобильных настройках,
+          // чтобы «какая у меня сборка» на десктопе искалось там же, где
+          // и на телефоне. Значение «есть новее» повторяет баннер на
+          // «Подключении», а не заменяет его.
+          Builder(
+            builder: (context) {
+              final update = ref.watch(appUpdateProvider);
+              return FormRow(
+                label: 'Обновления',
+                description: update.hasNewer
+                    ? 'есть ${update.latest!.version}'
+                    : update.installed.label,
+                control: FormOpenButton(
+                  label: _kOpen,
+                  onPressed: () => context.go(AppRoute.updates),
                 ),
-                (
-                  name: DesktopStrings.onLaunchTrayOnly(isMac: isMac),
-                  desc: 'Запуск без окна, для автозапуска при входе.',
-                  icon: null,
-                ),
-              ],
-              selected: prefs.startInTray ? 1 : 0,
-              onSelected: (i) => prefsN.setStartInTray(i == 1),
-            ),
+                onTap: () => context.go(AppRoute.updates),
+              );
+            },
           ),
         ],
       ),

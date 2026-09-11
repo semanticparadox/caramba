@@ -132,14 +132,20 @@ jobs:
         with:
           name: caramba-connect-macos
           if-no-files-found: error
-          path: apps/caramba-client/build/dist/Caramba-Connect-macOS-arm64.dmg
+          path: |
+            apps/caramba-client/build/dist/Caramba-Connect-macOS-arm64.dmg
+            apps/caramba-client/build/dist/Caramba-Connect-macos.json
 
       - name: Attach DMG to release (tag)
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: apps/caramba-client/build/dist/Caramba-Connect-macOS-arm64.dmg
+          # Манифест версии (ci-manifest.sh) едет тем же релизом: панель кладёт
+          # его в downloads/ и по нему отдаёт GET /api/v2/app/version.
+          files: |
+            apps/caramba-client/build/dist/Caramba-Connect-macOS-arm64.dmg
+            apps/caramba-client/build/dist/Caramba-Connect-macos.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -273,6 +279,7 @@ jobs:
           path: |
             apps/caramba-client/build/dist/Caramba-Connect-Setup-x64.exe
             apps/caramba-client/build/dist/Caramba-Connect-Windows-x64-portable.zip
+            apps/caramba-client/build/dist/Caramba-Connect-windows.json
 
       - name: Attach installer and ZIP to release (tag)
         if: github.ref_type == 'tag'
@@ -282,6 +289,7 @@ jobs:
           files: |
             apps/caramba-client/build/dist/Caramba-Connect-Setup-x64.exe
             apps/caramba-client/build/dist/Caramba-Connect-Windows-x64-portable.zip
+            apps/caramba-client/build/dist/Caramba-Connect-windows.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -340,13 +348,17 @@ jobs:
         with:
           name: caramba-connect-linux
           if-no-files-found: error
-          path: apps/caramba-client/build/dist/Caramba-Connect-Linux-x64.tar.gz
+          path: |
+            apps/caramba-client/build/dist/Caramba-Connect-Linux-x64.tar.gz
+            apps/caramba-client/build/dist/Caramba-Connect-linux.json
 
       - name: Attach tarball to release (tag)
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: apps/caramba-client/build/dist/Caramba-Connect-Linux-x64.tar.gz
+          files: |
+            apps/caramba-client/build/dist/Caramba-Connect-Linux-x64.tar.gz
+            apps/caramba-client/build/dist/Caramba-Connect-linux.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

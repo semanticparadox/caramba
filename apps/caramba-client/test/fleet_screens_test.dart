@@ -53,19 +53,18 @@ Map<String, dynamic> _inbound(
   String? proxyName,
   bool available = true,
   String? reason,
-}) =>
-    <String, dynamic>{
-      'id': id,
-      'tag': tag,
-      'protocol': protocol,
-      'network': network,
-      'security': security,
-      'port': 443,
-      'label': label,
-      'proxy_name': proxyName,
-      'available': available,
-      'unavailable_reason': reason,
-    };
+}) => <String, dynamic>{
+  'id': id,
+  'tag': tag,
+  'protocol': protocol,
+  'network': network,
+  'security': security,
+  'port': 443,
+  'label': label,
+  'proxy_name': proxyName,
+  'available': available,
+  'unavailable_reason': reason,
+};
 
 final _germany = Server.fromJson(<String, dynamic>{
   'id': 1,
@@ -240,15 +239,15 @@ class _ProbingCore extends FakeVpnCore {
 
   @override
   Future<List<ProbeResult>> probe({Duration timeout = Duration.zero}) async => [
-        for (final e in results.entries)
-          ProbeResult(
-            id: e.key,
-            name: e.key,
-            latencyMs: e.value.$1,
-            tcpMs: tcpMs[e.key] ?? -1,
-            verdict: e.value.$2,
-          ),
-      ];
+    for (final e in results.entries)
+      ProbeResult(
+        id: e.key,
+        name: e.key,
+        latencyMs: e.value.$1,
+        tcpMs: tcpMs[e.key] ?? -1,
+        verdict: e.value.$2,
+      ),
+  ];
 }
 
 class _Store implements ConnectionProfilesStore {
@@ -295,23 +294,21 @@ Widget _app(
   ConnectionProfile? profile,
   FakeVpnCore? core,
   int? relayIndex,
-}) =>
-    ProviderScope(
-      overrides: [
-        vpnConnectionProvider.overrideWithValue(core ?? FakeVpnCore()),
-        connectionProfilesStoreProvider.overrideWithValue(
-          _Store(<ConnectionProfile>[profile ?? _panelProfile()], 'cp_panel'),
-        ),
-        serversProvider.overrideWith((ref) async => servers),
-        apiRelaysProvider.overrideWith((ref) async => _panelRelays),
-        if (relayIndex != null)
-          coreConfigProvider.overrideWith(
-            (ref) =>
-                CoreConfigNotifier()..hydrate(CoreConfig(relay: relayIndex)),
-          ),
-      ],
-      child: MaterialApp(theme: AppTheme.dark(), home: screen),
-    );
+}) => ProviderScope(
+  overrides: [
+    vpnConnectionProvider.overrideWithValue(core ?? FakeVpnCore()),
+    connectionProfilesStoreProvider.overrideWithValue(
+      _Store(<ConnectionProfile>[profile ?? _panelProfile()], 'cp_panel'),
+    ),
+    serversProvider.overrideWith((ref) async => servers),
+    apiRelaysProvider.overrideWith((ref) async => _panelRelays),
+    if (relayIndex != null)
+      coreConfigProvider.overrideWith(
+        (ref) => CoreConfigNotifier()..hydrate(CoreConfig(relay: relayIndex)),
+      ),
+  ],
+  child: MaterialApp(theme: AppTheme.dark(), home: screen),
+);
 
 /// Высокое окно: списки строятся ленивым сливером, и строка, не попавшая в
 /// вьюпорт, не попадает и в дерево элементов.
@@ -538,8 +535,7 @@ void main() {
     // `VLESS`) — и, считая соседей по индексу опции, объявлял Reality
     // единственным в своём семействе. Ровно это и есть «пикер, который врёт»:
     // строка обещала точность, которой в ядре нет.
-    testWidgets(
-        'строка Reality признаёт, что ядро не отличает её от vless '
+    testWidgets('строка Reality признаёт, что ядро не отличает её от vless '
         'на TLS', (tester) async {
       _useTallView(tester);
       await tester.pumpWidget(
@@ -599,8 +595,7 @@ void main() {
       expect(_cardOf(tester, 'Hysteria2 · udp · tls').subtitle, isNull);
     });
 
-    testWidgets(
-        'молчащий источник не отменяет схлопывания: оно в ядре, а не '
+    testWidgets('молчащий источник не отменяет схлопывания: оно в ядре, а не '
         'во флоте', (tester) async {
       // Узел 9 — панель не прочитала его инбаунды, и экран печатает список
       // ЗАПРОСОВ ядра. Две строки этого списка, `VLESS · Reality` и `VLESS`,
@@ -821,8 +816,7 @@ void main() {
       );
     });
 
-    testWidgets(
-        'порядок строк подсказывает выбор, а не повторяет порядок '
+    testWidgets('порядок строк подсказывает выбор, а не повторяет порядок '
         'оператора', (tester) async {
       // Пока чисел не было, список шёл в порядке инбаундов у узла — то есть в
       // порядке, в котором оператор их завёл. С числами это стало вредным:
@@ -904,11 +898,15 @@ void main() {
       );
       await _settle(tester);
 
-      // Панель называет релэй УЗЛОМ у выхода (`via_relay`) — узел и показан,
-      // а не одна строка «Россия», которую отдаёт агрегирующий `GET /relays`.
+      // Экран группирует «страна → её релеи»: строка страны из `GET /relays`
+      // (выбор всей страны) и под ней узел, который панель назвала у выхода
+      // (`via_relay`). Оба видны: владельцу нужен и выбор страны, и выбор
+      // конкретного релея, когда их в стране станет несколько.
       expect(find.text('RU relay'), findsOneWidget);
-      expect(find.text('Россия'), findsNothing);
+      expect(find.text('Россия'), findsOneWidget);
       expect(find.text('RU'), findsOneWidget);
+      // Объяснение простыми словами стоит над всем экраном.
+      expect(find.textContaining('Вход это сервер'), findsOneWidget);
 
       // `chained_in_config: false` — метка есть, цепочки в теле нет. Причина
       // приходит от панели через слой предложения.
@@ -938,13 +936,15 @@ void main() {
         );
       }
 
-      // Причина названа один раз — баннером под заголовком «Входы оператора»,
-      // к строкам которого она относится, — плюс подписью самой строки входа.
-      // Под «Выкл» её нет: она его не описывает.
+      // Причина названа баннером под заголовком «Входы оператора», к строкам
+      // которого она относится, плюс подписями строк входа (страна и её
+      // узел). Под «Выкл» её нет: она его не описывает.
       expect(
         find.textContaining('цепочка в конфиге не строится'),
-        findsNWidgets(2),
+        findsNWidgets(3),
       );
+      final offCard = _cardOf(tester, 'Выкл');
+      expect(offCard.subtitle, isNot(contains('цепочка')));
 
       // Значение, которое СЕЙЧАС в силе, обязано быть видно. Сохранённый
       // индекс по умолчанию ноль — это «Выкл», и галочка стоит на нём. Раньше
@@ -974,7 +974,10 @@ void main() {
       );
       await _settle(tester);
 
-      expect(_cardOf(tester, 'RU relay').selected, isTrue);
+      // Индекс 2 это строка-страна: галочка на ней, а не на узле, который
+      // панель назвала у выхода (его закрепление живёт на панели отдельно).
+      expect(_cardOf(tester, 'Россия').selected, isTrue);
+      expect(_cardOf(tester, 'RU relay').selected, isFalse);
       expect(_cardOf(tester, 'Выкл').selected, isFalse);
       // И путь наружу открыт: «Выкл» нажимается.
       expect(_cardOf(tester, 'Выкл').onTap, isNotNull);
@@ -1100,7 +1103,8 @@ void main() {
           ),
           servers: <Server>[_germany],
           core: FakeVpnCore()
-            ..routeReportJson = '{"known":true,"tunnel_up":true,"source":"preset",'
+            ..routeReportJson =
+                '{"known":true,"tunnel_up":true,"source":"preset",'
                 '"preset":{"preset_id":"adblock",'
                 '"preset_name":"Только блок рекламы","emoji":"",'
                 '"rules":2,"dropped_rules":0,'

@@ -125,6 +125,7 @@ jobs:
           path: |
             apps/caramba-client/build/dist/Caramba-Connect-Android-arm64.apk
             apps/caramba-client/build/dist/Caramba-Connect-Android-armv7.apk
+            apps/caramba-client/build/dist/Caramba-Connect-android.json
 
       # Тот же action, что в release.yml: он дописывает ассеты в уже созданный
       # релиз тега, поэтому гонки с release.yml нет.
@@ -133,8 +134,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
+          # Манифест версии (ci-manifest.sh) едет тем же релизом: панель
+          # кладёт его в downloads/ вместе с APK и по нему отдаёт
+          # GET /api/v2/app/version, а бот рассылает «вышла новая версия».
           files: |
             apps/caramba-client/build/dist/Caramba-Connect-Android-arm64.apk
             apps/caramba-client/build/dist/Caramba-Connect-Android-armv7.apk
+            apps/caramba-client/build/dist/Caramba-Connect-android.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

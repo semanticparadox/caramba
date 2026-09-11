@@ -2,7 +2,8 @@
 /// слоя в `launch_at_startup` и в наш macOS-канал.
 ///
 /// ЗАЧЕМ порт, а не прямые вызовы плагина. Автозапуск живёт в трёх разных
-/// местах системы: реестр Windows, файл `~/.config/autostart` на Linux и
+/// местах системы: планировщик задач Windows (см. `windows_task_autostart.dart`,
+/// почему не реестр), файл `~/.config/autostart` на Linux и
 /// `SMAppService` на macOS (там канал реализован не плагином, а нашим
 /// `AppDelegate.swift`). Любое обращение к ним из теста либо падает
 /// `MissingPluginException`, либо, что хуже, реально правит систему хоста,
@@ -21,6 +22,7 @@ import 'package:flutter/services.dart';
 import 'package:launch_at_startup/launch_at_startup.dart';
 
 import 'package:caramba_client/desktop/desktop_platform.dart';
+import 'package:caramba_client/desktop/ports/windows_task_autostart.dart';
 
 /// Идентификатор пакета MSIX на Windows.
 ///
@@ -47,10 +49,15 @@ abstract class AutostartPort {
   ///
   /// [appPath] `null` означает «текущий исполняемый файл»: путь знает только
   /// живой порт (это `dart:io`), а сервису знать его незачем.
+  ///
+  /// [args] — аргументы, с которыми система запустит приложение при входе
+  /// (Windows и Linux; macOS их не передаёт). По ним приложение отличает
+  /// автозапуск от ручного запуска.
   Future<void> setup({
     required String appName,
     String? appPath,
     required String packageName,
+    List<String> args = const <String>[],
   });
 
   /// Умеет ли ЭТА система автозапуск вообще (см. [kAutostartUnsupportedCode]).
@@ -64,32 +71,63 @@ abstract class AutostartPort {
   Future<void> disable();
 }
 
-/// Живая реализация поверх `launch_at_startup` 0.5.1.
+/// Живая реализация поверх `launch_at_startup` 0.5.1 и планировщика Windows.
 ///
-/// На Windows это реестр, на Linux файл `.desktop`, на macOS метод-канал
+/// На Linux это файл `.desktop` (пакет), на macOS метод-канал
 /// `launch_at_startup`, который у нас реализован своим Swift-кодом поверх
-/// `SMAppService` (пакетный SPM-вариант мы не подключаем).
+/// `SMAppService` (пакетный SPM-вариант мы не подключаем). На Windows пакет
+/// НЕ используется: его реестровый путь для программы с `requireAdministrator`
+/// заблокирован системой, поэтому там задача планировщика
+/// ([WindowsTaskAutostart]).
 class LaunchAtStartupPort implements AutostartPort {
   static const _channel = MethodChannel('launch_at_startup');
+
+  /// Запуск процессов планировщика; подменяется в тестах.
+  final ProcessRunner? _run;
+
+  WindowsTaskAutostart? _task;
+
+  LaunchAtStartupPort({ProcessRunner? run}) : _run = run;
+
   @override
   Future<void> setup({
     required String appName,
     String? appPath,
     required String packageName,
+    List<String> args = const <String>[],
   }) async {
+    final path = appPath ?? Platform.resolvedExecutable;
+    if (isWindowsPlatform) {
+      _task = WindowsTaskAutostart(taskName: appName, exePath: path, run: _run);
+      return;
+    }
     launchAtStartup.setup(
       appName: appName,
       // `resolvedExecutable` — путь к бинарнику внутри бандла; плагин сам
       // поднимается от него до `.app` там, где системе нужен бандл.
-      appPath: appPath ?? Platform.resolvedExecutable,
+      appPath: path,
       packageName: packageName,
+      args: args,
     );
   }
 
+  /// Задача планировщика после [setup]. До него порт не знает ни имени, ни
+  /// пути, и обращение к нему это ошибка порядка вызовов, а не системы.
+  WindowsTaskAutostart get _windowsTask {
+    final task = _task;
+    if (task == null) throw StateError('setup() must run before use');
+    return task;
+  }
+
   @override
-  Future<bool> isEnabled() async => isMacOSPlatform
-      ? await _channel.invokeMethod<bool>('launchAtStartupIsEnabled') ?? false
-      : await launchAtStartup.isEnabled();
+  Future<bool> isEnabled() async {
+    if (isMacOSPlatform) {
+      return await _channel.invokeMethod<bool>('launchAtStartupIsEnabled') ??
+          false;
+    }
+    if (isWindowsPlatform) return _windowsTask.isEnabled();
+    return launchAtStartup.isEnabled();
+  }
 
   @override
   Future<void> enable() async {
@@ -97,6 +135,8 @@ class LaunchAtStartupPort implements AutostartPort {
       await _channel.invokeMethod<void>('launchAtStartupSetEnabled', {
         'setEnabledValue': true,
       });
+    } else if (isWindowsPlatform) {
+      await _windowsTask.enable();
     } else {
       await launchAtStartup.enable();
     }
@@ -110,6 +150,8 @@ class LaunchAtStartupPort implements AutostartPort {
       await _channel.invokeMethod<void>('launchAtStartupSetEnabled', {
         'setEnabledValue': false,
       });
+    } else if (isWindowsPlatform) {
+      await _windowsTask.disable();
     } else {
       await launchAtStartup.disable();
     }
@@ -117,8 +159,8 @@ class LaunchAtStartupPort implements AutostartPort {
 
   @override
   Future<bool> isSupported() async {
-    // Реестр Windows и `~/.config/autostart` есть всегда: спрашивать систему
-    // не о чем.
+    // Планировщик Windows и `~/.config/autostart` есть всегда: спрашивать
+    // систему не о чем.
     if (isWindowsPlatform || isLinuxPlatform) return true;
     if (!isMacOSPlatform) return false;
     // Only the explicit unsupported response establishes an old OS. Missing
@@ -162,13 +204,19 @@ class FakeAutostartPort implements AutostartPort {
   /// отказа (например, ожидание разрешения в «Объектах входа»).
   Object? nextWriteError;
 
+  /// С какими аргументами «система» запустит приложение при входе.
+  List<String> args = const <String>[];
+
   @override
   Future<void> setup({
     required String appName,
     String? appPath,
     required String packageName,
-  }) async =>
-      calls.add('setup($appName)');
+    List<String> args = const <String>[],
+  }) async {
+    this.args = args;
+    calls.add('setup($appName)');
+  }
 
   @override
   Future<bool> isSupported() async {

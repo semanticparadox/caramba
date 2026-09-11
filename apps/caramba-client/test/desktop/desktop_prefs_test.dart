@@ -33,8 +33,36 @@ void main() {
       expect(p.closeToTray, isTrue);
       expect(p.startInTray, isFalse);
       expect(p.launchAtLogin, isFalse);
+      expect(p.launchAtLoginChosen, isFalse);
       expect(p.windowBounds, isNull);
       expect(p.maximized, isFalse);
+    });
+
+    test('решение про автозапуск помнится и наследуется от старого снимка', () {
+      // Новый снимок пишет ключ явно.
+      const chosen = DesktopPrefs(
+        launchAtLogin: true,
+        launchAtLoginChosen: true,
+      );
+      expect(
+        DesktopPrefs.fromJson(chosen.toJson()).launchAtLoginChosen,
+        isTrue,
+      );
+      // Старый снимок (без ключа) с полем launch_at_login это уже решение.
+      expect(
+        DesktopPrefs.fromJson(const {
+          'launch_at_login': false,
+        }).launchAtLoginChosen,
+        isTrue,
+      );
+      // Явное «не решал» сильнее наличия поля.
+      expect(
+        DesktopPrefs.fromJson(const {
+          'launch_at_login': false,
+          'launch_at_login_chosen': false,
+        }).launchAtLoginChosen,
+        isFalse,
+      );
     });
 
     test('round-trip сохраняет все поля', () {
@@ -42,6 +70,7 @@ void main() {
         closeToTray: false,
         startInTray: true,
         launchAtLogin: true,
+        launchAtLoginChosen: true,
         windowBounds: Rect.fromLTWH(120, 64, 1120, 720),
         maximized: true,
       );
@@ -145,6 +174,11 @@ void main() {
       expect(restored.closeToTray, isFalse);
       expect(restored.startInTray, isTrue);
       expect(restored.launchAtLogin, isTrue);
+      expect(
+        restored.launchAtLoginChosen,
+        isTrue,
+        reason: 'тумблер это решение человека',
+      );
       expect(restored.windowBounds, const Rect.fromLTWH(64, 48, 1200, 800));
       expect(restored.maximized, isTrue);
     });

@@ -840,6 +840,11 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         onboarding_state,
     ));
 
+    // Новые сборки клиента: манифесты в downloads/ → одна рассылка на сборку.
+    tokio::spawn(services::client_release_service::run_client_release_loop(
+        state.clone(),
+    ));
+
     // CSM/1: локаторы подписок без строки в csm_subscriptions выписываются
     // на старте, чтобы полный проход по подпискам не стоял на пути чужого
     // запроса к /sub/m1 (ленивый путь остаётся для подписок, созданных позже).

@@ -387,16 +387,22 @@ func (c *Client) TrafficJSON() (string, error) {
 // это TCP-замер серверов подписки, под -tags mihomo — честная проверка handshake
 // протоколов через ядро. Затем выбирает сервер/протокол/стек/relay и применяет
 // protocol+relay+stack к политике.
+//
+// relayCandidates — CSV ISO-2 стран релеев в порядке предпочтения, как их
+// отдаёт панель в `GET /api/v2/app/relays` (например "RU,KZ"). Список
+// приносит клиент: ядро стран флота не знает, а вписанные в него страны
+// однажды уже советовали вход через несуществующий релей. Пусто — релей не
+// советовать.
 // Возвращает JSON autotune.Recommendation. Выходной сервер применяется вызовом
 // Up(rec.server_id) — здесь Up не вызывается автоматически.
-func (c *Client) AutoTune() (string, error) {
+func (c *Client) AutoTune(relayCandidates string) (string, error) {
 	ctx, cancel := timeoutCtx(60)
 	defer cancel()
 	prober, err := c.core.NewDefaultProber(ctx)
 	if err != nil {
 		return "", err
 	}
-	rec, err := c.core.AutoTune(ctx, prober)
+	rec, err := c.core.AutoTune(ctx, prober, splitCSV(relayCandidates))
 	if err != nil {
 		return "", err
 	}

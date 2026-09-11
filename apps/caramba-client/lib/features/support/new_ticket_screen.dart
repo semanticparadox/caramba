@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/api_client.dart';
+import 'package:caramba_client/data/models/ticket.dart';
 import 'package:caramba_client/features/profile/panel_required.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/auth_state.dart';
@@ -14,7 +15,9 @@ import 'package:caramba_client/theme/typography.dart';
 import 'package:caramba_client/widgets/lucide.dart';
 import 'package:caramba_client/widgets/ui.dart';
 
-/// Новый запрос в поддержку: тема + сообщение. После создания открывает тикет.
+/// Новый запрос в поддержку: категория + тема + сообщение. После создания
+/// открывает тикет. Категория уходит на панель как есть: по ней админка и бот
+/// фильтруют и маршрутизируют тикеты, а без неё всё падало в `general`.
 class NewTicketScreen extends ConsumerStatefulWidget {
   const NewTicketScreen({super.key});
 
@@ -25,6 +28,7 @@ class NewTicketScreen extends ConsumerStatefulWidget {
 class _NewTicketScreenState extends ConsumerState<NewTicketScreen> {
   final _subject = TextEditingController();
   final _message = TextEditingController();
+  TicketCategory _category = TicketCategory.general;
   bool _sending = false;
 
   @override
@@ -46,6 +50,7 @@ class _NewTicketScreenState extends ConsumerState<NewTicketScreen> {
           .createTicket(
             subject: _subject.text.trim(),
             message: _message.text.trim(),
+            category: _category.value,
           );
       ref.invalidate(ticketsProvider);
       if (!mounted) return;
@@ -92,6 +97,12 @@ class _NewTicketScreenState extends ConsumerState<NewTicketScreen> {
             ),
             const SizedBox(height: AppSpace.s5),
             const SectionTitle(
+              'Категория',
+              padding: EdgeInsets.only(bottom: AppSpace.s2),
+            ),
+            _categoryField(context),
+            const SizedBox(height: AppSpace.s5),
+            const SectionTitle(
               'Тема',
               padding: EdgeInsets.only(bottom: AppSpace.s2),
             ),
@@ -135,6 +146,36 @@ class _NewTicketScreenState extends ConsumerState<NewTicketScreen> {
     );
   }
 
+  /// Выпадающий список категорий в той же рамке, что и текстовые поля.
+  /// Подписи русские, как и весь остальной интерфейс приложения (английские
+  /// лежат в `TicketCategory.labelEn` для мини-аппа и будущей локализации);
+  /// значения — серверные (`ALLOWED_TICKET_CATEGORIES`).
+  Widget _categoryField(BuildContext context) {
+    final c = context.c;
+    return DropdownButtonFormField<TicketCategory>(
+      key: const Key('ticket_category'),
+      initialValue: _category,
+      isExpanded: true,
+      dropdownColor: c.surface2,
+      iconEnabledColor: c.textMed,
+      style: AppType.bodyMd.copyWith(color: c.textHi),
+      decoration: _decoration(context, hint: null),
+      items: [
+        for (final cat in TicketCategory.values)
+          DropdownMenuItem<TicketCategory>(
+            value: cat,
+            child: Text(
+              cat.label,
+              style: AppType.bodyMd.copyWith(color: c.textHi),
+            ),
+          ),
+      ],
+      onChanged: _sending
+          ? null
+          : (v) => setState(() => _category = v ?? TicketCategory.general),
+    );
+  }
+
   Widget _field(
     BuildContext context, {
     required TextEditingController controller,
@@ -150,27 +191,34 @@ class _NewTicketScreenState extends ConsumerState<NewTicketScreen> {
       maxLines: maxLines,
       onChanged: (_) => onChanged(),
       style: AppType.bodyMd.copyWith(color: c.textHi),
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: AppType.bodyMd.copyWith(color: c.textLow),
-        filled: true,
-        fillColor: c.surface1,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: AppSpace.s4,
-          vertical: AppSpace.s3,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: AppRadius.r14,
-          borderSide: BorderSide(color: c.borderSubtle),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: AppRadius.r14,
-          borderSide: BorderSide(color: c.borderSubtle),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: AppRadius.r14,
-          borderSide: BorderSide(color: c.borderStrong),
-        ),
+      decoration: _decoration(context, hint: hint),
+    );
+  }
+
+  /// Общая рамка полей формы: одна для текста и для выпадающего списка,
+  /// чтобы категория не выглядела чужеродно.
+  InputDecoration _decoration(BuildContext context, {required String? hint}) {
+    final c = context.c;
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: AppType.bodyMd.copyWith(color: c.textLow),
+      filled: true,
+      fillColor: c.surface1,
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: AppSpace.s4,
+        vertical: AppSpace.s3,
+      ),
+      border: OutlineInputBorder(
+        borderRadius: AppRadius.r14,
+        borderSide: BorderSide(color: c.borderSubtle),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: AppRadius.r14,
+        borderSide: BorderSide(color: c.borderSubtle),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: AppRadius.r14,
+        borderSide: BorderSide(color: c.borderStrong),
       ),
     );
   }

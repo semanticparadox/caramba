@@ -7,6 +7,11 @@
 /// ИСТИНА — настройка приложения. При старте система приводится к ней, дальше
 /// каждое переключение тумблера доезжает до системы.
 ///
+/// Одно исключение, и оно тоже здесь: пока человек ни разу не решал про
+/// автозапуск (`DesktopPrefs.launchAtLoginChosen == false`), состояние системы
+/// ПРИНИМАЕТСЯ как его решение. Так галочка инсталлятора Windows «запускать
+/// при входе» доезжает до тумблера, а не снимается им на первом же старте.
+///
 /// Третье решение того же уровня: система, которая автозапуск не умеет
 /// (macOS 12 без `SMAppService`), не должна выглядеть сломанной. Тогда сервис
 /// один раз объявляет [autostartSupportedProvider] `false`, и настройки просто
@@ -24,7 +29,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/desktop/desktop_prefs.dart';
 import 'package:caramba_client/desktop/desktop_platform.dart';
+import 'package:caramba_client/state/core_config_state.dart';
 import 'package:caramba_client/desktop/desktop_strings.dart';
+import 'package:caramba_client/desktop/launch_args.dart';
 import 'package:caramba_client/desktop/ports/autostart_port.dart';
 import 'package:caramba_client/main.dart' show rootMessengerKey;
 
@@ -56,11 +63,19 @@ class AutostartService {
   final bool Function() _readWanted;
   final void Function(bool wanted) _writeWanted;
   final AutostartSubscriptionCanceller Function(void Function(bool wanted))
-      _listenWanted;
+  _listenWanted;
   final void Function(bool supported) _setSupported;
   final void Function(String message) _report;
   final void Function(bool pending)? _setApprovalPending;
   final void Function(String message)? _setUnavailableMessage;
+
+  /// Решал ли человек про автозапуск. `null` — принятия состояния системы
+  /// нет вовсе (старые тесты и вызывающие без этой ветки).
+  final bool Function()? _readChosen;
+
+  /// Состояние системы принято как решение человека: вместе с автозапуском
+  /// включаются и его подопции (запуск в трей, автоподключение).
+  final void Function()? _onAdopted;
 
   AutostartSubscriptionCanceller? _cancel;
 
@@ -82,18 +97,22 @@ class AutostartService {
     required bool Function() readWanted,
     required void Function(bool wanted) writeWanted,
     required AutostartSubscriptionCanceller Function(void Function(bool wanted))
-        listenWanted,
+    listenWanted,
     required void Function(bool supported) setSupported,
     void Function(String message)? report,
     void Function(bool pending)? setApprovalPending,
     void Function(String message)? setUnavailableMessage,
-  })  : _readWanted = readWanted,
-        _writeWanted = writeWanted,
-        _listenWanted = listenWanted,
-        _setSupported = setSupported,
-        _report = report ?? showAutostartFailure,
-        _setApprovalPending = setApprovalPending,
-        _setUnavailableMessage = setUnavailableMessage;
+    bool Function()? readChosen,
+    void Function()? onAdopted,
+  }) : _readWanted = readWanted,
+       _writeWanted = writeWanted,
+       _listenWanted = listenWanted,
+       _setSupported = setSupported,
+       _report = report ?? showAutostartFailure,
+       _setApprovalPending = setApprovalPending,
+       _setUnavailableMessage = setUnavailableMessage,
+       _readChosen = readChosen,
+       _onAdopted = onAdopted;
 
   /// Знакомит систему с приложением, узнаёт, умеет ли она автозапуск, и
   /// приводит её к настройке.
@@ -107,6 +126,9 @@ class AutostartService {
       await port.setup(
         appName: DesktopStrings.appName,
         packageName: kAutostartPackageName,
+        // Система запустит нас с флагом: по нему `initDesktop()` понимает,
+        // что окно при «запуске без окна» показывать не надо.
+        args: const <String>[kAutostartFlag],
       );
       _supported = await port.isSupported();
       if (!_supported) {
@@ -119,11 +141,14 @@ class AutostartService {
     } catch (error) {
       _supported = false;
       debugPrint('Autostart capability probe failed: $error');
-      _setUnavailableMessage
-          ?.call('Не удалось проверить доступность автозапуска');
+      _setUnavailableMessage?.call(
+        'Не удалось проверить доступность автозапуска',
+      );
     }
     _setSupported(_supported);
     if (!_supported) return;
+
+    await _adoptSystemStateIfUndecided();
 
     // Подписка ДО сверки: пока сверка ходит в систему, человек уже может
     // щёлкнуть тумблером, и это переключение терять нельзя.
@@ -131,6 +156,26 @@ class AutostartService {
       if (!_reverting) unawaited(_enqueueReconcile());
     });
     await _enqueueReconcile();
+  }
+
+  /// Первый запуск: решения человека ещё нет, и включённый в системе
+  /// автозапуск (галочка инсталлятора Windows) становится его настройкой.
+  ///
+  /// Только включение принимается как решение. Выключенное состояние системы
+  /// и есть дефолт настройки, и записывать его «решением» значило бы лишить
+  /// следующую установку с галочкой права быть принятой.
+  Future<void> _adoptSystemStateIfUndecided() async {
+    final readChosen = _readChosen;
+    if (readChosen == null || readChosen()) return;
+    try {
+      if (!await port.isEnabled()) return;
+    } catch (_) {
+      // Систему не прочитать: решать за человека нечем, останется дефолт.
+      return;
+    }
+    if (_readWanted()) return;
+    _writeWanted(true);
+    _onAdopted?.call();
   }
 
   void dispose() {
@@ -276,7 +321,19 @@ final autostartServiceProvider = Provider<AutostartService>((ref) {
         ref.read(autostartApprovalPendingProvider.notifier).state = pending,
     setSupported: (supported) =>
         ref.read(autostartSupportedProvider.notifier).state = supported,
+    readChosen: () => ref.read(desktopPrefsProvider).launchAtLoginChosen,
+    // Автозапуск, принятый от инсталлятора, получает те же подопции, что и
+    // включённый тумблером: тихий старт в трей и подключение без клика.
+    onAdopted: () => enableAutostartCompanions(ref),
   );
   ref.onDispose(service.dispose);
   return service;
 });
+
+/// Подопции автозапуска, включаемые вместе с ним: запуск в трей и
+/// автоподключение. Их же ставит тумблер в настройках, чтобы «запускать при
+/// входе» из коробки значило «тихо поднялся и подключился».
+void enableAutostartCompanions(Ref ref) {
+  ref.read(desktopPrefsProvider.notifier).setStartInTray(true);
+  ref.read(coreConfigProvider.notifier).setAutoConnect(true);
+}

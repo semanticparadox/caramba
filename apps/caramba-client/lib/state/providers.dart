@@ -5,7 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:caramba_client/data/api_client.dart';
-import 'package:caramba_client/data/models/auth_tokens.dart' show accessTokenExpiry;
+import 'package:caramba_client/data/models/auth_tokens.dart'
+    show accessTokenExpiry;
 import 'package:caramba_client/data/models/subscription.dart';
 import 'package:caramba_client/data/prefs_store.dart';
 import 'package:caramba_client/data/token_store.dart';
@@ -122,15 +123,37 @@ final isNativeVpnProvider = Provider<bool>((ref) => _useNativeVpn());
 
 /// Способ захвата трафика по умолчанию для текущей платформы.
 ///
-/// Мобильные строят системный TUN через VpnService/NetworkExtension — там
-/// [TunnelMode.tun]. Desktop так не может без прав администратора (а на macOS
-/// без Xcode-расширения вовсе), поэтому там [TunnelMode.proxy]: локальный
-/// mixed-инбаунд на 127.0.0.1.
-TunnelMode defaultTunnelMode() {
+/// [platform] подставляют тесты; в приложении берётся настоящая ОС из
+/// `dart:io` (не `defaultTargetPlatform`: тот в тестах всегда android, и
+/// дефолт для всех остальных тестов поменялся бы вместе с ним).
+TunnelMode defaultTunnelMode({TargetPlatform? platform}) {
+  if (platform != null) return defaultTunnelModeFor(platform);
   if (kIsWeb) return TunnelMode.proxy;
-  if (Platform.isAndroid || Platform.isIOS) return TunnelMode.tun;
+  if (Platform.isAndroid) return defaultTunnelModeFor(TargetPlatform.android);
+  if (Platform.isIOS) return defaultTunnelModeFor(TargetPlatform.iOS);
+  if (Platform.isWindows) return defaultTunnelModeFor(TargetPlatform.windows);
+  if (Platform.isLinux) return defaultTunnelModeFor(TargetPlatform.linux);
+  if (Platform.isMacOS) return defaultTunnelModeFor(TargetPlatform.macOS);
   return TunnelMode.proxy;
 }
+
+/// Дефолт по платформе, без обращения к `dart:io`.
+///
+/// Мобильные строят системный TUN через VpnService/NetworkExtension.
+/// Windows: процесс и так идёт с правами администратора (манифест раннера,
+/// иначе wintun не создаст адаптер), wintun.dll в комплекте, и «прокси» по
+/// умолчанию оставляло человека, который не знает, что такое прокси, без
+/// защиты трафика. Linux: install.sh выдаёт бинарю CAP_NET_ADMIN, TUN
+/// поднимается без sudo; если прав нет, об этом говорит баннер на главном
+/// экране (`tun_permission_banner.dart`). macOS: без Network Extension TUN
+/// недоступен, остаётся локальный mixed-инбаунд на 127.0.0.1.
+TunnelMode defaultTunnelModeFor(TargetPlatform platform) => switch (platform) {
+  TargetPlatform.android ||
+  TargetPlatform.iOS ||
+  TargetPlatform.windows ||
+  TargetPlatform.linux => TunnelMode.tun,
+  TargetPlatform.macOS || TargetPlatform.fuchsia => TunnelMode.proxy,
+};
 
 /// Порт локального mixed-инбаунда в [TunnelMode.proxy].
 const int kMixedPort = 7890;
@@ -287,7 +310,8 @@ final probeSeamResolverProvider = Provider<VpnConfigResolver>(
 /// получает [vpnConnectionProvider]. В отличие от [probeSeamResolverProvider]
 /// он вправе сходить за UUID подписки в сеть.
 final vpnSeamResolverProvider = Provider<VpnConfigResolver>(
-  (ref) => () => _resolveVpnConfig(ref),
+  (ref) =>
+      () => _resolveVpnConfig(ref),
 );
 
 /// Включает нативное Go-ядро вместо [MockVpnConnection]. По умолчанию выключено,

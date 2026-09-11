@@ -221,8 +221,9 @@ impl NotifyEvent {
     }
 }
 
-/// Двенадцать событий. Порядок — тот, в котором они показываются в панели:
-/// сначала деньги, потом трафик, потом техническое, в конце онбординг.
+/// Тринадцать событий. Порядок — тот, в котором они показываются в панели:
+/// сначала деньги, потом трафик, потом техническое, обновление клиента, в
+/// конце онбординг.
 pub const REGISTRY: &[NotifyEvent] = &[
     NotifyEvent {
         key: "notify.expired",
@@ -306,6 +307,27 @@ pub const REGISTRY: &[NotifyEvent] = &[
         default_button: None,
         extra_buttons: &[],
         supports_payload: false,
+    },
+    // Новая версия клиента (services::client_release_service): уходит один раз
+    // на сборку всем tg-пользователям. {0} — версия («1.0.0 (110)»), {1} — «что
+    // нового» из настройки client_release_notes. Кнопки: файл в Telegram
+    // через /start apk (домен может быть заблокирован, ссылка на сайт — нет
+    // гарантия) и страница «следующие шаги».
+    NotifyEvent {
+        key: "notify.client_update",
+        label_ru: "Вышла новая версия Caramba Connect",
+        args: &["версия", "что нового"],
+        default_button: Some((
+            "📥 Скачать обновление",
+            "📥 Download the update",
+            ButtonTarget::BotStart("apk"),
+        )),
+        extra_buttons: &[(
+            "📖 Инструкция",
+            "📖 Guide",
+            ButtonTarget::Setting("guide_url_index"),
+        )],
+        supports_payload: true,
     },
     // -----------------------------------------------------------------------
     // Онбординг: три касания после регистрации (services::onboarding_service).
@@ -793,9 +815,14 @@ mod tests {
     }
 
     /// Девять старых событий не должны были заметить появление второй кнопки.
+    /// `notify.client_update` — исключение по замыслу: у него скачивание и
+    /// инструкция, как у онбординга.
     #[test]
     fn money_events_still_have_exactly_one_button() {
-        for ev in REGISTRY.iter().filter(|e| e.key.starts_with("notify.")) {
+        for ev in REGISTRY
+            .iter()
+            .filter(|e| e.key.starts_with("notify.") && e.key != "notify.client_update")
+        {
             assert!(
                 ev.extra_buttons.is_empty(),
                 "{} обзавёлся лишней кнопкой",
@@ -810,6 +837,50 @@ mod tests {
             assert!(ev.supports_payload, "{} уходит через payload", ev.key);
             assert!(ev.args.is_empty(), "{} без подстановок", ev.key);
         }
+    }
+
+    /// Обновление клиента: две кнопки в порядке реестра, версия и «что
+    /// нового» подставляются в текст и в карточку.
+    #[tokio::test]
+    async fn client_update_renders_version_and_notes_with_two_buttons() {
+        let ev = event("notify.client_update").expect("событие есть в реестре");
+        assert_eq!(ev.args.len(), 2);
+        assert!(ev.supports_payload);
+        let pool = sqlx::PgPool::connect_lazy("postgres://unused@localhost/unused")
+            .expect("ленивый пул не подключается");
+        let svc = NotificationTemplateService::empty(pool);
+        let mut links = ButtonLinks {
+            bot_username: Some("exabot".to_string()),
+            ..Default::default()
+        };
+        links.setting_urls.insert(
+            "guide_url_index",
+            "https://telegra.ph/next-steps".to_string(),
+        );
+        let r = svc
+            .render(
+                "notify.client_update",
+                Lang::Ru,
+                &["1.0.0 (110)", "Трей на Windows"],
+                &links,
+            )
+            .await;
+        assert!(r.payload.text.contains("1.0.0 (110)"), "{}", r.payload.text);
+        assert!(r.payload.text.contains("Трей на Windows"));
+        assert!(r.title.contains("1.0.0 (110)"), "{}", r.title);
+        assert_eq!(
+            r.payload.buttons,
+            vec![
+                (
+                    "📥 Скачать обновление".to_string(),
+                    "https://t.me/exabot?start=apk".to_string()
+                ),
+                (
+                    "📖 Инструкция".to_string(),
+                    "https://telegra.ph/next-steps".to_string()
+                ),
+            ]
+        );
     }
 
     #[test]

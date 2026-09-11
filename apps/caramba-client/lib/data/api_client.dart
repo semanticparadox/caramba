@@ -17,6 +17,8 @@ import 'package:caramba_client/data/models/subscription.dart';
 import 'package:caramba_client/data/models/traffic_point.dart';
 import 'package:caramba_client/data/models/user.dart';
 import 'package:caramba_client/data/token_store.dart';
+import 'package:caramba_client/state/app_update_state.dart'
+    show AppVersionInfo, InstalledVersion, kAppVersionHeader;
 import 'package:caramba_client/state/device_identity.dart';
 
 /// Базовый URL панели для СБОРКИ, а не для приложения.
@@ -77,6 +79,14 @@ class ApiClient {
   /// на которой он бежит.
   final DeviceIdentityStore _deviceIdentity;
 
+  /// Версия приложения для заголовка `X-Caramba-App-Version`.
+  ///
+  /// Инъекция, а не прямой вызов плагина: тест подставляет свою версию
+  /// (синхронно или `async`, как удобнее), а в прод-сборке это
+  /// [InstalledVersion.current] — синхронно, из кэша: запрос не ждёт
+  /// платформу (см. комментарий там).
+  final FutureOr<InstalledVersion> Function() _installedVersion;
+
   /// Колбэк, вызываемый когда refresh окончательно провалился — auth-слой
   /// подписывается на него, чтобы перевести сессию в `unauthenticated`.
   void Function()? onSessionExpired;
@@ -109,8 +119,10 @@ class ApiClient {
     Dio? dio,
     String? baseUrl,
     DeviceIdentityStore? deviceIdentity,
+    FutureOr<InstalledVersion> Function()? installedVersion,
   }) : _tokens = tokens,
        _deviceIdentity = deviceIdentity ?? DeviceIdentityStore.instance,
+       _installedVersion = installedVersion ?? InstalledVersion.current,
        _dio =
            dio ??
            Dio(
@@ -143,6 +155,14 @@ class ApiClient {
               true,
             );
             return;
+          }
+          // Версия приложения — на ВСЕХ вызовах, включая публичные: она не
+          // идентифицирует ни человека, ни устройство, а панели по ней
+          // видно, какие сборки ещё живы (в лизу она ложится только на
+          // авторизованных, где есть аккаунт и устройство).
+          final version = (await _installedVersion()).headerValue;
+          if (version.isNotEmpty) {
+            options.headers[kAppVersionHeader] = version;
           }
           if (options.extra['skipAuth'] != true) {
             final access = await _tokens.readAccess();
@@ -209,6 +229,37 @@ class ApiClient {
       options: Options(extra: {'skipAuth': true}),
     );
     return _tokensFrom(res);
+  }
+
+  /// GET /version?platform=… — последняя версия клиента у панели.
+  ///
+  /// Публичный (`skipAuth`): спрашивается до входа и в generic-режиме.
+  /// `null` — панель версии не знает (старая панель без маршрута: 404, или
+  /// для платформы нет сборки). Это «обновлений нет», а не ошибка; ошибкой
+  /// считается только сеть и 5xx — их бросаем, экран «Обновления» покажет.
+  Future<AppVersionInfo?> getAppVersion(String platform) async {
+    final Response<dynamic> res;
+    try {
+      res = await _dio.get<dynamic>(
+        '/version',
+        queryParameters: {'platform': platform},
+        options: Options(extra: {'skipAuth': true}),
+      );
+    } on DioException catch (e) {
+      // Подставленный извне Dio может бросать на 4xx сам: 404 старой панели
+      // и здесь означает «версии нет», а не сбой.
+      final code = e.response?.statusCode ?? 0;
+      if (code == 404 || code == 400) return null;
+      rethrow;
+    }
+    final code = res.statusCode ?? 0;
+    if (code == 404 || code == 400) return null;
+    if (code >= 400) {
+      throw ApiException('Панель ответила $code', statusCode: code);
+    }
+    final data = res.data;
+    if (data is! Map) return null;
+    return AppVersionInfo.fromJson(data.cast<String, dynamic>());
   }
 
   /// GET /enroll/{code} — ПУБЛИЧНАЯ валидация enroll-кода (P2, contract B).
@@ -628,15 +679,22 @@ class ApiClient {
     );
   }
 
-  /// POST /tickets — создать тикет. Контракт: `{ subject, message }` ->
-  /// созданный тикет (минимум `{ id }`). Возвращает id нового тикета.
+  /// POST /tickets — создать тикет. Контракт: `{ subject, message, category? }`
+  /// -> созданный тикет (минимум `{ id }`). Возвращает id нового тикета.
+  /// [category] — значение из `TicketCategory.value`; без него панель пишет
+  /// `general`.
   Future<int> createTicket({
     required String subject,
     required String message,
+    String? category,
   }) async {
     final res = await _dio.post<dynamic>(
       '/tickets',
-      data: {'subject': subject, 'message': message},
+      data: {
+        'subject': subject,
+        'message': message,
+        if (category != null && category.isNotEmpty) 'category': category,
+      },
     );
     final m = _okMap(res);
     final t = (m['ticket'] is Map)

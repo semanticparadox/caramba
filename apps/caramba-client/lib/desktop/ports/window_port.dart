@@ -26,6 +26,17 @@ const MethodChannel kDesktopWindowChannel = MethodChannel(
   'caramba/desktop_window',
 );
 
+/// Канал раннера Windows (`windows/runner/flutter_window.cpp`).
+///
+/// ЗАЧЕМ ВТОРАЯ ДВЕРЬ. Сворачивание окна плагин перехватить не умеет: его
+/// событие приходит, когда система уже свернула окно, и Dart-путь «развернуть
+/// и спрятать» на Windows оставлял окно в панели задач. Раннер же видит
+/// `WM_SYSCOMMAND`/`SC_MINIMIZE` ДО сворачивания и, если ему сказали
+/// [WindowPort.setMinimizeToTray], прячет окно сам, а обратно сообщает
+/// `onHiddenToTray`. На macOS и Linux канала нет, и его отсутствие не ошибка:
+/// там сворачивание доводит Dart-путь.
+const MethodChannel kCarambaWindowChannel = MethodChannel('caramba/window');
+
 /// Набор колбэков на события окна.
 ///
 /// Один объект, а не четыре отдельные подписки: снимать их надо всем скопом
@@ -56,12 +67,18 @@ class WindowPortListener {
   /// остальные: иначе поведение жёлтой кнопки не проверить тестом.
   final VoidCallback? onMinimize;
 
+  /// Раннер Windows спрятал окно вместо сворачивания (см.
+  /// [kCarambaWindowChannel]). Сворачивания при этом не было вовсе, и
+  /// [onMinimize] не приходит.
+  final VoidCallback? onHiddenToTray;
+
   const WindowPortListener({
     this.onClose,
     this.onResized,
     this.onMoved,
     this.onFocus,
     this.onMinimize,
+    this.onHiddenToTray,
   });
 }
 
@@ -96,6 +113,10 @@ abstract class WindowPort {
 
   Future<void> setTitle(String title);
 
+  /// `true` — сворачивание прячет окно в трей ещё на стороне раннера
+  /// (Windows). Там, где раннер этого не умеет, вызов ничего не делает.
+  Future<void> setMinimizeToTray(bool value);
+
   void addListener(WindowPortListener listener);
 
   void removeListener(WindowPortListener listener);
@@ -111,6 +132,21 @@ class WindowManagerPort implements WindowPort {
   /// `removeListener` не нашёл бы, что именно снимать.
   final Map<WindowPortListener, _ManagerListenerAdapter> _adapters =
       <WindowPortListener, _ManagerListenerAdapter>{};
+
+  WindowManagerPort() {
+    // Входящие сообщения раннера. Обработчик один на канал, поэтому он
+    // раздаёт событие всем подписчикам порта, а не первому.
+    kCarambaWindowChannel.setMethodCallHandler(_handleRunnerCall);
+  }
+
+  Future<Object?> _handleRunnerCall(MethodCall call) async {
+    if (call.method == 'onHiddenToTray') {
+      for (final listener in _adapters.keys.toList(growable: false)) {
+        listener.onHiddenToTray?.call();
+      }
+    }
+    return null;
+  }
 
   @override
   Future<void> show() async {
@@ -164,6 +200,23 @@ class WindowManagerPort implements WindowPort {
 
   @override
   Future<void> setTitle(String title) => windowManager.setTitle(title);
+
+  /// Флаг уходит в раннер Windows. Отсутствие канала (macOS, Linux) и отказ
+  /// раннера не имеют права уронить подписку на окно: Dart-путь сворачивания
+  /// остаётся и без него.
+  @override
+  Future<void> setMinimizeToTray(bool value) async {
+    try {
+      await kCarambaWindowChannel.invokeMethod<void>(
+        'setMinimizeToTray',
+        value,
+      );
+    } on MissingPluginException {
+      // Не Windows: раннер канала не регистрирует.
+    } on PlatformException {
+      // Раннер отказал: остаётся Dart-путь «развернуть и спрятать».
+    }
+  }
 
   @override
   void addListener(WindowPortListener listener) {

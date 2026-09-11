@@ -14,6 +14,7 @@ import 'package:caramba_client/desktop/adaptive_sheet.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
 import 'package:caramba_client/features/profile/panel_required.dart';
 import 'package:caramba_client/features/servers/access_card.dart';
+import 'package:caramba_client/features/support/ticket_badge.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/account_state.dart';
 import 'package:caramba_client/state/branding_state.dart';
@@ -213,6 +214,7 @@ class ProfileScreen extends ConsumerWidget {
                     icon: Lucide.lifeBuoy,
                     label: 'Запросы в поддержку',
                     chevron: true,
+                    trailing: const TicketsUnreadBadge(),
                     onTap: () => context.go(AppRoute.tickets),
                   ),
                 ],

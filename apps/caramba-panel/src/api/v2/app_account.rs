@@ -597,6 +597,9 @@ struct AppSubscription {
     /// Имя пула узлов (node group через plan_groups), если назначен.
     pool_name: Option<String>,
     relay_country: Option<String>,
+    /// Закреплённый relay-узел (`nodes.id`), если пользователь выбрал не
+    /// страну целиком, а конкретный релей; `null` — страны достаточно.
+    relay_node_id: Option<i64>,
     /// Состояние доступа этой подписки: пускать ли в подключение, почему нет,
     /// когда снова можно и куда идти платить. Считается тем же кодом, что
     /// объясняет отказ на `/sub/{uuid}` и наполняет `GET /subscription`, —
@@ -626,6 +629,7 @@ pub async fn list_subscriptions(
                 COALESCE(s.expires_at, s.created_at, CURRENT_TIMESTAMP) AS expires_at,
                 s.note,
                 s.relay_country,
+                s.relay_node_id,
                 -- Устройств у АККАУНТА и в том же окне свежести, что у гейта
                 -- лимита и экрана «Устройства». Счёт по подписке за 15 минут
                 -- показывал «1 из 3» там, где привязано три устройства, и
@@ -785,6 +789,7 @@ pub async fn list_subscriptions(
                     .try_get::<Option<String>, _>("relay_country")
                     .ok()
                     .flatten(),
+                relay_node_id: r.try_get::<Option<i64>, _>("relay_node_id").ok().flatten(),
                 access,
             }
         })
@@ -797,22 +802,110 @@ pub async fn list_subscriptions(
 // RELAYS — доступные relay-страны для пикера
 // ============================================================
 
+/// Один relay-узел внутри страны — строка пикера «Вход» в приложении.
+#[derive(Serialize)]
+struct AppRelayNode {
+    /// `nodes.id` — значение для `relay_node_id` в PUT /selection и
+    /// `?relay_node_id=` при запросе конфига.
+    id: i64,
+    /// Имя карточки узла в панели («msk-1»); оператор задаёт его сам.
+    name: String,
+    /// Город из карточки узла; `null` — оператор не заполнил.
+    city: Option<String>,
+    /// Средняя нагрузка (CPU+RAM)/2 в процентах по последнему heartbeat —
+    /// та же формула, что у `/servers`.
+    load_pct: f64,
+    /// RTT самой машины до её цели по heartbeat, мс. Это число ПАНЕЛИ, а не
+    /// замер с устройства пользователя: замер сквозь релей клиент сделать
+    /// пока не может (в clash-теле у релея нет прокси), и приложение обязано
+    /// подписывать число именно так.
+    latency_ms: Option<i32>,
+    /// Приоритет внутри страны из карточки узла (меньше — выше).
+    sort_order: i32,
+}
+
 #[derive(Serialize)]
 struct AppRelay {
     /// ISO-2 код страны (значение для ?relay_country=).
     country_code: String,
     /// Человекочитаемое имя страны (если известно из nodes.country).
     country_name: Option<String>,
-    /// Кол-во активных relay-узлов в стране.
+    /// Флаг для показа, выведен из ISO-2 алгоритмически.
+    flag: String,
+    /// Кол-во активных relay-узлов в стране. Остаётся ради уже выпущенных
+    /// клиентов, которые ничего кроме страны и счётчика не читают.
     node_count: i64,
+    /// Сами узлы, в порядке приоритета (`sort_order`, затем id).
+    nodes: Vec<AppRelayNode>,
 }
 
-/// GET /api/v2/app/relays — список relay-стран для пикера.
+/// Флаг из ISO-2 (региональные индикаторы); мусор — глобус.
+fn relay_flag(cc: &str) -> String {
+    let chars: Vec<char> = cc.chars().filter(|c| c.is_ascii_alphabetic()).collect();
+    if chars.len() != 2 {
+        return "🌐".to_string();
+    }
+    let offset = 127397u32;
+    match (
+        char::from_u32(chars[0].to_ascii_uppercase() as u32 + offset),
+        char::from_u32(chars[1].to_ascii_uppercase() as u32 + offset),
+    ) {
+        (Some(a), Some(b)) => format!("{a}{b}"),
+        _ => "🌐".to_string(),
+    }
+}
+
+/// Группирует relay-узлы по стране. Чистая функция: тестируется без БД.
+///
+/// Узел без двухбуквенной страны в ответ не попадает: закрепить его нечем
+/// (`?relay_country=` матчится по ISO-2), а показывать строку, которую нельзя
+/// выбрать, значит обещать вход, которого нет.
+fn group_relays(relays: Vec<caramba_db::models::node::Node>) -> Vec<AppRelay> {
+    use std::collections::BTreeMap;
+    let mut by_cc: BTreeMap<String, AppRelay> = BTreeMap::new();
+    for n in relays {
+        let cc = match n.country_code.as_deref().map(str::trim) {
+            Some(c) if c.len() == 2 => c.to_uppercase(),
+            _ => continue,
+        };
+        let entry = by_cc.entry(cc.clone()).or_insert_with(|| AppRelay {
+            flag: relay_flag(&cc),
+            country_code: cc.clone(),
+            country_name: None,
+            node_count: 0,
+            nodes: Vec::new(),
+        });
+        entry.node_count += 1;
+        if entry.country_name.is_none() {
+            entry.country_name = n.country.clone().filter(|c| !c.trim().is_empty());
+        }
+        let cpu = n.last_cpu.unwrap_or(0.0);
+        let ram = n.last_ram.unwrap_or(0.0);
+        entry.nodes.push(AppRelayNode {
+            id: n.id,
+            name: n.name.clone(),
+            city: n.city.clone().filter(|c| !c.trim().is_empty()),
+            load_pct: (cpu + ram) / 2.0,
+            latency_ms: n.last_latency.map(|l| l as i32),
+            sort_order: n.sort_order,
+        });
+    }
+    let mut out: Vec<AppRelay> = by_cc.into_values().collect();
+    for country in &mut out {
+        country
+            .nodes
+            .sort_by(|a, b| a.sort_order.cmp(&b.sort_order).then(a.id.cmp(&b.id)));
+    }
+    out
+}
+
+/// GET /api/v2/app/relays — relay-страны с узлами для пикера «Вход».
 ///
 /// Группирует активные relay-узлы по country_code. Значение country_code
 /// напрямую подставляется клиентом в ?relay_country= при запросе конфига
-/// (см. apps/caramba-sub и panel/subscription.rs — там оно матчится по ISO-2).
-/// Спец-значение "none" (отключить relay) клиент добавляет сам.
+/// (см. apps/caramba-sub и panel/subscription.rs — там оно матчится по ISO-2),
+/// `nodes[].id` — в `relay_node_id` PUT /selection (закрепить конкретный
+/// релей). Спец-значение "none" (отключить relay) клиент добавляет сам.
 pub async fn list_relays(
     State(state): State<AppState>,
     axum::Extension(_auth): axum::Extension<AuthUser>,
@@ -822,32 +915,7 @@ pub async fn list_relays(
         .get_active_relay_nodes()
         .await
         .unwrap_or_default();
-
-    use std::collections::BTreeMap;
-    // cc -> (country_name, count)
-    let mut by_cc: BTreeMap<String, (Option<String>, i64)> = BTreeMap::new();
-    for n in relays {
-        let cc = match n.country_code.as_deref() {
-            Some(c) if c.len() == 2 => c.to_uppercase(),
-            _ => continue,
-        };
-        let entry = by_cc.entry(cc).or_insert((None, 0));
-        entry.1 += 1;
-        if entry.0.is_none() {
-            entry.0 = n.country.clone();
-        }
-    }
-
-    let out: Vec<AppRelay> = by_cc
-        .into_iter()
-        .map(|(country_code, (country_name, node_count))| AppRelay {
-            country_code,
-            country_name,
-            node_count,
-        })
-        .collect();
-
-    Json(out).into_response()
+    Json(group_relays(relays)).into_response()
 }
 
 // ============================================================
@@ -877,9 +945,17 @@ pub struct UpdateSelectionRequest {
     /// число — закрепить (валидируется по плану подписки).
     #[serde(default, deserialize_with = "de_tristate")]
     pub node_id: Option<Option<i64>>,
-    /// Relay-страна: ISO-2 из GET /relays либо литерал "none" (relay выключен).
+    /// Relay-страна: ISO-2 из GET /relays, литерал "none" (relay выключен)
+    /// либо `node:<id>` — закрепить конкретный релей (то же, что
+    /// `relay_node_id`, но в одной строке: так выбор едет через клиентов, у
+    /// которых в теле есть только это поле).
     #[serde(default, deserialize_with = "de_tristate")]
     pub relay_country: Option<Option<String>>,
+    /// Конкретный relay-узел (`nodes.id` из GET /relays): отсутствует — не
+    /// трогаем, null — снять закрепление (остаётся страна), число — закрепить;
+    /// страна при этом выставляется по узлу.
+    #[serde(default, deserialize_with = "de_tristate")]
+    pub relay_node_id: Option<Option<i64>>,
 }
 
 #[derive(Serialize)]
@@ -890,6 +966,95 @@ struct AppSelection {
     /// приложение рисует их сразу, не дожидаясь следующего поллинга.
     node_id: Option<i64>,
     relay_country: Option<String>,
+    relay_node_id: Option<i64>,
+}
+
+/// Разобранный выбор входа из одного строкового поля `relay_country`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RelayChoice {
+    /// Литерал `none` — без релея.
+    None,
+    /// ISO-2 в верхнем регистре — вся страна.
+    Country(String),
+    /// `node:<id>` — конкретный релей.
+    Node(i64),
+}
+
+/// `node:<id>` из строки; всё остальное — не пин.
+fn parse_relay_node_pin(raw: &str) -> Option<i64> {
+    let v = raw.trim();
+    let rest = v
+        .strip_prefix("node:")
+        .or_else(|| v.strip_prefix("NODE:"))?;
+    rest.trim().parse::<i64>().ok().filter(|id| *id > 0)
+}
+
+/// Разбирает `relay_country` с учётом формы `node:<id>`; страны и `none`
+/// проверяются прежним закрытым словарём, узел — списком активных релеев.
+fn parse_relay_choice(
+    raw: &str,
+    allowed_cc: &[String],
+    allowed_nodes: &[i64],
+) -> Result<RelayChoice, String> {
+    if let Some(id) = parse_relay_node_pin(raw) {
+        if allowed_nodes.contains(&id) {
+            return Ok(RelayChoice::Node(id));
+        }
+        return Err(format!(
+            "relay node {} is not available. Allowed: {}",
+            id,
+            allowed_nodes
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    match normalize_relay_country(raw, allowed_cc)?.as_str() {
+        "none" => Ok(RelayChoice::None),
+        cc => Ok(RelayChoice::Country(cc.to_string())),
+    }
+}
+
+/// Сводит два поля запроса (`relay_country`, `relay_node_id`) к паре обновлений
+/// колонок. Чистая функция: тестируется без БД.
+///
+/// Правила, по одному на каждую форму намерения:
+///   - узел назван (полем или `node:<id>`) — узел закрепляется, страна
+///     выставляется по нему: пин без страны разъехался бы с `?relay_country=`
+///     старых клиентов и с TMA, которые читают только страну;
+///   - страна или `none` названы без узла — это выбор УРОВНЯ страны, и
+///     прежний пин снимается: иначе «вся Россия» молча осталась бы «msk-1»;
+///   - `relay_node_id: null` — снять только пин, страна остаётся;
+///   - ничего не прислали — ничего не трогаем.
+fn resolve_relay_update(
+    country: Option<Option<RelayChoice>>,
+    node: Option<Option<i64>>,
+    country_of_node: impl Fn(i64) -> Option<String>,
+) -> (Option<Option<String>>, Option<Option<i64>>) {
+    let pinned = match (&node, &country) {
+        (Some(Some(id)), _) => Some(*id),
+        (None, Some(Some(RelayChoice::Node(id)))) => Some(*id),
+        _ => None,
+    };
+    if let Some(id) = pinned {
+        return (Some(country_of_node(id)), Some(Some(id)));
+    }
+    let country_update = match country {
+        None => None,
+        Some(None) => Some(None),
+        Some(Some(RelayChoice::None)) => Some(Some("none".to_string())),
+        Some(Some(RelayChoice::Country(cc))) => Some(Some(cc)),
+        // Узел здесь невозможен: он перехвачен выше как pinned.
+        Some(Some(RelayChoice::Node(_))) => None,
+    };
+    let node_update = match node {
+        Some(None) => Some(None),
+        // Явный выбор уровня страны снимает пин.
+        None if country_update.is_some() => Some(None),
+        _ => None,
+    };
+    (country_update, node_update)
 }
 
 /// Ответ на невалидный ввод: `error` — машиночитаемый код для клиента,
@@ -1042,50 +1207,90 @@ pub async fn update_subscription_selection(
         }
     };
 
-    // --- Валидация relay_country по тому же словарю, что отдаёт /relays ---
-    let relay_update: Option<Option<String>> = match &payload.relay_country {
+    // --- Валидация relay_country / relay_node_id по словарю /relays ---
+    let relay_touched = payload.relay_country.is_some() || payload.relay_node_id.is_some();
+    let relay_nodes = if relay_touched {
+        state
+            .infrastructure_service
+            .get_active_relay_nodes()
+            .await
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let allowed_cc: Vec<String> = relay_nodes
+        .iter()
+        .filter_map(|n| match n.country_code.as_deref() {
+            Some(c) if c.len() == 2 => Some(c.to_uppercase()),
+            _ => None,
+        })
+        .collect();
+    let allowed_nodes: Vec<i64> = relay_nodes.iter().map(|n| n.id).collect();
+
+    let country_choice: Option<Option<RelayChoice>> = match &payload.relay_country {
         None => None,
         Some(None) => Some(None),
-        Some(Some(raw)) => {
-            let allowed: Vec<String> = state
-                .infrastructure_service
-                .get_active_relay_nodes()
-                .await
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|n| match n.country_code.as_deref() {
-                    Some(c) if c.len() == 2 => Some(c.to_uppercase()),
-                    _ => None,
-                })
-                .collect();
-            match normalize_relay_country(raw, &allowed) {
-                Ok(v) => Some(Some(v)),
-                Err(msg) => {
-                    return selection_error(StatusCode::BAD_REQUEST, "invalid_relay_country", msg);
-                }
+        Some(Some(raw)) => match parse_relay_choice(raw, &allowed_cc, &allowed_nodes) {
+            Ok(v) => Some(Some(v)),
+            Err(msg) => {
+                return selection_error(StatusCode::BAD_REQUEST, "invalid_relay_country", msg);
             }
-        }
+        },
     };
+    if let Some(Some(id)) = payload.relay_node_id
+        && !allowed_nodes.contains(&id)
+    {
+        return selection_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_relay_node_id",
+            format!(
+                "Relay node {} is not available. Allowed: {}",
+                id,
+                if allowed_nodes.is_empty() {
+                    "none".to_string()
+                } else {
+                    allowed_nodes
+                        .iter()
+                        .map(|i| i.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }
+            ),
+        );
+    }
+    let (relay_update, relay_node_update) =
+        resolve_relay_update(country_choice, payload.relay_node_id, |id| {
+            relay_nodes
+                .iter()
+                .find(|n| n.id == id)
+                .and_then(|n| n.country_code.as_deref())
+                .filter(|c| c.len() == 2)
+                .map(|c| c.to_uppercase())
+        });
 
     // Пустое тело — не ошибка: возвращаем текущее состояние, чтобы приложение
     // могло использовать этот же путь как «прочитать выбор».
-    let updated = if node_update.is_none() && relay_update.is_none() {
+    let nothing_to_write =
+        node_update.is_none() && relay_update.is_none() && relay_node_update.is_none();
+    let updated = if nothing_to_write {
         sqlx::query(
-            "SELECT node_id, relay_country FROM subscriptions WHERE id = $1 AND user_id = $2",
+            "SELECT node_id, relay_country, relay_node_id FROM subscriptions \
+             WHERE id = $1 AND user_id = $2",
         )
         .bind(sub_id)
         .bind(auth.user_id)
         .fetch_optional(&state.pool)
         .await
     } else {
-        // Один UPDATE на обе колонки: CASE-флаг решает «писать или оставить»,
+        // Один UPDATE на все колонки: CASE-флаг решает «писать или оставить»,
         // поэтому «сбросить одно и задать другое» не разъезжается на два рейса.
         sqlx::query(
             r#"UPDATE subscriptions
                   SET node_id = CASE WHEN $3::boolean THEN $4::bigint ELSE node_id END,
-                      relay_country = CASE WHEN $5::boolean THEN $6::text ELSE relay_country END
+                      relay_country = CASE WHEN $5::boolean THEN $6::text ELSE relay_country END,
+                      relay_node_id = CASE WHEN $7::boolean THEN $8::bigint ELSE relay_node_id END
                 WHERE id = $1 AND user_id = $2
-            RETURNING node_id, relay_country"#,
+            RETURNING node_id, relay_country, relay_node_id"#,
         )
         .bind(sub_id)
         .bind(auth.user_id)
@@ -1093,6 +1298,8 @@ pub async fn update_subscription_selection(
         .bind(node_update.flatten())
         .bind(relay_update.is_some())
         .bind(relay_update.clone().flatten())
+        .bind(relay_node_update.is_some())
+        .bind(relay_node_update.flatten())
         .fetch_optional(&state.pool)
         .await
     };
@@ -1121,7 +1328,7 @@ pub async fn update_subscription_selection(
     // владение: маркер живёт 180 дней и глушит единственного писателя
     // relay_country в мини-аппе, так что безобидный GET-подобный вызов
     // выключил бы там выбор релэя на полгода.
-    if node_update.is_some() || relay_update.is_some() {
+    if !nothing_to_write {
         let _ = state
             .redis
             .set(
@@ -1140,13 +1347,20 @@ pub async fn update_subscription_selection(
             .try_get::<Option<String>, _>("relay_country")
             .ok()
             .flatten(),
+        relay_node_id: updated
+            .try_get::<Option<i64>, _>("relay_node_id")
+            .ok()
+            .flatten(),
     })
     .into_response()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AppSubscription, UpdateSelectionRequest, normalize_relay_country};
+    use super::{
+        AppSubscription, RelayChoice, UpdateSelectionRequest, group_relays,
+        normalize_relay_country, parse_relay_choice, parse_relay_node_pin, resolve_relay_update,
+    };
 
     // --- состояние доступа в списке подписок ---
 
@@ -1191,6 +1405,7 @@ mod tests {
             device_limit: 1,
             pool_name: None,
             relay_country: None,
+            relay_node_id: None,
             access: crate::subscription::access::compute(&facts, None),
         };
 
@@ -1288,6 +1503,169 @@ mod tests {
             err.contains("none") && err.contains("RU"),
             "reason must list the vocabulary: {err}"
         );
+    }
+
+    // --- закрепление конкретного релея ---
+
+    #[test]
+    fn a_node_pin_is_read_from_the_string_form_only_as_node_colon_id() {
+        assert_eq!(parse_relay_node_pin("node:12"), Some(12));
+        assert_eq!(parse_relay_node_pin(" NODE:7 "), Some(7));
+        for junk in ["node:", "node:0", "node:-1", "node:abc", "12", "RU", "none"] {
+            assert_eq!(parse_relay_node_pin(junk), None, "{junk:?}");
+        }
+    }
+
+    #[test]
+    fn relay_choice_covers_none_country_and_node() {
+        let cc = vec!["RU".to_string()];
+        let nodes = vec![12_i64];
+        assert_eq!(
+            parse_relay_choice("none", &cc, &nodes).unwrap(),
+            RelayChoice::None
+        );
+        assert_eq!(
+            parse_relay_choice("ru", &cc, &nodes).unwrap(),
+            RelayChoice::Country("RU".into())
+        );
+        assert_eq!(
+            parse_relay_choice("node:12", &cc, &nodes).unwrap(),
+            RelayChoice::Node(12)
+        );
+        let err = parse_relay_choice("node:99", &cc, &nodes).unwrap_err();
+        assert!(err.contains("99") && err.contains("12"), "{err}");
+    }
+
+    fn cc_of(id: i64) -> Option<String> {
+        match id {
+            12 | 13 => Some("RU".into()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn pinning_a_node_also_sets_the_country_it_lives_in() {
+        // Полем relay_node_id.
+        let (country, node) = resolve_relay_update(None, Some(Some(12)), cc_of);
+        assert_eq!(country, Some(Some("RU".into())));
+        assert_eq!(node, Some(Some(12)));
+        // Строкой node:<id>.
+        let (country, node) = resolve_relay_update(Some(Some(RelayChoice::Node(13))), None, cc_of);
+        assert_eq!(country, Some(Some("RU".into())));
+        assert_eq!(node, Some(Some(13)));
+    }
+
+    #[test]
+    fn choosing_a_whole_country_or_none_clears_a_previous_node_pin() {
+        let (country, node) =
+            resolve_relay_update(Some(Some(RelayChoice::Country("RU".into()))), None, cc_of);
+        assert_eq!(country, Some(Some("RU".into())));
+        assert_eq!(node, Some(None), "«вся страна» снимает пин узла");
+        let (country, node) = resolve_relay_update(Some(Some(RelayChoice::None)), None, cc_of);
+        assert_eq!(country, Some(Some("none".into())));
+        assert_eq!(node, Some(None));
+        let (country, node) = resolve_relay_update(Some(None), None, cc_of);
+        assert_eq!(country, Some(None));
+        assert_eq!(node, Some(None));
+    }
+
+    #[test]
+    fn unpinning_the_node_alone_keeps_the_country() {
+        let (country, node) = resolve_relay_update(None, Some(None), cc_of);
+        assert_eq!(country, None, "страну не трогаем");
+        assert_eq!(node, Some(None));
+    }
+
+    #[test]
+    fn an_empty_request_touches_nothing() {
+        assert_eq!(resolve_relay_update(None, None, cc_of), (None, None));
+    }
+
+    #[test]
+    fn selection_request_accepts_relay_node_id_in_all_three_states() {
+        let req: UpdateSelectionRequest = serde_json::from_str(r#"{"relay_node_id": 12}"#).unwrap();
+        assert_eq!(req.relay_node_id, Some(Some(12)));
+        let req: UpdateSelectionRequest =
+            serde_json::from_str(r#"{"relay_node_id": null}"#).unwrap();
+        assert_eq!(req.relay_node_id, Some(None));
+        let req: UpdateSelectionRequest = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(req.relay_node_id, None);
+    }
+
+    // --- /relays: страны с узлами ---
+
+    fn relay_node(
+        id: i64,
+        cc: Option<&str>,
+        name: &str,
+        city: Option<&str>,
+        sort: i32,
+    ) -> caramba_db::models::node::Node {
+        let mut n: caramba_db::models::node::Node = serde_json::from_value(serde_json::json!({
+            "id": id,
+            "name": name,
+            "ip": format!("203.0.113.{id}"),
+            "status": "active",
+            "vpn_port": 443,
+            "created_at": "2026-09-01T00:00:00Z",
+            "auto_configure": false,
+            "is_enabled": true,
+            "sort_order": sort,
+            "config_qos_enabled": false,
+            "config_block_torrent": false,
+            "config_block_ads": false,
+            "config_block_porn": false,
+            "max_ram": 0,
+            "cpu_cores": 0,
+            "speed_limit_mbps": 0,
+            "max_users": 0,
+            "current_speed_mbps": 0,
+            "total_ingress": 0,
+            "total_egress": 0,
+            "uptime": 0,
+            "last_session_ingress": 0,
+            "last_session_egress": 0,
+            "is_relay": true,
+            "node_type": "relay",
+            "pending_log_collection": false,
+        }))
+        .expect("узел-заглушка");
+        n.country_code = cc.map(str::to_string);
+        n.country = cc.map(|_| "Russia".to_string());
+        n.city = city.map(str::to_string);
+        n.last_cpu = Some(20.0);
+        n.last_ram = Some(40.0);
+        n.last_latency = Some(31.0);
+        n
+    }
+
+    /// Два релея одной страны отдаются УЗЛАМИ с id/именем/городом, в порядке
+    /// приоритета; `node_count` остаётся для старых клиентов. Узел без
+    /// страны в ответ не попадает — закрепить его нечем.
+    #[test]
+    fn relays_are_grouped_by_country_and_list_their_nodes_in_priority_order() {
+        let out = group_relays(vec![
+            relay_node(11, Some("ru"), "spb-1", Some("Saint Petersburg"), 20),
+            relay_node(10, Some("RU"), "msk-1", Some("Moscow"), 10),
+            relay_node(30, None, "orphan", None, 0),
+        ]);
+        assert_eq!(out.len(), 1, "страна одна: RU; узел без страны выброшен");
+        let ru = &out[0];
+        assert_eq!(ru.country_code, "RU");
+        assert_eq!(ru.flag, "🇷🇺");
+        assert_eq!(ru.node_count, 2);
+        assert_eq!(ru.country_name.as_deref(), Some("Russia"));
+        let ids: Vec<i64> = ru.nodes.iter().map(|n| n.id).collect();
+        assert_eq!(ids, vec![10, 11], "по sort_order, затем по id");
+        assert_eq!(ru.nodes[0].name, "msk-1");
+        assert_eq!(ru.nodes[0].city.as_deref(), Some("Moscow"));
+        assert_eq!(ru.nodes[0].latency_ms, Some(31));
+        assert!((ru.nodes[0].load_pct - 30.0).abs() < f64::EPSILON);
+
+        // Форма на проводе: старые поля на месте, новые рядом.
+        let json = serde_json::to_value(&out).unwrap();
+        assert!(json[0]["node_count"].is_number());
+        assert_eq!(json[0]["nodes"][1]["id"], 11);
     }
 
     #[test]

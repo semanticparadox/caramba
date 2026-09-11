@@ -918,6 +918,28 @@ translations! {
     "notify.expiry3_title" => { ru: "Подписка закончится через 3 дня", en: "Subscription expires in 3 days" },
     "notify.expiry3_body" => { ru: "Продлите сейчас, чтобы не остаться без VPN.", en: "Renew now to avoid interruption." },
 
+    // =========================================================================
+    // Новая версия клиента (services::client_release_service, событие
+    // `notify.client_update`). {0} = версия («1.0.0 (110)»), {1} = «что
+    // нового» из настройки client_release_notes (уже экранировано под HTML).
+    // Кнопки «Скачать обновление» и «Инструкция» вешает реестр.
+    // =========================================================================
+    "notify.client_update" => {
+        ru: "🆕 <b>Вышла новая версия Caramba Connect {0}</b>\n\n\
+             Что нового:\n{1}\n\n\
+             Обновитесь, чтобы получить исправления: кнопка «📥 Скачать обновление» \
+             или команда /apk. В приложении обновление предложит баннер на главном экране.",
+        en: "🆕 <b>Caramba Connect {0} is out</b>\n\n\
+             What's new:\n{1}\n\n\
+             Update to get the fixes: the «📥 Download the update» button or /apk. \
+             The app also offers the update with a banner on the main screen."
+    },
+    "notify.client_update_title" => { ru: "Доступна версия {0}", en: "Version {0} is available" },
+    "notify.client_update_body" => {
+        ru: "Вышла новая версия Caramba Connect. Что нового: {1}",
+        en: "A new Caramba Connect release is out. What's new: {1}"
+    },
+
     // Ротация SNI. {0} = старый домен, {1} = новый домен, {2} = id ротации
     // =========================================================================
     // Онбординг: три касания после регистрации (services::onboarding_service,

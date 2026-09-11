@@ -757,7 +757,8 @@
       },
       "notifySubscription": "Об окончании подписки",
       "notifyPayment": "О платежах",
-      "notifyDevice": "О новых устройствах"
+      "notifyDevice": "О новых устройствах",
+      "supportRequests": "Запросы в поддержку"
     },
     "devices": {
       "title": "Устройства",
@@ -843,6 +844,42 @@
       "markAll": "Прочитать все",
       "empty": "Уведомлений пока нет",
       "new": "новое"
+    },
+    "support": {
+      "title": "Запросы в поддержку",
+      "intro": "Опишите проблему. Ответ придёт сюда и в Telegram.",
+      "newTicket": "Новый запрос",
+      "category": "Категория",
+      "subjectPlaceholder": "Кратко: о чём запрос",
+      "bodyPlaceholder": "Подробное описание: что делали, что ожидали, что произошло",
+      "send": "Отправить",
+      "sent": "Запрос отправлен",
+      "empty": "Запросов пока нет",
+      "new": "новое",
+      "ticketTitle": "Запрос #{{id}}",
+      "backToList": "К списку запросов",
+      "fromSupport": "Поддержка",
+      "newReply": "Новый ответ поддержки",
+      "noMessages": "Сообщений пока нет",
+      "replyPlaceholder": "Сообщение",
+      "closedHint": "Запрос завершён. Если вопрос остался, создайте новый.",
+      "notFound": "Запрос не найден",
+      "status": {
+        "open": "Открыт",
+        "in_progress": "В работе",
+        "awaiting_user": "Ждёт ответа",
+        "resolved": "Решён",
+        "closed": "Закрыт"
+      },
+      "categories": {
+        "general": "Общий вопрос",
+        "billing": "Оплата и подписка",
+        "connection": "Не подключается",
+        "device": "Устройства",
+        "technical": "Техническая проблема",
+        "feature_request": "Предложение",
+        "other": "Другое"
+      }
     }
   }
 }

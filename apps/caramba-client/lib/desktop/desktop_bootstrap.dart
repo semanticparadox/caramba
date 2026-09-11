@@ -25,16 +25,20 @@ import 'package:caramba_client/desktop/desktop_platform.dart';
 import 'package:caramba_client/desktop/desktop_prefs.dart';
 import 'package:caramba_client/desktop/desktop_strings.dart';
 import 'package:caramba_client/desktop/desktop_tokens.dart';
+import 'package:caramba_client/desktop/launch_args.dart';
 import 'package:caramba_client/desktop/window_bounds.dart';
 import 'package:caramba_client/theme/colors.dart';
 
 /// Готовит и показывает окно. Зовётся из `main()` ровно один раз и только на
 /// десктопной платформе.
 ///
+/// [launch] — что процесс узнал из argv. По нему решается, показывать ли окно:
+/// «запуск без окна» на Windows и Linux действует только при автозапуске.
+///
 /// Ничем не бросает: отказавший плагин экранов или битая запись настроек — не
 /// повод не открыть окно вовсе. Худшее, что может случиться, — окно первого
 /// запуска по центру.
-Future<void> initDesktop() async {
+Future<void> initDesktop({LaunchArgs launch = const LaunchArgs()}) async {
   await windowManager.ensureInitialized();
 
   final prefs = await _readDesktopPrefs();
@@ -72,8 +76,14 @@ Future<void> initDesktop() async {
     // прямоугольник, потом разворачиваем.
     if (prefs.maximized) await windowManager.maximize();
     await windowManager.setPreventClose(true);
-    // Запуск «только значок в строке меню»: окна не показываем вовсе.
-    if (!prefs.startInTray) {
+    // Запуск «только значок в трее»: окна не показываем вовсе. На macOS
+    // причина запуска неизвестна (SMAppService не передаёт argv), поэтому там
+    // настройка действует всегда; на Windows и Linux только при автозапуске.
+    final show = shouldShowWindowOnLaunch(
+      startInTray: prefs.startInTray,
+      launchedByAutostart: isMacOSPlatform ? null : launch.autostart,
+    );
+    if (show) {
       await windowManager.show();
       await windowManager.focus();
     }

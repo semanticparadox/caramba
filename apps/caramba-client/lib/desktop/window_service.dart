@@ -51,6 +51,11 @@ class WindowService {
   _listenStage;
   final Future<void> Function() _exitProcess;
 
+  /// Подписка на смену настройки «сворачивать в трей». `null` — настройка не
+  /// меняется на лету (тесты, которые держат её локальной переменной).
+  final StageSubscriptionCanceller Function(void Function(bool closeToTray))?
+  _listenCloseToTray;
+
   /// Потолок ожидания подтверждённой остановки. По умолчанию тот же
   /// [kStopConfirmationLimit], которым меряет ожидание сам туннель: два разных
   /// потолка на одну и ту же разборку разошлись бы при первой же правке.
@@ -76,6 +81,14 @@ class WindowService {
   WindowPortListener? _listener;
   AppLifecycleListener? _lifecycle;
   Timer? _boundsTimer;
+  StageSubscriptionCanceller? _cancelCloseToTray;
+
+  /// Окно спрятал раннер вместо сворачивания (Windows). Сбрасывается показом.
+  /// Нужен как факт для теста и как признак того, что окно не свёрнуто, а
+  /// именно спрятано: разворачивать перед показом его не нужно.
+  bool _hiddenToTray = false;
+
+  bool get hiddenToTray => _hiddenToTray;
 
   /// Выход уже идёт. Второй ⌘Q поверх первого запустил бы второй `disconnect()`
   /// и второе ожидание, то есть отложил бы сам выход.
@@ -89,6 +102,8 @@ class WindowService {
     required Future<void> Function() disconnect,
     required StageSubscriptionCanceller Function(void Function(VpnStage stage))
     listenStage,
+    StageSubscriptionCanceller Function(void Function(bool closeToTray))?
+    listenCloseToTray,
     Future<void> Function()? exitProcess,
     this.beforeExit,
     this.flushWrites,
@@ -99,6 +114,7 @@ class WindowService {
        _readStage = readStage,
        _disconnect = disconnect,
        _listenStage = listenStage,
+       _listenCloseToTray = listenCloseToTray,
        _exitProcess = exitProcess ?? _systemExit;
 
   /// Подписывается на окно и на запрос выхода от системы.
@@ -114,10 +130,19 @@ class WindowService {
       onResized: _scheduleBoundsSave,
       onMoved: _scheduleBoundsSave,
       onMinimize: _handleMinimize,
+      onHiddenToTray: _handleHiddenToTray,
     );
     _listener = listener;
     port.addListener(listener);
     unawaited(port.setPreventClose(true));
+    // Раннер Windows прячет окно при сворачивании сам, но только если ему
+    // сказали. Флаг уходит сразу и при каждой смене настройки: раннер
+    // настроек не читает, а сворачивание с устаревшим флагом было бы то
+    // миниатюрой в панели задач, то значком в трее.
+    unawaited(port.setMinimizeToTray(_readPrefs().closeToTray));
+    _cancelCloseToTray = _listenCloseToTray?.call(
+      (closeToTray) => unawaited(port.setMinimizeToTray(closeToTray)),
+    );
     // ⌘Q и «Выйти» из меню приложения приходят сюда, а не в `onClose`: окна
     // может не быть вовсе (жизнь только в трее), а туннель опустить всё равно
     // надо.
@@ -134,10 +159,13 @@ class WindowService {
     _boundsTimer = null;
     _lifecycle?.dispose();
     _lifecycle = null;
+    _cancelCloseToTray?.call();
+    _cancelCloseToTray = null;
   }
 
   /// Показать окно и отдать ему фокус (пункт трея, повторный запуск, диплинк).
   Future<void> show() async {
+    _hiddenToTray = false;
     await port.show();
     await port.focus();
   }
@@ -175,6 +203,12 @@ class WindowService {
   void _handleMinimize() {
     if (!_readPrefs().closeToTray) return;
     unawaited(_hideMinimized());
+  }
+
+  /// Раннер Windows спрятал окно до сворачивания: нам остаётся только это
+  /// запомнить. Разворачивать нечего, и Dart-путь здесь не запускается.
+  void _handleHiddenToTray() {
+    _hiddenToTray = true;
   }
 
   /// Порядок обязателен, поэтому отдельным методом, а не двумя `unawaited`:
@@ -282,6 +316,15 @@ final windowServiceProvider = Provider<WindowService>((ref) {
       final sub = ref.container.listen<VpnStage>(
         vpnProvider.select((s) => s.stage),
         (_, next) => onStage(next),
+      );
+      return sub.close;
+    },
+    // Настройка «сворачивать в трей» меняется в форме настроек, а исполняет её
+    // раннер: подписка доносит до него каждое переключение.
+    listenCloseToTray: (onChange) {
+      final sub = ref.container.listen<bool>(
+        desktopPrefsProvider.select((p) => p.closeToTray),
+        (_, next) => onChange(next),
       );
       return sub.close;
     },

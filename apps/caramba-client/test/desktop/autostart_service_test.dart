@@ -22,6 +22,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:caramba_client/desktop/autostart_service.dart';
 import 'package:caramba_client/desktop/desktop_prefs.dart';
+import 'package:caramba_client/desktop/launch_args.dart';
 import 'package:caramba_client/desktop/ports/autostart_port.dart';
 import 'package:caramba_client/state/bootstrap_state.dart';
 
@@ -35,10 +36,14 @@ void main() {
   late ProviderContainer container;
   late List<String> messages;
 
+  /// Сколько раз принималось состояние системы.
+  late int adopted;
+
   setUp(() async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     port = FakeAutostartPort();
     messages = <String>[];
+    adopted = 0;
     container = ProviderContainer();
     addTearDown(container.dispose);
     // Как при старте: настройки прочитаны с диска до того, как кто-то их
@@ -54,6 +59,9 @@ void main() {
   AutostartService build() {
     final service = AutostartService(
       port: port,
+      readChosen: () =>
+          container.read(desktopPrefsProvider).launchAtLoginChosen,
+      onAdopted: () => adopted++,
       readWanted: () => container.read(desktopPrefsProvider).launchAtLogin,
       writeWanted: (wanted) => container
           .read(desktopPrefsProvider.notifier)
@@ -68,12 +76,12 @@ void main() {
       setSupported: (supported) =>
           container.read(autostartSupportedProvider.notifier).state = supported,
       report: messages.add,
-      setUnavailableMessage: (message) => container
-          .read(autostartUnavailableMessageProvider.notifier)
-          .state = message,
-      setApprovalPending: (pending) => container
-          .read(autostartApprovalPendingProvider.notifier)
-          .state = pending,
+      setUnavailableMessage: (message) =>
+          container.read(autostartUnavailableMessageProvider.notifier).state =
+              message,
+      setApprovalPending: (pending) =>
+          container.read(autostartApprovalPendingProvider.notifier).state =
+              pending,
     );
     addTearDown(service.dispose);
     return service;
@@ -86,16 +94,91 @@ void main() {
     expect(port.calls.first, 'setup(Caramba Connect)');
   });
 
-  test('missing channel reports a capability error, not an OS requirement',
+  test(
+    'регистрация просит систему запускать нас с флагом автозапуска',
+    () async {
+      await build().start();
+
+      expect(port.args, <String>[kAutostartFlag]);
+    },
+  );
+
+  // Галочка инсталлятора Windows ставит автозапуск до первого запуска
+  // приложения. Дефолт настройки `false` снял бы его на первом же старте,
+  // поэтому, пока человек не решал сам, состояние системы принимается.
+  group('первый запуск принимает состояние системы', () {
+    test('включённый в системе автозапуск становится настройкой', () async {
+      port.enabled = true;
+
+      await build().start();
+
+      expect(container.read(desktopPrefsProvider).launchAtLogin, isTrue);
+      expect(container.read(desktopPrefsProvider).launchAtLoginChosen, isTrue);
+      expect(adopted, 1, reason: 'подопции включаются вместе');
+      expect(port.calls, isNot(contains('disable')));
+      expect(port.enabled, isTrue);
+    });
+
+    test('выключенный в системе автозапуск решением не считается', () async {
+      port.enabled = false;
+
+      await build().start();
+
+      expect(container.read(desktopPrefsProvider).launchAtLogin, isFalse);
+      expect(
+        container.read(desktopPrefsProvider).launchAtLoginChosen,
+        isFalse,
+        reason: 'следующая установка с галочкой ещё имеет право быть принятой',
+      );
+      expect(adopted, 0);
+    });
+
+    test(
+      'после решения человека система снова приводится к настройке',
       () async {
-    port = _MissingChannelAutostartPort();
-    await build().start();
-    expect(container.read(autostartSupportedProvider), isFalse);
-    expect(
-      container.read(autostartUnavailableMessageProvider),
-      'Не удалось проверить доступность автозапуска',
+        // Снятый руками тумблер: решение есть, система включена мимо нас.
+        wantLaunchAtLogin(false);
+        port.enabled = true;
+
+        await build().start();
+
+        expect(container.read(desktopPrefsProvider).launchAtLogin, isFalse);
+        expect(port.enabled, isFalse);
+        expect(adopted, 0);
+      },
     );
+
+    test('снимок прежней версии считается решением', () async {
+      // Ключ launch_at_login есть, launch_at_login_chosen нет: так писала
+      // прежняя версия. Человек уже выбирал, и система ему не указ.
+      final prefs = DesktopPrefs.fromJson(const <String, dynamic>{
+        'launch_at_login': false,
+      });
+      expect(prefs.launchAtLoginChosen, isTrue);
+    });
+
+    test('сбой чтения системы не принимает ничего', () async {
+      port.approvalPending = true;
+
+      await build().start();
+
+      expect(container.read(desktopPrefsProvider).launchAtLogin, isFalse);
+      expect(adopted, 0);
+    });
   });
+
+  test(
+    'missing channel reports a capability error, not an OS requirement',
+    () async {
+      port = _MissingChannelAutostartPort();
+      await build().start();
+      expect(container.read(autostartSupportedProvider), isFalse);
+      expect(
+        container.read(autostartUnavailableMessageProvider),
+        'Не удалось проверить доступность автозапуска',
+      );
+    },
+  );
 
   test('система приводится к настройке приложения', () async {
     wantLaunchAtLogin(true);
@@ -251,20 +334,22 @@ void main() {
     expect(container.read(autostartApprovalPendingProvider), isFalse);
   });
 
-  test('failed slow enable does not overwrite a newer off preference',
-      () async {
-    final delayed = _DelayedAutostartPort()..failNextWrite = true;
-    port = delayed;
-    await build().start();
-    wantLaunchAtLogin(true);
-    await pump();
-    wantLaunchAtLogin(false);
-    delayed.release.complete();
-    await pump();
-    await pump();
-    expect(container.read(desktopPrefsProvider).launchAtLogin, isFalse);
-    expect(port.enabled, isFalse);
-  });
+  test(
+    'failed slow enable does not overwrite a newer off preference',
+    () async {
+      final delayed = _DelayedAutostartPort()..failNextWrite = true;
+      port = delayed;
+      await build().start();
+      wantLaunchAtLogin(true);
+      await pump();
+      wantLaunchAtLogin(false);
+      delayed.release.complete();
+      await pump();
+      await pump();
+      expect(container.read(desktopPrefsProvider).launchAtLogin, isFalse);
+      expect(port.enabled, isFalse);
+    },
+  );
 
   test('rapid toggles serialize writes and preserve latest intent', () async {
     final delayed = _DelayedAutostartPort();

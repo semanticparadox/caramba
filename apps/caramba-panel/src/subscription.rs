@@ -44,6 +44,53 @@ pub struct SubParams {
     pub node_id: Option<i64>,
     pub variant: Option<String>,
     pub relay_country: Option<String>, // e.g. "RU", "US", "none" — override geo-based relay selection
+    /// Закрепление КОНКРЕТНОГО релея (`nodes.id`): в конфиг попадают цепочки
+    /// только через него. Уточняет страну, а не заменяет её: пин применяется,
+    /// когда релей входит в страну, выбранную по обычным правилам (явная
+    /// страна / сохранённая / гео), — иначе выбор страны победил бы молча.
+    pub relay_node_id: Option<i64>,
+}
+
+/// Релеи, которые попадут в конфиг: страна-фильтр плюс закрепление узла.
+///
+/// `filter_cc` — итог приоритета «явный параметр → сохранённая страна →
+/// гео»: `Some("NONE")` выключает релеи, `Some(cc)` оставляет страну,
+/// `None` — все релеи (гео неизвестно). `pinned` — `nodes.id` релея из
+/// `?relay_node_id=` или `subscriptions.relay_node_id`.
+///
+/// Пин сужает уже отобранное по стране множество до одного узла. Если
+/// закреплённого узла среди отобранных нет (релей выключен оператором,
+/// страна в URL другая, пин остался от удалённого узла), остаётся выбор по
+/// стране — это единственный вариант, при котором клиент не остаётся вовсе
+/// без цепочек из-за устаревшего пина. Чистая функция: тестируется без БД.
+pub(crate) fn select_relay_nodes<T>(
+    all: Vec<(i64, T)>,
+    filter_cc: Option<&str>,
+    pinned: Option<i64>,
+    country_of: impl Fn(&T) -> Option<String>,
+) -> Vec<T> {
+    let by_country: Vec<(i64, T)> = match filter_cc {
+        Some("NONE") => vec![],
+        Some(cc) => all
+            .into_iter()
+            .filter(|(_, r)| {
+                country_of(r)
+                    .map(|rc| rc.eq_ignore_ascii_case(cc))
+                    .unwrap_or(false)
+            })
+            .collect(),
+        None => all,
+    };
+    if let Some(pin) = pinned
+        && by_country.iter().any(|(id, _)| *id == pin)
+    {
+        return by_country
+            .into_iter()
+            .filter(|(id, _)| *id == pin)
+            .map(|(_, r)| r)
+            .collect();
+    }
+    by_country.into_iter().map(|(_, r)| r).collect()
 }
 
 /// Redis key marking "the app owns this subscription's node/relay selection".
@@ -1137,6 +1184,20 @@ function copyLink(){{
         .clone()
         .or_else(|| sub.relay_country.clone());
 
+    // Закрепление конкретного релея: явный `?relay_node_id=` побеждает
+    // сохранённый `subscriptions.relay_node_id` (его пишет PUT /selection).
+    // Колонка читается отдельным запросом, а не полем `Subscription`: модель
+    // общая для всей панели, и лишнее поле в ней задело бы каждую фикстуру.
+    let stored_relay_node: Option<i64> =
+        sqlx::query_scalar("SELECT relay_node_id FROM subscriptions WHERE id = $1")
+            .bind(sub.id)
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten()
+            .flatten();
+    let effective_relay_node: Option<i64> = params.relay_node_id.or(stored_relay_node);
+
     // Keyed on the FILTER, not on any stored value: `?node_id=1` and a bare URL
     // now produce different bodies for the same subscription, so they must not
     // share an entry. The pin joins the key too — it no longer selects nodes,
@@ -1150,9 +1211,19 @@ function copyLink(){{
         .as_deref()
         .map(|r| r.to_ascii_uppercase())
         .unwrap_or_else(|| "auto".to_string());
+    // Пин релея в ключе по той же причине, что и страна: смена закрепления
+    // через PUT /selection обязана сменить тело немедленно, а не по TTL.
+    let cache_relay_node = effective_relay_node.unwrap_or(0);
     let cache_key = format!(
-        "sub_config_v6:{}:{}:{}:{}:{}:{}:{}",
-        uuid, client_type, cache_node_id, cache_pin, cache_variant, cache_cc, cache_relay
+        "sub_config_v7:{}:{}:{}:{}:{}:{}:{}:{}",
+        uuid,
+        client_type,
+        cache_node_id,
+        cache_pin,
+        cache_variant,
+        cache_cc,
+        cache_relay,
+        cache_relay_node
     );
 
     if let Ok(Some(cached_config)) = state.redis.get(&cache_key).await {
@@ -1198,7 +1269,7 @@ function copyLink(){{
     // user gets `via 🇷🇺` chains, not `via 🇺🇸`).
     let all_relay_nodes = state
         .subscription_service
-        .get_all_active_relay_infos()
+        .get_all_active_relay_infos_with_ids()
         .await
         .unwrap_or_default();
 
@@ -1235,20 +1306,13 @@ function copyLink(){{
         _ => client_cc.clone(),
     };
 
-    let relay_nodes: Vec<_> = match relay_filter_cc.as_deref() {
-        Some("NONE") => vec![], // No relays
-        Some(cc) => all_relay_nodes
-            .into_iter()
-            .filter(|r| {
-                r.country_code
-                    .as_ref()
-                    .map(|rc| rc.eq_ignore_ascii_case(cc))
-                    .unwrap_or(false)
-            })
-            .collect(),
-        // Unknown geo, no explicit choice — include all relays as fallback.
-        None => all_relay_nodes,
-    };
+    // Страна отбирает, пин сужает до одного узла (см. select_relay_nodes).
+    let relay_nodes = select_relay_nodes(
+        all_relay_nodes,
+        relay_filter_cc.as_deref(),
+        effective_relay_node,
+        |r| r.country_code.clone(),
+    );
 
     let (content, content_type, _filename): (String, &'static str, &'static str) = match client_type
     {
@@ -1895,7 +1959,7 @@ pub mod access {
 mod tests {
     use super::{
         filter_nodes_for_subscription, mirror_country_decision, normalize_relay_param,
-        promote_pinned_node,
+        promote_pinned_node, select_relay_nodes,
     };
 
     #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1983,6 +2047,48 @@ mod tests {
                 "{junk:?} — не выбор пользователя, писать нечего"
             );
         }
+    }
+
+    /// Релеи по стране и закреплённый узел: страна отбирает, пин сужает.
+    fn relays() -> Vec<(i64, &'static str)> {
+        vec![(10, "RU"), (11, "RU"), (20, "KZ")]
+    }
+
+    fn cc_of(s: &&'static str) -> Option<String> {
+        Some((*s).to_string())
+    }
+
+    #[test]
+    fn a_pinned_relay_narrows_the_country_to_that_single_node() {
+        let out = select_relay_nodes(relays(), Some("RU"), Some(11), cc_of);
+        assert_eq!(out, vec!["RU"], "ровно один релей — закреплённый");
+        // И без страны-фильтра (гео неизвестно) пин тоже действует.
+        let out = select_relay_nodes(relays(), None, Some(20), cc_of);
+        assert_eq!(out, vec!["KZ"]);
+    }
+
+    #[test]
+    fn without_a_pin_the_whole_country_is_kept_as_before() {
+        let out = select_relay_nodes(relays(), Some("ru"), None, cc_of);
+        assert_eq!(out.len(), 2, "оба RU-релея, регистр не важен");
+        let out = select_relay_nodes(relays(), None, None, cc_of);
+        assert_eq!(out.len(), 3, "гео неизвестно — все релеи");
+    }
+
+    /// Пин, не входящий в выбранную страну (или от удалённого узла), не
+    /// оставляет клиента без цепочек: остаётся выбор по стране.
+    #[test]
+    fn a_stale_or_foreign_pin_falls_back_to_the_country_choice() {
+        let out = select_relay_nodes(relays(), Some("RU"), Some(20), cc_of);
+        assert_eq!(out.len(), 2, "KZ-пин при стране RU: остаются оба RU");
+        let out = select_relay_nodes(relays(), Some("RU"), Some(999), cc_of);
+        assert_eq!(out.len(), 2, "пин на удалённый узел игнорируется");
+    }
+
+    #[test]
+    fn none_disables_relays_regardless_of_the_pin() {
+        let out = select_relay_nodes(relays(), Some("NONE"), Some(10), cc_of);
+        assert!(out.is_empty());
     }
 
     #[test]

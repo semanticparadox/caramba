@@ -155,11 +155,7 @@ class NotificationsScreen extends ConsumerWidget {
                           for (final n in page.items)
                             _NotifCard(
                               notif: n,
-                              onTap: n.read
-                                  ? null
-                                  : () => ref
-                                        .read(notificationsProvider.notifier)
-                                        .markRead(n.id),
+                              onTap: _tapFor(context, ref, n),
                             ),
                         ],
                       ),
@@ -174,6 +170,27 @@ class NotificationsScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  /// Действие по тапу. Уведомление о тикете ведёт к самому тикету (и гасится,
+  /// если было непрочитанным) — прочитанное тоже открывается, потому что
+  /// человек возвращается к переписке через inbox. Остальные уведомления
+  /// только помечаются прочитанными; у прочитанных тап ничего не делает.
+  VoidCallback? _tapFor(
+    BuildContext context,
+    WidgetRef ref,
+    AppNotification n,
+  ) {
+    if (n.opensTicket) {
+      return () {
+        if (!n.read) {
+          ref.read(notificationsProvider.notifier).markRead(n.id);
+        }
+        context.go(AppRoute.ticket(n.ticketId!));
+      };
+    }
+    if (n.read) return null;
+    return () => ref.read(notificationsProvider.notifier).markRead(n.id);
   }
 
   void _close(BuildContext context) {

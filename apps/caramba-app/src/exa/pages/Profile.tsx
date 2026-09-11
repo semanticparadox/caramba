@@ -321,6 +321,7 @@ export default function Profile() {
                 </div>
             </section>
 
+            <LinkRow icon={<ExaIcon name="support" size={22} />} title={t('exa.profile.supportRequests')} onClick={() => navigate('/support')} />
             <LinkRow icon={<ExaIcon name="support" size={22} />} title={t('exa.profile.support')} onClick={openSupport} />
 
             <div className="exa-legal">EXA {APP_VERSION}</div>

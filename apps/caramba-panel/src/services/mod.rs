@@ -33,6 +33,7 @@ pub mod welcome_gift; // Подарочная подписка при регис
 // Enterprise Modular Services
 pub mod billing_service;
 pub mod catalog_service;
+pub mod client_release_service; // Версии клиента: манифесты CI, /app/version, рассылка «вышла новая версия»
 pub mod config_validation_service;
 pub mod generator_service;
 pub mod geo_service;

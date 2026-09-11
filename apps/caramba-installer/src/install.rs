@@ -485,13 +485,22 @@ async fn try_install_mini_app_assets(version: &str, install_dir: &str) -> Result
 /// Единая схема `Caramba-Connect-<OS>-<arch>.<ext>` (CI: client-android.yml,
 /// client-desktop.yml). Старые имена `caramba-connect-*` больше не ищутся:
 /// файлы прежних релизов на диске панели просто остаются лежать.
-const CLIENT_DOWNLOAD_ASSETS: [&str; 6] = [
+///
+/// Манифесты `Caramba-Connect-<platform>.json` (ci-manifest.sh) едут тем же
+/// списком: по ним панель отдаёт `GET /api/v2/app/version`, а бот узнаёт о
+/// новой сборке (services/client_release_service.rs). Без манифеста на диске
+/// панель падает на ручные настройки `client_latest_*`.
+const CLIENT_DOWNLOAD_ASSETS: [&str; 10] = [
     "Caramba-Connect-Android-arm64.apk",
     "Caramba-Connect-Android-armv7.apk",
+    "Caramba-Connect-android.json",
     "Caramba-Connect-Setup-x64.exe",
     "Caramba-Connect-Windows-x64-portable.zip",
+    "Caramba-Connect-windows.json",
     "Caramba-Connect-macOS-arm64.dmg",
+    "Caramba-Connect-macos.json",
     "Caramba-Connect-Linux-x64.tar.gz",
+    "Caramba-Connect-linux.json",
 ];
 
 /// Скачивает один ассет клиента в каталог раздачи.

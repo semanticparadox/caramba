@@ -71,3 +71,54 @@ func TestBestProtocolRespectsPriority(t *testing.T) {
 		t.Errorf("пустой список должен давать пустую строку, получено %q", got)
 	}
 }
+
+// Кандидаты приходят от клиента как есть: регистр, пробелы, мусор и повторы
+// нормализуются, порядок (предпочтение) сохраняется.
+func TestNormalizeCandidatesKeepsOrderDropsJunkAndDuplicates(t *testing.T) {
+	got := NormalizeCandidates([]string{" ru ", "kz", "RU", "", "rus", "1", "р у", "Fi"})
+	want := []string{"RU", "KZ", "FI"}
+	if len(got) != len(want) {
+		t.Fatalf("ожидалось %v, получено %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("[%d]: ожидалось %q, получено %q", i, want[i], got[i])
+		}
+	}
+	if NormalizeCandidates(nil) != nil || NormalizeCandidates([]string{"", "xyz"}) != nil {
+		t.Error("пустой или мусорный список обязан давать nil, а не пустой срез")
+	}
+}
+
+// Регрессия хардкода TR/KZ/FI: список стран, в которых релеев нет, больше не
+// вписан в ядро — без кандидатов от клиента relay не рекомендуется вовсе, а
+// причина честно говорит, что стабильного пути нет.
+func TestRecommendWithoutCandidatesNeverInventsARelay(t *testing.T) {
+	probes := []ProbeResult{
+		{ServerID: "nl", Country: "NL", LatencyMs: 0, OKProtocols: nil},
+		{ServerID: "de", Country: "DE", LatencyMs: -1, OKProtocols: nil},
+	}
+	r, err := Recommend(probes, []string{"", "  ", "xx1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Relay != "" {
+		t.Errorf("без реальных кандидатов relay быть не должно, получено %q", r.Relay)
+	}
+	if r.Reason == "" {
+		t.Error("причина обязана быть названа, чтобы UI показал предупреждение")
+	}
+}
+
+// Кандидаты в нижнем регистре от клиента уезжают панели как ISO-2 в верхнем:
+// именно так их сравнивает `?relay_country=`.
+func TestRecommendUppercasesTheChosenRelay(t *testing.T) {
+	probes := []ProbeResult{{ServerID: "nl", Country: "NL", LatencyMs: 0}}
+	r, err := Recommend(probes, []string{"ru", "kz"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Relay != "RU" {
+		t.Errorf("ожидался RU (первый реальный кандидат, в верхнем регистре), получено %q", r.Relay)
+	}
+}

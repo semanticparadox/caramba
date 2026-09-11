@@ -15,6 +15,7 @@ import 'package:caramba_client/state/core_config_state.dart';
 import 'package:caramba_client/state/account_state.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/csm_state.dart';
+import 'package:caramba_client/state/exit_inventory_state.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
 import 'package:caramba_client/theme/typography.dart';
@@ -36,6 +37,19 @@ const Provenance kRelayControlWire = Provenance(
 const Availability kRelayControlAlwaysTrue = Availability.available(
   kRelayControlWire,
 );
+
+/// Объяснение простыми словами: что такое вход и зачем он. Стоит над всем
+/// экраном, потому что именно «логика непонятна» и была жалобой владельца.
+const String kRelayExplanation =
+    'Вход это сервер, через который ваш трафик заходит в сеть. Выход это '
+    'страна, из которой вы выходите в интернет. Вход нужен там, где прямое '
+    'подключение к серверам режут: обычно это ваша страна. Выход при этом '
+    'остаётся тем, который выбран на экране серверов.';
+
+/// Подпись к числам пинга у релеев: они не с устройства пользователя.
+const String kRelayPingNote =
+    'Пинг у релеев здесь по данным панели (время отклика самой машины), а не '
+    'замер с вашего устройства: сквозь вход приложение пока мерить не умеет.';
 
 /// Сохранённый `CoreConfig.relay`, приведённый к списку РОВНО так, как его
 /// приводит кодировщик провода (`_relay` в state/core_policy_mapping.dart).
@@ -61,40 +75,236 @@ int effectiveRelayIndex(int stored, List<Relay> relays) {
   return 0;
 }
 
-/// Relay (вход): «Выкл» / «Авто» / ВХОДЫ, которые называет оператор.
+/// Строка-релей внутри группы страны.
+class RelayNodeRow {
+  final int nodeId;
+  final String name;
+  final String? city;
+
+  /// Пинг по данным панели (RTT машины), мс; `null` — панель не сообщила.
+  final int? latencyMs;
+  final double? loadPct;
+
+  /// Индекс в списке записи (`CoreConfig.relay`); `null` — записать нечем
+  /// (ни узла, ни его страны в `GET /relays` нет).
+  final int? writeIndex;
+
+  /// Что уходит панели через `PUT /selection` при выборе этой строки.
+  final Relay pin;
+
+  final Availability availability;
+
+  /// Сколько выходов панель назвала идущими через этот вход (`via_relay`).
+  final int reachableExits;
+
+  const RelayNodeRow({
+    required this.nodeId,
+    required this.name,
+    required this.city,
+    required this.latencyMs,
+    required this.loadPct,
+    required this.writeIndex,
+    required this.pin,
+    required this.availability,
+    required this.reachableExits,
+  });
+}
+
+/// Группа «страна входа» с её релеями.
+class RelayGroup {
+  final String countryCode;
+  final String countryName;
+
+  /// Индекс строки-страны в списке записи; `null` — панель страну в
+  /// `GET /relays` не назвала (узел известен только по `via_relay` у выхода).
+  final int? writeIndex;
+
+  /// Строка-страна для `PUT /selection` («вся страна»).
+  final Relay pin;
+
+  final Availability availability;
+  final int nodeCount;
+  final List<RelayNodeRow> nodes;
+
+  const RelayGroup({
+    required this.countryCode,
+    required this.countryName,
+    required this.writeIndex,
+    required this.pin,
+    required this.availability,
+    required this.nodeCount,
+    required this.nodes,
+  });
+}
+
+/// Собирает группы «страна → релеи» из двух источников, не давая им
+/// разойтись: списка записи [relays] (`GET /relays`: страны и их узлы) и
+/// предложения [offers] (`via_relay` у выходов: узлы, о которых панель
+/// сказала, строится ли через них цепочка).
 ///
-/// Владелец: «маршрут нету выбора relay ... там только есть Россия хотя
-/// функционально там могут быть любые ноды relay которые настроены в панели».
-/// Обе половины этой фразы были правдой об экране. Страны здесь были ВПИСАНЫ в
-/// приложение (Турция, Казахстан, Финляндия — их не существовало ни в панели,
-/// ни в конфиге), а настоящие релэй-УЗЛЫ не показывались вовсе: `GET /relays`
-/// агрегирует их по странам и узлов не называет.
+/// Правила:
+///   * порядок стран — порядок [relays] (панель сортирует по коду);
+///   * узел из `GET /relays` пишется своим индексом; узел, известный только по
+///     `via_relay`, пишется индексом СТРАНЫ, а закрепление узла уходит панели
+///     отдельно (`node:<id>`);
+///   * доступность узла — свидетельство панели по нему (`chained_in_config`),
+///     а без свидетельства — общая возможность цепочки [chaining];
+///   * страна доступна, если доступен хоть один её узел, иначе наследует
+///     [chaining].
+/// Чистая функция: проверяется тестом без экрана.
+List<RelayGroup> buildRelayGroups(
+  List<Relay> relays,
+  List<RelayOffer> offers,
+  Availability chaining,
+) {
+  final hopsById = <int, RelayOffer>{
+    for (final o in offers)
+      if (o.panelNodeId != null) o.panelNodeId!: o,
+  };
+  final groups = <String, _GroupAcc>{};
+  final order = <String>[];
+
+  _GroupAcc groupFor(String cc, String name) {
+    final existing = groups[cc];
+    if (existing != null) return existing;
+    final acc = _GroupAcc(cc, name);
+    groups[cc] = acc;
+    order.add(cc);
+    return acc;
+  }
+
+  // Страны и узлы из списка записи.
+  for (var i = 0; i < relays.length; i++) {
+    final r = relays[i];
+    if (r.isOff || r.isAuto) continue;
+    final cc = r.countryCode;
+    if (cc.isEmpty) continue;
+    if (r.isCountry) {
+      final g = groupFor(cc, r.name.isNotEmpty ? r.name : countryNameOf(cc));
+      g.countryIndex ??= i;
+      g.countryRow ??= r;
+      g.nodeCount = r.nodeCount > g.nodeCount ? r.nodeCount : g.nodeCount;
+    } else if (r.isNode) {
+      final g = groupFor(cc, countryNameOf(cc));
+      final hop = hopsById[r.nodeId!];
+      g.nodes[r.nodeId!] = RelayNodeRow(
+        nodeId: r.nodeId!,
+        name: r.name,
+        city: r.city,
+        latencyMs: r.latencyMs,
+        loadPct: r.loadPct,
+        writeIndex: i,
+        pin: r,
+        availability: hop?.availability ?? _fromChaining(chaining),
+        reachableExits: hop?.reachableFromExitKeys.length ?? 0,
+      );
+    }
+  }
+
+  // Узлы, названные только у выходов (`via_relay`): панель старше их в
+  // `GET /relays` не отдаёт. Пишутся индексом страны.
+  for (final o in offers) {
+    final id = o.panelNodeId;
+    if (id == null) continue;
+    final cc = normalizeCountryCode(o.countryCode);
+    if (cc.isEmpty) continue;
+    final g = groupFor(cc, o.countryName);
+    if (g.nodes.containsKey(id)) continue;
+    g.nodes[id] = RelayNodeRow(
+      nodeId: id,
+      name: o.label.isNotEmpty ? o.label : o.countryName,
+      city: null,
+      latencyMs: null,
+      loadPct: null,
+      writeIndex: g.countryIndex,
+      pin: Relay(
+        id: 'node:$id',
+        name: o.label.isNotEmpty ? o.label : o.countryName,
+        desc: '',
+        country: cc,
+        nodeId: id,
+      ),
+      availability: g.countryIndex == null
+          // Панель называет вход у выхода, но в списке `GET /relays` его
+          // нет: закрепить его нечем, и молчать об этом нельзя.
+          ? Availability.unavailable(
+              OfferingReason.panelReportsRelaysByCountryOnly,
+              o.origin,
+              detail: o.countryName,
+            )
+          : o.availability,
+      reachableExits: o.reachableFromExitKeys.length,
+    );
+  }
+
+  return <RelayGroup>[
+    for (final cc in order)
+      () {
+        final g = groups[cc]!;
+        final nodes = g.nodes.values.toList(growable: false);
+        final Availability availability;
+        if (nodes.any((n) => n.availability.isAvailable)) {
+          availability = nodes
+              .firstWhere((n) => n.availability.isAvailable)
+              .availability;
+        } else if (g.countryIndex == null) {
+          availability = Availability.unavailable(
+            OfferingReason.panelReportsRelaysByCountryOnly,
+            kRelayControlWire,
+            detail: g.name,
+          );
+        } else {
+          availability = _fromChaining(chaining);
+        }
+        return RelayGroup(
+          countryCode: cc,
+          countryName: g.name,
+          writeIndex: g.countryIndex,
+          pin:
+              g.countryRow ??
+              Relay(id: cc, name: g.name, desc: '', country: cc),
+          availability: availability,
+          nodeCount: g.nodeCount > nodes.length ? g.nodeCount : nodes.length,
+          nodes: nodes,
+        );
+      }(),
+  ];
+}
+
+Availability _fromChaining(Availability chaining) =>
+    chaining.isAvailable ? kRelayControlAlwaysTrue : chaining;
+
+class _GroupAcc {
+  final String cc;
+  final String name;
+  int? countryIndex;
+  Relay? countryRow;
+  int nodeCount = 0;
+  final Map<int, RelayNodeRow> nodes = <int, RelayNodeRow>{};
+  _GroupAcc(this.cc, this.name);
+}
+
+/// Экран «Вход»: объяснение, «Авто» / «Выкл» и группы «страна → релеи».
 ///
-/// Теперь список приходит из [relayOffersProvider]: узел там, где панель его
-/// называет (`via_relay` у выхода), страна — там, где она сама остановилась на
-/// стране, и с этой причиной прямо в строке. Ни одна строка не спрятана.
+/// Владелец: «логика настройки Relay непонятна, нельзя выбрать вход через
+/// Россию вручную; будет много релеев по регионам». Отсюда три вещи на
+/// экране: объяснение словами наверху; страны с их релеями (имя, город, пинг
+/// панели) и выбор как всей страны, так и конкретного релея; единый источник
+/// правды о выборе — панель (`PUT /subscriptions/{id}/selection`), а ядро и
+/// очередь CSM получают страну и вторичны.
 ///
 /// Своей формулировки недоступности у экрана нет намеренно: правило живёт в
-/// возможности ([Capabilities.relayChaining]), которую считает слой
-/// предложения по тому, строит ли генератор оператора цепочку. Вторая копия
-/// этого правила в Dart рано или поздно начала бы врать — а сегодня она врала
-/// бы уже сейчас: clash-тело `dialer-proxy` не выпускает.
+/// возможности ([Capabilities.relayChaining]) и в свидетельстве панели по
+/// каждому узлу (`via_relay.chained_in_config`). На clash-теле, которое читает
+/// это приложение, цепочка через вход сегодня не строится, и экран говорит
+/// это прямо над строками, к которым это относится, — а выбор при этом всё
+/// равно сохраняется на панели, чтобы не пропасть к моменту, когда генератор
+/// цепочку построит.
 ///
-/// Возможность цепочки при этом описывает ТОЛЬКО входы оператора. «Выкл» и
-/// «Авто» цепочкой не являются: первый просит ядро не строить её вовсе, второй
-/// оставляет решение оператору, и оба уходят на провод пустой строкой при любом
-/// флоте. Раньше они гасились той же возможностью — и на живом флоте
-/// (`chained_in_config: false`) экран приходил целиком мёртвым: «Выкл» стоял
-/// приглушённым, с подписью, которая описывала работу самого «Выкл» как причину
-/// его недоступности, а галочки не было ни на одной строке, потому что и
-/// `selected` был завязан на ту же возможность. Пользователь не видел, что
-/// сейчас в силе, и не мог снять вход, которого не выбирал.
-///
-/// Причина недоступности цепочки живёт теперь под заголовком «Входы
-/// оператора» — над строками, к которым она относится, и только над ними.
-///
-/// Ключ к тому, ЧТО в силе, — [effectiveRelayIndex]: он приводит сохранённый
-/// индекс к списку так же, как это делает кодировщик провода.
+/// «Выкл» и «Авто» цепочкой не являются: первый просит ядро не строить её
+/// вовсе, второй оставляет решение панели, и оба уходят на провод пустой
+/// строкой при любом флоте. Ключ к тому, ЧТО в силе, — [effectiveRelayIndex]:
+/// он приводит сохранённый индекс к списку так же, как кодировщик провода.
 class RelayScreen extends ConsumerWidget {
   const RelayScreen({super.key});
 
@@ -110,11 +320,9 @@ class RelayScreen extends ConsumerWidget {
     // Происхождение значения по CSM: вход мог поставить оператор (02-SPEC.md
     // 7.6), и пользователь вправе видеть это до того, как перевыберет.
     final entry = ref.watch(csmSettingsProvider)[CsmSettingKey.relay];
-    // Индекс мог быть выбран на дефолтном списке, а панельный список короче.
-    // Приведение общее с проводом, а не кламп: см. [effectiveRelayIndex].
     final selected = effectiveRelayIndex(cfg.relay, relays);
     final can = chaining.availability;
-    // Вход, который назвал оператор по активной подписке (`relay_country`).
+    // Вход, который назвала панель по активной подписке (`relay_country`).
     //
     // Спрашиваем ТОЛЬКО при живой сессии панели: `/app/subscriptions` — её
     // эндпоинт, и в generic-режиме (своя подписка, панели нет) запрос ушёл бы
@@ -123,6 +331,9 @@ class RelayScreen extends ConsumerWidget {
     final operatorRelay = hasPanel
         ? _operatorRelayCountry(ref.watch(subscriptionsProvider).valueOrNull)
         : null;
+
+    final groups = buildRelayGroups(relays, offers, can);
+    final anyPing = groups.any((g) => g.nodes.any((n) => n.latencyMs != null));
 
     return Scaffold(
       backgroundColor: c.bgCanvas,
@@ -137,12 +348,11 @@ class RelayScreen extends ConsumerWidget {
           ),
           children: [
             ScreenHead(
-              'Relay (вход)',
+              'Вход',
               trailing: IconBtn(Lucide.x, onTap: () => _close(context)),
             ),
             Text(
-              'Через какую машину идёт вход в цепочку. Выход при этом остаётся '
-              'тем, который выбран на экране серверов.',
+              kRelayExplanation,
               style: AppType.bodyMd.copyWith(color: c.textMed),
             ),
             if (entry != null) ...[
@@ -165,27 +375,30 @@ class RelayScreen extends ConsumerWidget {
             const SizedBox(height: AppSpace.s4),
 
             // Две строки, истинные при любом флоте и не называющие ни одной
-            // страны: прямое подключение и решение оператора. Возможность
-            // цепочки их не касается — они и есть отказ от цепочки и передача
-            // решения оператору, и на провод обе уходят пустой строкой всегда.
+            // страны. Возможность цепочки их не касается.
             for (var i = 0; i < relays.length; i++)
-              if (relays[i].isOff || relays[i].isAuto)
+              if (relays[i].isAuto)
                 _RelayRow(
                   // «Авто» обязано называть, ЧТО оно выбрало. Единственный
-                  // источник этого — сам оператор: вход выбирает генератор его
-                  // конфига, а не приложение, и никакого «наверное» здесь быть
-                  // не может.
-                  title: (relays[i].isAuto && operatorRelay != null)
+                  // источник этого — сама панель: вход выбирает генератор её
+                  // конфига, а не приложение.
+                  title: operatorRelay != null
                       ? 'Авто · через $operatorRelay'
-                      : relays[i].name,
-                  desc: relays[i].isAuto
-                      ? _autoDesc(operatorRelay)
-                      : relays[i].desc,
-                  code: null,
-                  auto: relays[i].isAuto,
+                      : 'Авто',
+                  desc: _autoDesc(operatorRelay),
+                  leading: const IBox(Lucide.gauge),
                   availability: kRelayControlAlwaysTrue,
                   selected: i == selected,
-                  onTap: () => _apply(context, ref, i, relays),
+                  onTap: () => _apply(context, ref, i, relays[i], relays),
+                )
+              else if (relays[i].isOff)
+                _RelayRow(
+                  title: relays[i].name,
+                  desc: 'Без входа: напрямую к выбранному серверу.',
+                  leading: const IBox(Lucide.route),
+                  availability: kRelayControlAlwaysTrue,
+                  selected: i == selected,
+                  onTap: () => _apply(context, ref, i, relays[i], relays),
                 ),
 
             const SectionTitle(
@@ -203,118 +416,110 @@ class RelayScreen extends ConsumerWidget {
               ),
               const SizedBox(height: AppSpace.s3),
             ],
+            if (anyPing) ...[
+              Text(
+                kRelayPingNote,
+                style: AppType.bodySm.copyWith(color: c.textLow),
+              ),
+              const SizedBox(height: AppSpace.s3),
+            ],
 
-            if (offers.isEmpty)
-              ..._fallbackRows(context, ref, relays, selected, can)
+            if (groups.isEmpty)
+              const InlineEmpty(message: 'Оператор не отдал ни одного входа')
             else
-              for (final o in offers)
-                _offerRow(context, ref, o, relays, selected, can),
+              for (final g in groups)
+                ..._groupRows(context, ref, g, relays, selected),
           ],
         ),
       ),
     );
   }
 
-  /// Строка входа из предложения. Её недоступность приходит из самого входа
-  /// (панель сообщает, строит ли генератор цепочку через него), а общий запрет
-  /// пути — из возможности. Первая причина конкретнее, поэтому она и
-  /// показывается, когда есть.
-  Widget _offerRow(
+  /// Строка страны («любой релей страны») и под ней её релеи.
+  List<Widget> _groupRows(
     BuildContext context,
     WidgetRef ref,
-    RelayOffer offer,
+    RelayGroup g,
     List<Relay> relays,
     int selected,
-    Availability can,
   ) {
-    final index = _writeIndexOf(relays, offer.countryCode);
-    final Availability availability;
-    if (!offer.availability.isAvailable) {
-      availability = offer.availability;
-    } else if (!can.isAvailable) {
-      availability = can;
-    } else if (index == null) {
-      // Панель называет вход у выхода, но в списке `GET /relays` его нет:
-      // закрепить его нечем, и молчать об этом нельзя.
-      availability = Availability.unavailable(
-        OfferingReason.panelReportsRelaysByCountryOnly,
-        offer.origin,
-        detail: offer.countryName,
-      );
-    } else {
-      availability = offer.availability;
-    }
-
-    final parts = <String>[];
-    if (offer.panelNodeId != null) {
-      parts.add('Узел оператора #${offer.panelNodeId}');
-    }
-    final reach = offer.reachableFromExitKeys.length;
-    if (reach > 0) parts.add('через него выходят узлов: $reach');
-    if (offer.panelNodeId == null && !offer.reachability.isAvailable) {
-      parts.add(offer.reachability.message);
-    }
-
-    return _RelayRow(
-      title: offer.label.isEmpty ? offer.countryName : offer.label,
-      desc: parts.join(' · '),
-      code: offer.countryCode.isEmpty ? null : offer.countryCode,
-      auto: false,
-      availability: availability,
-      // Галочка отвечает на вопрос «что сейчас в силе», а не «что можно
-      // выбрать». Недоступная строка, которая при этом записана в настройки, —
-      // самый важный случай показать её: иначе стереть чужой вход нечем.
-      selected: index != null && index == selected,
-      onTap: (availability.isAvailable && index != null)
-          ? () => _apply(context, ref, index, relays)
-          : null,
-    );
-  }
-
-  /// Предложение входов не ведёт (профиля нет, каталог их не отдал) — остаются
-  /// страны из `GET /relays`. Пустого экрана здесь быть не может: спрятанный
-  /// переключатель неотличим от «такой настройки не бывает».
-  List<Widget> _fallbackRows(
-    BuildContext context,
-    WidgetRef ref,
-    List<Relay> relays,
-    int selected,
-    Availability can,
-  ) {
-    final rows = <Widget>[];
-    for (var i = 0; i < relays.length; i++) {
-      final r = relays[i];
-      if (r.isOff || r.isAuto) continue;
+    final countryIndex = g.writeIndex;
+    final countrySelected =
+        countryIndex != null &&
+        countryIndex == selected &&
+        relays[selected].isCountry;
+    final rows = <Widget>[
+      _RelayRow(
+        title: g.countryName,
+        desc: g.nodes.length > 1
+            ? 'Любой релей страны, узлов: ${g.nodeCount}. Ниже можно выбрать '
+                  'конкретный.'
+            : (g.nodeCount > 0
+                  ? 'Вход через ${g.countryCode}, узлов: ${g.nodeCount}'
+                  : 'Вход через ${g.countryCode}'),
+        leading: FlagChip(
+          flag: flagOf(g.countryCode),
+          code: normalizeCountryCode(g.countryCode),
+        ),
+        availability: g.availability,
+        // Галочка отвечает на вопрос «что сейчас в силе», а не «что можно
+        // выбрать». Недоступная строка, которая при этом записана в
+        // настройки, — самый важный случай показать её.
+        selected: countrySelected,
+        // Нажимается всё, что источник не запретил прямо: неподтверждённая
+        // строка помечена, но выбор по ней сохраняется на панели и уходит
+        // ядру. Запрещённая (`unavailable`) цели для нажатия не имеет.
+        onTap: (!g.availability.isUnavailable && countryIndex != null)
+            ? () => _apply(context, ref, countryIndex, g.pin, relays)
+            : null,
+      ),
+    ];
+    for (final n in g.nodes) {
+      final idx = n.writeIndex;
+      final nodeSelected =
+          idx != null &&
+          idx == selected &&
+          relays[selected].isNode &&
+          relays[selected].nodeId == n.nodeId;
+      final parts = <String>[
+        if (n.city != null) n.city!,
+        if (n.latencyMs != null) 'пинг панели: ${n.latencyMs} мс',
+        if (n.loadPct != null) 'нагрузка ${n.loadPct!.round()}%',
+        if (n.reachableExits > 0)
+          'через него выходят узлов: ${n.reachableExits}',
+      ];
       rows.add(
-        _RelayRow(
-          title: r.name,
-          desc: r.desc,
-          code: r.country ?? r.id,
-          auto: false,
-          availability: can,
-          selected: i == selected,
-          onTap: can.isAvailable ? () => _apply(context, ref, i, relays) : null,
+        Padding(
+          padding: const EdgeInsets.only(left: AppSpace.s5),
+          child: _RelayRow(
+            title: n.name,
+            desc: parts.join(' · '),
+            leading: const IBox(Lucide.waypoints),
+            availability: n.availability,
+            selected: nodeSelected,
+            onTap: (!n.availability.isUnavailable && idx != null)
+                ? () => _apply(context, ref, idx, n.pin, relays)
+                : null,
+          ),
         ),
       );
-    }
-    if (rows.isEmpty) {
-      rows.add(const InlineEmpty(message: 'Оператор не отдал ни одного входа'));
     }
     return rows;
   }
 
-  /// Подпись строки «Авто». Молчание оператора это НЕ «идём напрямую»:
+  /// Подпись строки «Авто». Молчание панели это НЕ «идём напрямую»:
   /// приложение о цепочке не знает ничего, и обещать её отсутствие — та же
   /// выдумка, что и обещать её наличие.
   String _autoDesc(String? operatorRelay) {
     if (operatorRelay == null) {
-      return 'Вход выбирает оператор. По этой подписке он его не назвал.';
+      return 'Панель подберёт вход по вашей стране. По этой подписке она его '
+          'пока не назвала.';
     }
-    return 'Вход выбирает оператор. По этой подписке он назвал '
-        '$operatorRelay.';
+    return 'Панель подбирает вход по вашей стране. По этой подписке она '
+        'назвала $operatorRelay.';
   }
 
-  /// Страна входа активной подписки; `null` — оператор её не называет.
+  /// Страна входа активной подписки; `null` — панель её не называет.
   static String? _operatorRelayCountry(List<SubPlan>? subs) {
     if (subs == null || subs.isEmpty) return null;
     final active = subs.where((s) => s.isActive);
@@ -323,28 +528,35 @@ class RelayScreen extends ConsumerWidget {
     return cc.isEmpty ? null : cc;
   }
 
-  int? _writeIndexOf(List<Relay> relays, String countryCode) {
-    if (countryCode.isEmpty) return null;
-    for (var i = 0; i < relays.length; i++) {
-      final code = relays[i].country ?? relays[i].id;
-      if (code != null && code.toUpperCase() == countryCode) return i;
-    }
-    return null;
-  }
-
-  void _apply(
+  /// Выбор уходит в три места, и порядок важен:
+  ///   1. `CoreConfig.relay` (индекс) + очередь CSM — через мост, немедленно;
+  ///      ядро и CSM получают только страну;
+  ///   2. панель — `PUT /subscriptions/{id}/selection` с точной формой выбора
+  ///      (`none` / страна / `node:<id>`): это и есть источник правды, по
+  ///      нему панель фильтрует релеи при следующем запросе конфига.
+  /// Отказ панели показывается тостом с её текстом, а не глотается: иначе
+  /// пользователь видит галочку на входе, которого панель не приняла.
+  Future<void> _apply(
     BuildContext context,
     WidgetRef ref,
     int index,
+    Relay pin,
     List<Relay> relays,
-  ) {
-    // Вход уходит ядру через `CorePolicy.relay` (`?relay_country=` в запросе
-    // конфига у панели) и оператору через очередь записи CSM. Панельного
-    // закрепления на подписке здесь нет намеренно: пока `PUT
-    // /subscriptions/{id}/selection` не задеплоен, вызов дал бы отказ на каждое
-    // нажатие, а действующий путь уже работает.
+  ) async {
     CsmSettingsBridge.setRelay(ref, index, relays);
-    showCarambaToast(context, 'Relay: ${relays[index].name}');
+    showCarambaToast(context, 'Вход: ${pin.name}');
+    final outcome = await ref
+        .read(exitSelectionControllerProvider)
+        .selectRelay(pin);
+    if (!context.mounted) return;
+    if (!outcome.applied &&
+        outcome.sync.reason == ExitUnavailableReason.panelRejected) {
+      showCarambaToast(
+        context,
+        'Панель не приняла вход: ${outcome.sync.message}',
+      );
+      return;
+    }
     Future.delayed(const Duration(milliseconds: 300), () {
       if (context.mounted) _close(context);
     });
@@ -366,11 +578,7 @@ class RelayScreen extends ConsumerWidget {
 class _RelayRow extends StatelessWidget {
   final String title;
   final String desc;
-
-  /// Код страны для плашки; `null` — строка страны не называет.
-  final String? code;
-
-  final bool auto;
+  final Widget leading;
   final Availability availability;
   final bool selected;
   final VoidCallback? onTap;
@@ -378,8 +586,7 @@ class _RelayRow extends StatelessWidget {
   const _RelayRow({
     required this.title,
     required this.desc,
-    required this.code,
-    required this.auto,
+    required this.leading,
     required this.availability,
     required this.selected,
     this.onTap,
@@ -388,16 +595,10 @@ class _RelayRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final off = availability.isUnavailable;
-    final c = code;
     return Opacity(
       opacity: off ? 0.45 : 1,
       child: ListItemCard(
-        // Страна входа получает флаг на тех же основаниях, что и страна
-        // выхода: глиф выводится из ISO-2 и только из него. «Выкл» и «Авто» —
-        // не страны, у них остаётся иконка действия.
-        leading: c != null && c.isNotEmpty
-            ? FlagChip(flag: flagOf(c), code: normalizeCountryCode(c))
-            : IBox(auto ? Lucide.gauge : Lucide.route),
+        leading: leading,
         title: title,
         subtitle: off
             ? availability.message
@@ -406,11 +607,6 @@ class _RelayRow extends StatelessWidget {
                         '${availability.message}'
                   : (desc.isEmpty ? null : desc)),
         selected: selected,
-        // Плашка одна: строка узкая, и вторая уводит заголовок за край.
-        //
-        // ЗДЕСЬ БЫЛА ПЛАШКА «умный» у строки «Авто». Она не сообщала ничего:
-        // ни что выбрано, ни кем. Вместо неё выбор оператора стоит теперь в
-        // заголовке и подписи строки — там, где его читают.
         titleBadges: [if (availability.isUnknown) const Tag('не проверено')],
         onTap: onTap,
       ),

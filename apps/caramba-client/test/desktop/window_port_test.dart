@@ -117,6 +117,62 @@ void main() {
     expect(minimized, 0);
   });
 
+  // Раннер Windows: флаг «сворачивать в трей» уходит по своему каналу, а
+  // ответ раннера «спрятал окно» возвращается подписчику порта.
+  group('канал раннера caramba/window', () {
+    test('флаг уходит в раннер как есть', () async {
+      final sent = <MethodCall>[];
+      messenger.setMockMethodCallHandler(kCarambaWindowChannel, (call) async {
+        sent.add(call);
+        return null;
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(kCarambaWindowChannel, null),
+      );
+
+      await WindowManagerPort().setMinimizeToTray(true);
+      await WindowManagerPort().setMinimizeToTray(false);
+
+      expect(sent.map((c) => c.method), <String>[
+        'setMinimizeToTray',
+        'setMinimizeToTray',
+      ]);
+      expect(sent.map((c) => c.arguments), <Object?>[true, false]);
+    });
+
+    test('без раннера (macOS, Linux) флаг не роняет порт', () async {
+      await WindowManagerPort().setMinimizeToTray(true);
+    });
+
+    test('отказ раннера тоже проглатывается', () async {
+      messenger.setMockMethodCallHandler(kCarambaWindowChannel, (call) async {
+        throw PlatformException(code: 'failed');
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(kCarambaWindowChannel, null),
+      );
+
+      await WindowManagerPort().setMinimizeToTray(true);
+    });
+
+    test('событие «спрятал в трей» доезжает до подписчика', () async {
+      var hidden = 0;
+      final port = WindowManagerPort();
+      final listener = WindowPortListener(onHiddenToTray: () => hidden++);
+      port.addListener(listener);
+      addTearDown(() => port.removeListener(listener));
+
+      const codec = StandardMethodCodec();
+      await messenger.handlePlatformMessage(
+        kCarambaWindowChannel.name,
+        codec.encodeMethodCall(const MethodCall('onHiddenToTray')),
+        (_) {},
+      );
+
+      expect(hidden, 1);
+    });
+  });
+
   test('отказ нативной стороны не отменяет показ', () async {
     messenger.setMockMethodCallHandler(kDesktopWindowChannel, (call) async {
       calls.add('native:${call.method}');

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/models/connection_profile.dart';
 import 'package:caramba_client/data/models/exit_location.dart';
+import 'package:caramba_client/data/models/relay.dart';
 import 'package:caramba_client/data/models/server.dart';
 import 'package:caramba_client/data/models/subscription.dart' show AccessState;
 import 'package:caramba_client/domain/offering/panel_fleet.dart'
@@ -729,6 +730,37 @@ class ExitSelectionController {
       relayCountry: code.isEmpty
           ? const SelectionField<String>.reset()
           : SelectionField<String>.of(code),
+    );
+    return ExitSelectionOutcome(
+      applied: sync.$1.isAvailable,
+      resolved: sync.$2,
+      sync: sync.$1,
+    );
+  }
+
+  /// Закрепляет вход на панели ровно в той форме, в какой его выбрал экран
+  /// «Вход»: «Выкл» это `none`, страна это её ISO-2, конкретный релей это
+  /// `node:<id>`, «Авто» это сброс (`null`) — панель тогда подбирает по гео.
+  ///
+  /// Единственный источник правды о выборе входа это `subscriptions`
+  /// (`relay_country` + `relay_node_id`), и пишется он этим вызовом через
+  /// `PUT /subscriptions/{id}/selection`; ядро и очередь CSM получают только
+  /// страну (их словарь это ISO-2) и вторичны. Проверка возможности цепочки
+  /// здесь не делается намеренно: экран уже показал её пользователю, а
+  /// сохранить намерение важно и тогда, когда тело сегодня цепочку не строит,
+  /// иначе выбор пропадёт к моменту, когда генератор её построит.
+  Future<ExitSelectionOutcome> selectRelay(Relay relay) async {
+    if (_profile == null) {
+      return const ExitSelectionOutcome(
+        applied: false,
+        sync: ExitAvailability.unavailable(ExitUnavailableReason.noProfile),
+      );
+    }
+    final pin = relay.pinValue;
+    final sync = await _pushToPanel(
+      relayCountry: pin == null
+          ? const SelectionField<String>.reset()
+          : SelectionField<String>.of(pin),
     );
     return ExitSelectionOutcome(
       applied: sync.$1.isAvailable,

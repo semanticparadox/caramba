@@ -40,6 +40,8 @@
 #   windows → apps/caramba-client/build/dist/Caramba-Connect-Setup-x64.exe
 #             + Caramba-Connect-Windows-x64-portable.zip
 #   linux   → apps/caramba-client/build/dist/Caramba-Connect-Linux-x64.tar.gz
+#   рядом с каждым артефактом — манифест версии Caramba-Connect-<platform>.json
+#   (ci-manifest.sh): по нему панель и бот узнают о новой сборке
 #   Единая схема имён Caramba-Connect-<OS>-<arch>.<ext> — контракт с
 #   apps/caramba-installer (список ассетов) и /api/client/app/downloads в
 #   панели: переименовав файл здесь, нужно переименовать его и там.
@@ -150,6 +152,17 @@ run_soft() { _run soft "$@"; }
 size_of() { du -sh "$1" 2>/dev/null | cut -f1; }
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || die "$1 не найден в PATH"; }
+
+# Манифест версии платформы: Caramba-Connect-<platform>.json рядом с
+# артефактом. Это единственный машиночитаемый ответ на вопрос «какая это
+# версия»: панель отдаёт его приложению (GET /api/v2/app/version), бот
+# рассылает по нему «вышла новая версия» один раз на сборку. Формат и
+# проверки — в ci-manifest.sh, здесь только вызов.
+write_manifest() {
+  local platform="$1"; shift
+  run_step "${T_ZIP}" "манифест версии (${platform})" \
+    bash "${SCRIPT_DIR}/ci-manifest.sh" "${platform}" "${DIST_DIR}/Caramba-Connect-${platform}.json" "$@"
+}
 
 # --- стартовый лок Flutter -----------------------------------------------------
 # Лаунчер flutter на POSIX-оболочке (bin/internal/shared.sh) берёт «стартовый
@@ -327,6 +340,7 @@ build_macos() {
   [[ -s "${dmg}" ]] || die "DMG не собрался: ${dmg}"
   cp "${dmg}" "${DIST_DIR}/Caramba-Connect-macOS-arm64.dmg"
   log "артефакт: ${DIST_DIR}/Caramba-Connect-macOS-arm64.dmg ($(size_of "${dmg}"))"
+  write_manifest macos "${DIST_DIR}/Caramba-Connect-macOS-arm64.dmg"
   # Подписи нет (сертификата Apple Developer у проекта нет) — Gatekeeper на
   # чужой машине потребует «Открыть всё равно». Пишем это в лог прогона, чтобы
   # факт не терялся между релизами.
@@ -394,6 +408,7 @@ build_linux() {
   rm -f "${out}"
   tar -czf "${out}" -C "${stage}" "${root}"
   log "артефакт: ${out} ($(size_of "${out}"))"
+  write_manifest linux "${out}"
   log "ВНИМАНИЕ: пакета (deb/AppImage) нет; установка — sudo ./caramba-connect/install.sh (setcap cap_net_admin+ep)"
 }
 
@@ -651,6 +666,9 @@ build_windows() {
 
   build_windows_installer "${staging}" "${DIST_DIR}"
   log "артефакт: ${DIST_DIR}/${WIN_SETUP_NAME} ($(size_of "${DIST_DIR}/${WIN_SETUP_NAME}"))"
+  # Главный файл — инсталлятор (по нему панель строит download_url), ZIP идёт
+  # вторым в списке files.
+  write_manifest windows "${DIST_DIR}/${WIN_SETUP_NAME}" "${zip_out}"
   # Подписи кода нет: SmartScreen предупредит и про Setup.exe, и про exe из
   # ZIP. Права администратора exe запрашивает сам (runner.exe.manifest,
   # requireAdministrator) — wintun без них адаптер не создаст.

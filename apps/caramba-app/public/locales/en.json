@@ -755,7 +755,8 @@
       },
       "notifySubscription": "Subscription expiry",
       "notifyPayment": "Payments",
-      "notifyDevice": "New devices"
+      "notifyDevice": "New devices",
+      "supportRequests": "Support requests"
     },
     "devices": {
       "title": "Devices",
@@ -836,6 +837,42 @@
       "markAll": "Mark all read",
       "empty": "No notifications yet",
       "new": "new"
+    },
+    "support": {
+      "title": "Support requests",
+      "intro": "Describe the problem. The reply will arrive here and in Telegram.",
+      "newTicket": "New request",
+      "category": "Category",
+      "subjectPlaceholder": "Short: what is it about",
+      "bodyPlaceholder": "Details: what you did, what you expected, what happened",
+      "send": "Send",
+      "sent": "Request sent",
+      "empty": "No requests yet",
+      "new": "new",
+      "ticketTitle": "Request #{{id}}",
+      "backToList": "Back to requests",
+      "fromSupport": "Support",
+      "newReply": "New reply from support",
+      "noMessages": "No messages yet",
+      "replyPlaceholder": "Message",
+      "closedHint": "This request is finished. Open a new one if you still need help.",
+      "notFound": "Request not found",
+      "status": {
+        "open": "Open",
+        "in_progress": "In progress",
+        "awaiting_user": "Awaiting your reply",
+        "resolved": "Resolved",
+        "closed": "Closed"
+      },
+      "categories": {
+        "general": "General question",
+        "billing": "Billing",
+        "connection": "Connection",
+        "device": "Devices",
+        "technical": "Technical issue",
+        "feature_request": "Feature request",
+        "other": "Other"
+      }
     }
   }
 }

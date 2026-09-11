@@ -37,6 +37,15 @@ class DesktopPrefs {
   /// (например, человек снял приложение из Login Items руками).
   final bool launchAtLogin;
 
+  /// Человек (или приложение от его имени) уже решал про автозапуск.
+  ///
+  /// ЗАЧЕМ. Инсталлятор Windows умеет включить автозапуск галочкой до первого
+  /// запуска приложения. Пока решения не было, `AutostartService` на старте
+  /// ПРИНИМАЕТ состояние системы как желание человека (иначе дефолт `false`
+  /// снял бы то, что инсталлятор только что поставил). После первого решения
+  /// истина снова у настройки приложения, и система приводится к ней.
+  final bool launchAtLoginChosen;
+
   /// Последняя позиция и размер окна. `null` до первого запоминания, а также
   /// когда сохранённый прямоугольник не пережил проверку по дисплеям.
   final Rect? windowBounds;
@@ -49,6 +58,7 @@ class DesktopPrefs {
     this.closeToTray = true,
     this.startInTray = false,
     this.launchAtLogin = false,
+    this.launchAtLoginChosen = false,
     this.windowBounds,
     this.maximized = false,
   });
@@ -57,6 +67,7 @@ class DesktopPrefs {
     bool? closeToTray,
     bool? startInTray,
     bool? launchAtLogin,
+    bool? launchAtLoginChosen,
     Rect? windowBounds,
     bool clearWindowBounds = false,
     bool? maximized,
@@ -64,6 +75,7 @@ class DesktopPrefs {
     closeToTray: closeToTray ?? this.closeToTray,
     startInTray: startInTray ?? this.startInTray,
     launchAtLogin: launchAtLogin ?? this.launchAtLogin,
+    launchAtLoginChosen: launchAtLoginChosen ?? this.launchAtLoginChosen,
     windowBounds: clearWindowBounds
         ? null
         : (windowBounds ?? this.windowBounds),
@@ -74,6 +86,7 @@ class DesktopPrefs {
     'close_to_tray': closeToTray,
     'start_in_tray': startInTray,
     'launch_at_login': launchAtLogin,
+    'launch_at_login_chosen': launchAtLoginChosen,
     if (windowBounds != null) ...{
       'x': windowBounds!.left,
       'y': windowBounds!.top,
@@ -89,6 +102,13 @@ class DesktopPrefs {
       closeToTray: _bool(json['close_to_tray'], d.closeToTray),
       startInTray: _bool(json['start_in_tray'], d.startInTray),
       launchAtLogin: _bool(json['launch_at_login'], d.launchAtLogin),
+      // Снимок прежней версии ключа не знал, но само поле там уже было
+      // решением человека: считать его «не решал» значило бы отдать его
+      // настройку на откуп состоянию системы.
+      launchAtLoginChosen: _bool(
+        json['launch_at_login_chosen'],
+        json.containsKey('launch_at_login'),
+      ),
       windowBounds: _rect(json),
       maximized: _bool(json['maximized'], d.maximized),
     );
@@ -127,6 +147,7 @@ class DesktopPrefs {
           other.closeToTray == closeToTray &&
           other.startInTray == startInTray &&
           other.launchAtLogin == launchAtLogin &&
+          other.launchAtLoginChosen == launchAtLoginChosen &&
           other.windowBounds == windowBounds &&
           other.maximized == maximized;
 
@@ -135,6 +156,7 @@ class DesktopPrefs {
     closeToTray,
     startInTray,
     launchAtLogin,
+    launchAtLoginChosen,
     windowBounds,
     maximized,
   );
@@ -176,7 +198,10 @@ class DesktopPrefsNotifier extends StateNotifier<DesktopPrefs> {
 
   void setStartInTray(bool v) => state = state.copyWith(startInTray: v);
 
-  void setLaunchAtLogin(bool v) => state = state.copyWith(launchAtLogin: v);
+  /// Любая запись сюда это решение: и тумблер, и принятие состояния системы
+  /// при первом запуске. Дальше истина у настройки, а не у системы.
+  void setLaunchAtLogin(bool v) =>
+      state = state.copyWith(launchAtLogin: v, launchAtLoginChosen: true);
 
   /// `null` стирает запомненную геометрию (окно откроется по центру).
   void setWindowBounds(Rect? bounds, {bool maximized = false}) =>

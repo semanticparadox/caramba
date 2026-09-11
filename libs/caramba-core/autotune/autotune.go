@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 )
 
 // ProtocolPriority — порядок предпочтения протоколов: первыми идут лучшие для
@@ -59,6 +60,34 @@ type Prober interface {
 // ErrNoProbes возвращается, когда измерений нет вовсе (нечего выбирать).
 var ErrNoProbes = errors.New("autotune: нет результатов измерений")
 
+// NormalizeCandidates приводит список стран релеев к ISO-2 в верхнем регистре,
+// выбрасывая мусор и повторы, порядок сохраняется (он и есть предпочтение).
+//
+// Список приходит от клиента, а не из ядра: страны релеев знает только панель
+// (`GET /api/v2/app/relays`). Раньше здесь была вписанная тройка TR/KZ/FI —
+// стран, в которых у оператора не было ни одного релея, и при заблокированном
+// прямом входе автоподбор рекомендовал вход, которого не существует. Пустой
+// результат означает «релей не советовать» и обрабатывается Recommend честно.
+func NormalizeCandidates(raw []string) []string {
+	out := make([]string, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, v := range raw {
+		v = strings.ToUpper(strings.TrimSpace(v))
+		if len(v) != 2 || v[0] < 'A' || v[0] > 'Z' || v[1] < 'A' || v[1] > 'Z' {
+			continue
+		}
+		if _, dup := seen[v]; dup {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // bestProtocol выбирает наиболее приоритетный из доступных протоколов.
 // Возвращает "" если список пуст.
 func bestProtocol(ok []string) string {
@@ -86,10 +115,14 @@ func bestProtocol(ok []string) string {
 //     рекомендуем relay-вход через первую страну и лучший по приоритету
 //     протокол; выходной сервер — наименее «плохой» по задержке.
 //   - Если измерений нет совсем — ErrNoProbes.
+//
+// relayCandidates — страны, где релеи у оператора есть на самом деле
+// (нормализуются NormalizeCandidates); пусто — relay не рекомендуется.
 func Recommend(probes []ProbeResult, relayCandidates []string) (Recommendation, error) {
 	if len(probes) == 0 {
 		return Recommendation{}, ErrNoProbes
 	}
+	relayCandidates = NormalizeCandidates(relayCandidates)
 
 	// Сортируем копию по возрастанию задержки (недостижимые в конец).
 	sorted := append([]ProbeResult(nil), probes...)

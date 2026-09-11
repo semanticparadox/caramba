@@ -31,6 +31,7 @@ import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/branding_state.dart';
 import 'package:caramba_client/state/exit_inventory_state.dart';
 import 'package:caramba_client/state/notifications_state.dart';
+import 'package:caramba_client/state/tickets_state.dart';
 import 'package:caramba_client/theme/app_theme.dart';
 
 /// Сессия подменяется целиком: настоящий [AuthNotifier] в конструкторе лезет в
@@ -107,6 +108,8 @@ Widget _app({required bool signedIn}) => ProviderScope(
     // Бейдж уведомлений и карточка отказа тянут свои ветки панели; экрану
     // профиля от них нужны только число и ссылка на оплату.
     unreadCountProvider.overrideWithValue(0),
+    // Бейдж тикетов опрашивает панель таймером; в тесте ему нечего считать.
+    unreadTicketsCountProvider.overrideWithValue(0),
     subscriptionAccessProvider.overrideWithValue(null),
     activeBrandingProvider.overrideWithValue(Branding.fallback),
   ],

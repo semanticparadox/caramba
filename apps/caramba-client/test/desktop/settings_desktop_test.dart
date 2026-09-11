@@ -271,6 +271,7 @@ void main() {
         'АВТОНАСТРОЙКА',
         'АККАУНТ ПАНЕЛИ',
         'ВИД',
+        'ЗАПУСК',
         'ПРИЛОЖЕНИЕ',
       ]) {
         expect(find.text(title), findsOneWidget, reason: 'нет раздела $title');
@@ -376,6 +377,54 @@ void main() {
     });
   });
 
+  // Раунд 6: строка «Обновления» в разделе «Приложение» — та же, что в
+  // мобильных настройках, и ведёт на тот же экран. Без панели и без ответа
+  // платформы версия «неизвестно», и это не ошибка: экран открывается.
+  testWidgets('«Обновления» ведут на экран обновлений', (tester) async {
+    await _desktop(tester, () async {
+      _mockSecureStorage();
+      final container = _container();
+      final router = GoRouter(
+        routes: <RouteBase>[
+          GoRoute(path: '/', builder: (_, __) => const SettingsDesktopScreen()),
+          GoRoute(
+            path: AppRoute.updates,
+            builder: (_, __) =>
+                const Scaffold(body: Center(child: Text('экран обновлений'))),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            theme: AppTheme.dark(),
+            routerConfig: router,
+          ),
+        ),
+      );
+      await _settle(tester);
+
+      final row = find.ancestor(
+        of: find.text('Обновления'),
+        matching: find.byType(FormRow),
+      );
+      expect(row, findsOneWidget);
+      await tester.ensureVisible(row);
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(of: row, matching: find.byType(FormOpenButton)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('экран обновлений'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
   // Дефект D-03 ручной проверки: подпись «Нужна macOS 13 или новее» висела на
   // ЛЮБОЙ macOS, а переключатель при этом нажимался.
   testWidgets('автозапуск объясняется и гаснет, когда система его не умеет', (
@@ -384,7 +433,7 @@ void main() {
     await _desktop(tester, () async {
       final container = await _pump(tester);
 
-      await tester.tap(find.text(DesktopStrings.settingsAppSection));
+      await tester.tap(find.text(DesktopStrings.settingsLaunchSection));
       await tester.pumpAndSettle();
 
       expect(
@@ -412,7 +461,7 @@ void main() {
         final container = await _pump(tester, autostart: true);
         container.read(desktopPrefsProvider.notifier).setLaunchAtLogin(true);
         container.read(autostartApprovalPendingProvider.notifier).state = true;
-        await tester.tap(find.text(DesktopStrings.settingsAppSection));
+        await tester.tap(find.text(DesktopStrings.settingsLaunchSection));
         await tester.pumpAndSettle();
         expect(
           find.text(DesktopStrings.launchAtLoginNeedsApproval),
@@ -434,7 +483,7 @@ void main() {
     await _desktop(tester, () async {
       final container = await _pump(tester, autostart: true);
 
-      await tester.tap(find.text(DesktopStrings.settingsAppSection));
+      await tester.tap(find.text(DesktopStrings.settingsLaunchSection));
       await tester.pumpAndSettle();
 
       expect(
@@ -446,6 +495,82 @@ void main() {
       await tester.tap(_controlIn(DesktopStrings.launchAtLoginTitle, Switch));
       await _settle(tester);
       expect(container.read(desktopPrefsProvider).launchAtLogin, isTrue);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  // Раздел «Запуск»: один тумблер и две подопции. Включение автозапуска
+  // включает и их (тихий старт в трей, автоподключение), выключение прячет,
+  // не трогая; ручной сброс подопции переживает перестройку.
+  testWidgets('включение автозапуска включает подопции и показывает их', (
+    tester,
+  ) async {
+    await _desktop(tester, () async {
+      final container = await _pump(tester, autostart: true);
+
+      await tester.tap(find.text(DesktopStrings.settingsLaunchSection));
+      await tester.pumpAndSettle();
+
+      // Подопций нет, пока автозапуск выключен.
+      expect(
+        find.text(DesktopStrings.launchInTrayTitle(isMac: true)),
+        findsNothing,
+      );
+      expect(container.read(coreConfigProvider).autoConnect, isFalse);
+
+      await tester.tap(_controlIn(DesktopStrings.launchAtLoginTitle, Switch));
+      await _settle(tester);
+
+      final prefs = container.read(desktopPrefsProvider);
+      expect(prefs.launchAtLogin, isTrue);
+      expect(prefs.startInTray, isTrue, reason: 'подопция включена вместе');
+      expect(container.read(coreConfigProvider).autoConnect, isTrue);
+      expect(
+        find.text(DesktopStrings.launchInTrayTitle(isMac: true)),
+        findsOneWidget,
+      );
+      expect(find.text(DesktopStrings.launchAutoConnectTitle), findsOneWidget);
+      // macOS: подпись честно говорит, что причина запуска неизвестна.
+      expect(find.textContaining('macOS не сообщает'), findsOneWidget);
+
+      // Подопцию можно снять отдельно.
+      await tester.tap(
+        _controlIn(DesktopStrings.launchInTrayTitle(isMac: true), Switch),
+      );
+      await _settle(tester);
+      expect(container.read(desktopPrefsProvider).startInTray, isFalse);
+      expect(container.read(desktopPrefsProvider).launchAtLogin, isTrue);
+
+      // Выключение автозапуска прячет подопции, не переписывая их.
+      await tester.tap(_controlIn(DesktopStrings.launchAtLoginTitle, Switch));
+      await _settle(tester);
+      expect(container.read(desktopPrefsProvider).launchAtLogin, isFalse);
+      expect(
+        find.text(DesktopStrings.launchInTrayTitle(isMac: true)),
+        findsNothing,
+      );
+      expect(container.read(coreConfigProvider).autoConnect, isTrue);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  testWidgets('подсказка к захвату трафика на macOS объясняет прокси', (
+    tester,
+  ) async {
+    await _desktop(tester, () async {
+      await _pump(tester);
+      await tester.tap(find.text('Сеть и ядро'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          DesktopStrings.tunnelModeHint(isMac: true, mixedPort: kMixedPort),
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('по умолчанию'), findsNothing);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });

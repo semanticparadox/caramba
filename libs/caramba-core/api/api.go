@@ -731,20 +731,23 @@ func (c *Core) ListPresets(country string) []PresetInfo {
 	return out
 }
 
-// DefaultRelayCandidates — страны relay-входа по умолчанию для автоподбора,
-// порядок = предпочтение (устойчивые к блокировкам из РФ направления).
-var DefaultRelayCandidates = []string{"TR", "KZ", "FI"}
-
 // AutoTune измеряет сеть через prober, выбирает лучший сервер/протокол/стек и
 // при необходимости relay-вход, затем применяет relay, протокол и сетевой стек
 // к политике и возвращает рекомендацию. Выходной сервер применяется вызовом
 // Up(rec.ServerID).
-func (c *Core) AutoTune(ctx context.Context, prober autotune.Prober) (autotune.Recommendation, error) {
+//
+// relayCandidates — ISO-2 страны, в которых у оператора РЕАЛЬНО есть релеи,
+// в порядке предпочтения; их приносит клиент из `GET /api/v2/app/relays`.
+// Здесь была вписанная в ядро тройка TR/KZ/FI — стран, которых во флоте
+// не было ни одной: при заблокированном прямом входе автоподбор советовал
+// вход через страну без единого релея. Пустой список честнее выдуманного:
+// autotune тогда отдаёт лучший прямой путь с причиной, а не ложный relay.
+func (c *Core) AutoTune(ctx context.Context, prober autotune.Prober, relayCandidates []string) (autotune.Recommendation, error) {
 	probes, err := prober.Probe(ctx)
 	if err != nil {
 		return autotune.Recommendation{}, fmt.Errorf("api: измерение сети: %w", err)
 	}
-	rec, err := autotune.Recommend(probes, DefaultRelayCandidates)
+	rec, err := autotune.Recommend(probes, autotune.NormalizeCandidates(relayCandidates))
 	if err != nil {
 		return autotune.Recommendation{}, fmt.Errorf("api: автоподбор: %w", err)
 	}

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/models/protocol.dart';
 import 'package:caramba_client/data/models/csm_settings.dart';
+import 'package:caramba_client/desktop/desktop_strings.dart';
 import 'package:caramba_client/features/settings/reconnect_banner.dart';
 import 'package:caramba_client/features/csm/config_age_card.dart';
 import 'package:caramba_client/features/csm/keep_or_revert_card.dart';
@@ -14,6 +15,7 @@ import 'package:caramba_client/features/settings/enhancements_summary.dart';
 import 'package:caramba_client/features/settings/route_picker.dart';
 import 'package:caramba_client/features/settings/route_report.dart';
 import 'package:caramba_client/router/routes.dart';
+import 'package:caramba_client/state/app_update_state.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
 import 'package:caramba_client/state/csm_state.dart';
@@ -317,9 +319,7 @@ class SettingsScreen extends ConsumerWidget {
                     final i = await showPickerSheet(
                       context: context,
                       title: 'Захват трафика',
-                      subtitle:
-                          'TUN заворачивает весь трафик системы и требует прав. '
-                          'Прокси поднимает 127.0.0.1:$kMixedPort без прав.',
+                      subtitle: DesktopStrings.tunnelModePickerHint(kMixedPort),
                       options: const [
                         (
                           name: 'Системный TUN',
@@ -431,6 +431,30 @@ class SettingsScreen extends ConsumerWidget {
                 ],
               ),
             ],
+
+            // Версия и обновления. Раздел есть на всех платформах: строка
+            // говорит, какая сборка стоит, и ведёт на экран, где видно, какая
+            // последняя и что нового. Значение «есть новее» — не украшение,
+            // а тот же факт, что стоит баннером на «Подключении».
+            const SectionTitle('Приложение'),
+            RowsGroup(
+              children: [
+                Builder(
+                  builder: (context) {
+                    final update = ref.watch(appUpdateProvider);
+                    return CRow(
+                      icon: Lucide.refresh,
+                      label: 'Обновления',
+                      value: update.hasNewer
+                          ? 'есть ${update.latest!.version}'
+                          : update.installed.label,
+                      chevron: true,
+                      onTap: () => context.go(AppRoute.updates),
+                    );
+                  },
+                ),
+              ],
+            ),
 
             const SectionTitle('Вид'),
             RowsGroup(

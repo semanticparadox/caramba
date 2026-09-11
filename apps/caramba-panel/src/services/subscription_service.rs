@@ -65,12 +65,17 @@ pub struct DeviceIdentity {
     pub display_name: Option<String>,
     /// Платформа (`X-Caramba-Device-Platform`): android/ios/macos/windows/linux.
     pub platform: Option<String>,
+    /// Версия приложения (`X-Caramba-App-Version`, «1.0.0+110»). Только для
+    /// показа в кабинете и админке: заголовок недоверенный, решений о доступе
+    /// по нему нет.
+    pub app_version: Option<String>,
 }
 
 impl DeviceIdentity {
     pub const HEADER_ID: &'static str = "x-caramba-device-id";
     pub const HEADER_NAME: &'static str = "x-caramba-device-name";
     pub const HEADER_PLATFORM: &'static str = "x-caramba-device-platform";
+    pub const HEADER_APP_VERSION: &'static str = "x-caramba-app-version";
 
     /// Заголовки приходят из интернета, поэтому чистятся и обрезаются: они
     /// попадают в имя устройства в кабинете и в ключ, по которому считается
@@ -98,6 +103,9 @@ impl DeviceIdentity {
             display_name: Self::sanitize(get(Self::HEADER_NAME), 64),
             platform: Self::sanitize(get(Self::HEADER_PLATFORM), 32)
                 .map(|p| p.to_ascii_lowercase()),
+            app_version: crate::services::client_release_service::sanitize_app_version(get(
+                Self::HEADER_APP_VERSION,
+            )),
         }
     }
 
@@ -796,9 +804,9 @@ impl SubscriptionService {
             INSERT INTO subscription_device_leases
                 (subscription_id, user_id, device_fingerprint, device_name, display_name,
                  user_agent, platform, client_device_id, last_ip, first_seen_at, last_seen_at,
-                 last_node_id)
+                 last_node_id, app_version)
             VALUES
-                ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $10)
+                ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $10, $11)
             ON CONFLICT (subscription_id, device_fingerprint)
             DO UPDATE SET
                 device_name = COALESCE(EXCLUDED.device_name, subscription_device_leases.device_name),
@@ -808,7 +816,8 @@ impl SubscriptionService {
                 client_device_id = COALESCE(EXCLUDED.client_device_id, subscription_device_leases.client_device_id),
                 last_ip = EXCLUDED.last_ip,
                 last_seen_at = CURRENT_TIMESTAMP,
-                last_node_id = COALESCE(EXCLUDED.last_node_id, subscription_device_leases.last_node_id)
+                last_node_id = COALESCE(EXCLUDED.last_node_id, subscription_device_leases.last_node_id),
+                app_version = COALESCE(EXCLUDED.app_version, subscription_device_leases.app_version)
             "#,
         )
         .bind(subscription_id)
@@ -821,6 +830,7 @@ impl SubscriptionService {
         .bind(device.client_device_id.as_deref())
         .bind(normalized_ip)
         .bind(node_id)
+        .bind(device.app_version.as_deref())
         .execute(&self.pool)
         .await
         .context("Failed to upsert subscription device lease")?;
@@ -2541,10 +2551,29 @@ impl SubscriptionService {
     /// Fetch all active relay nodes with their inbounds — used to auto-match
     /// relay chains to every exit node at config generation time.
     pub async fn get_all_active_relay_infos(&self) -> Result<Vec<NodeInfo>> {
-        let relay_nodes: Vec<Node> =
-            sqlx::query_as("SELECT * FROM nodes WHERE is_relay = TRUE AND status = 'active'")
-                .fetch_all(&self.pool)
-                .await?;
+        Ok(self
+            .get_all_active_relay_infos_with_ids()
+            .await?
+            .into_iter()
+            .map(|(_, info)| info)
+            .collect())
+    }
+
+    /// То же, что [`Self::get_all_active_relay_infos`], но каждый релей идёт
+    /// вместе со своим `nodes.id`.
+    ///
+    /// `NodeInfo` идентификатора не несёт (это срез узла для генератора, а не
+    /// модель), а закрепление конкретного релея за подпиской
+    /// (`subscriptions.relay_node_id`, `?relay_node_id=`) сравнивается именно
+    /// по id: имя и адрес узла оператор может менять, id — нет. Порядок —
+    /// по `sort_order`, затем по id: он же порядок в пикере приложения.
+    pub async fn get_all_active_relay_infos_with_ids(&self) -> Result<Vec<(i64, NodeInfo)>> {
+        let relay_nodes: Vec<Node> = sqlx::query_as(
+            "SELECT * FROM nodes WHERE is_relay = TRUE AND status = 'active' \
+             ORDER BY sort_order ASC, id ASC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
 
         if relay_nodes.is_empty() {
             return Ok(Vec::new());
@@ -2557,7 +2586,7 @@ impl SubscriptionService {
             .iter()
             .map(|node| {
                 let inbounds = inbounds_map.get(&node.id).cloned().unwrap_or_default();
-                NodeInfo::new(node, inbounds)
+                (node.id, NodeInfo::new(node, inbounds))
             })
             .collect();
 
@@ -2921,6 +2950,7 @@ mod tests {
             client_device_id: Some("dev-1".to_string()),
             display_name: Some("Pixel 8".to_string()),
             platform: Some("android".to_string()),
+            app_version: None,
         }
     }
 

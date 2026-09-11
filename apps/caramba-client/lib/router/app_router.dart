@@ -36,11 +36,14 @@ import 'package:caramba_client/features/splash/splash_screen.dart';
 import 'package:caramba_client/features/support/new_ticket_screen.dart';
 import 'package:caramba_client/features/support/ticket_detail_screen.dart';
 import 'package:caramba_client/features/support/tickets_screen.dart';
+import 'package:caramba_client/features/updates/update_required_screen.dart';
+import 'package:caramba_client/features/updates/updates_screen.dart';
 import 'package:caramba_client/data/models/enrollment.dart';
 import 'package:caramba_client/main.dart';
 import 'package:caramba_client/router/deep_links.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/shell/app_shell.dart';
+import 'package:caramba_client/state/app_update_state.dart';
 import 'package:caramba_client/state/auth_state.dart';
 import 'package:caramba_client/state/bootstrap_state.dart';
 import 'package:caramba_client/state/settings_state.dart';
@@ -61,7 +64,10 @@ final _rootKey = GlobalKey<NavigatorState>(debugLabel: 'root');
 ///     старт с импортированной подпиской успевал бы отскочить на `/login`);
 ///   * [guest] — generic-режим: есть своя подписка либо явно выбран режим без
 ///     аккаунта. Значит «не ждать auth-пробу»; в шелл теперь пускают и без
-///     него.
+///     него;
+///   * [updateRequired] — панель требует сборку новее установленной: всё
+///     приложение перекрывается экраном «Нужно обновиться», и никакая другая
+///     локация с него не уводит, пока требование в силе.
 String? resolveRedirect({
   required AuthStage stage,
   required bool firstRun,
@@ -69,11 +75,19 @@ String? resolveRedirect({
   required bool profilesReady,
   required bool guest,
   required String location,
+  bool updateRequired = false,
 }) {
   // Deeplink приносит локацию с query (`/connections/import?url=...`), а гейт
   // рассуждает о маршруте: сравниваем только путь, иначе pre-auth поток
   // перестаёт узнаваться ровно на той ссылке, ради которой он существует.
   final path = _pathOf(location);
+  // Обязательное обновление сильнее любого другого правила: старая сборка не
+  // должна ни подключаться, ни вести в онбординг. Когда требование снято
+  // (человек обновился — это уже другой процесс, или панель опустила
+  // минимум), с экрана уводим в приложение.
+  final onUpdateRequired = path == AppRoute.updateRequired;
+  if (updateRequired) return onUpdateRequired ? null : AppRoute.updateRequired;
+  if (onUpdateRequired) return AppRoute.home;
   final onSplash = path == AppRoute.splash;
   final onLogin = path == AppRoute.login;
   final onAutotune = path == AppRoute.autotune;
@@ -281,6 +295,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     profilesReady: ref.read(connectionProfilesReadyProvider),
     guest: ref.read(guestAllowedProvider),
     location: location,
+    updateRequired: ref.read(updateRequiredProvider),
   );
 
   final router = CarambaRouter(
@@ -522,6 +537,17 @@ List<RouteBase> appRoutes() => <RouteBase>[
     pageBuilder: (context, state) =>
         _overlay(state, const NotificationsScreen()),
   ),
+  // Обновления: накладной экран под настройками, как списки сайтов.
+  GoRoute(
+    path: AppRoute.updates,
+    parentNavigatorKey: _rootKey,
+    pageBuilder: (context, state) => _overlay(state, const UpdatesScreen()),
+  ),
+  // «Нужно обновиться» заменяет приложение целиком (см. resolveRedirect).
+  GoRoute(
+    path: AppRoute.updateRequired,
+    builder: (context, state) => const UpdateRequiredScreen(),
+  ),
   GoRoute(
     path: AppRoute.tickets,
     parentNavigatorKey: _rootKey,
@@ -598,6 +624,7 @@ class _AuthRefresh extends ChangeNotifier {
   late final ProviderSubscription<bool> _bootSub;
   late final ProviderSubscription<bool> _guestSub;
   late final ProviderSubscription<bool> _profilesSub;
+  late final ProviderSubscription<bool> _updateSub;
 
   _AuthRefresh(Ref ref) {
     _authSub = ref.listen<AuthState>(authProvider, _onAuth);
@@ -617,6 +644,14 @@ class _AuthRefresh extends ChangeNotifier {
     );
     _profilesSub = ref.listen<bool>(
       connectionProfilesReadyProvider,
+      _onFlag,
+      fireImmediately: true,
+    );
+    // Требование панели обновиться перекрывает приложение экраном: роутер
+    // обязан проснуться, когда оно появилось или снято. Подписка заодно
+    // запускает саму проверку версии (appUpdateProvider ленивый).
+    _updateSub = ref.listen<bool>(
+      updateRequiredProvider,
       _onFlag,
       fireImmediately: true,
     );
@@ -666,6 +701,7 @@ class _AuthRefresh extends ChangeNotifier {
     _bootSub.close();
     _guestSub.close();
     _profilesSub.close();
+    _updateSub.close();
     super.dispose();
   }
 }

@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { getStartRoute } from '../lib/telegram'
 import { AuthProvider, useAuth } from '../context/AuthContext'
@@ -18,6 +18,15 @@ const Devices = lazy(() => import('./pages/Devices'))
 const Pay = lazy(() => import('./pages/Pay'))
 const Guide = lazy(() => import('./pages/Guide'))
 const Notifications = lazy(() => import('./pages/Notifications'))
+const Support = lazy(() => import('./pages/Support'))
+const SupportTicket = lazy(() => import('./pages/SupportTicket'))
+
+/** Старый адрес тикета `/tickets/:id` живёт как редирект на `/support/:id`:
+ *  так ссылки из бота и старых уведомлений открывают тот же экран. */
+function TicketRedirect() {
+    const { id } = useParams()
+    return <Navigate to={id ? `/support/${id}` : '/support'} replace />
+}
 
 /** Учесть `?startapp=` один раз за сессию — с `replace`, чтобы системная
  *  кнопка «назад» вела наружу, а не на главный экран, о котором не просили. */
@@ -40,8 +49,7 @@ const LEGACY: Record<string, string> = {
     '/promo': '/profile?promo=1',
     '/referral': '/profile?promo=1',
     '/statistics': '/',
-    '/support': '/profile',
-    '/tickets': '/profile',
+    '/tickets': '/support',
     '/support/connect': '/guide',
     '/notifications/preferences': '/profile',
 }
@@ -72,10 +80,12 @@ function Shell() {
                     <Route path="/pay" element={<Pay />} />
                     <Route path="/guide" element={<Guide />} />
                     <Route path="/notifications" element={<Notifications />} />
+                    <Route path="/support" element={<Support />} />
+                    <Route path="/support/:id" element={<SupportTicket />} />
                     {Object.entries(LEGACY).map(([from, to]) => (
                         <Route key={from} path={from} element={<Navigate to={to} replace />} />
                     ))}
-                    <Route path="/tickets/*" element={<Navigate to="/profile" replace />} />
+                    <Route path="/tickets/:id" element={<TicketRedirect />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
             </Suspense>

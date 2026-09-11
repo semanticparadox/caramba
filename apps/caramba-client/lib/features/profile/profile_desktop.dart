@@ -38,6 +38,7 @@ import 'package:caramba_client/data/models/sub_plan.dart';
 import 'package:caramba_client/desktop/desktop_tokens.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
 import 'package:caramba_client/features/profile/profile_screen.dart';
+import 'package:caramba_client/features/support/ticket_badge.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/account_state.dart';
 import 'package:caramba_client/state/auth_state.dart';
@@ -219,6 +220,7 @@ class ProfileDesktopScreen extends ConsumerWidget {
                         icon: Lucide.lifeBuoy,
                         label: 'Запросы в поддержку',
                         chevron: true,
+                        trailing: const TicketsUnreadBadge(),
                         onTap: () => context.go(AppRoute.tickets),
                       ),
                     ],

@@ -99,6 +99,15 @@ abstract final class AppRoute {
   /// Партнёрский дашборд (полноэкранный, поверх шелла; только для партнёров).
   static const partner = '/partner';
 
+  /// Обновления приложения: своя версия, последняя у панели, «Проверить» и
+  /// «что нового». Накладной экран под настройками, откуда сюда и приходят.
+  static const updates = '/settings/updates';
+
+  /// «Нужно обновиться»: установленная сборка ниже минимальной, которую
+  /// требует панель. Не накладной: он ЗАМЕНЯЕТ приложение, пока человек не
+  /// обновится, и «Назад» с него вести некуда.
+  static const updateRequired = '/update-required';
+
   // Уведомления и поддержка (полноэкранные, поверх шелла).
   static const notifications = '/notifications';
   static const tickets = '/tickets';
@@ -149,6 +158,7 @@ abstract final class AppRoute {
     notifications,
     tickets,
     settingsAutotune,
+    updates,
     login,
     servers,
     connect,
