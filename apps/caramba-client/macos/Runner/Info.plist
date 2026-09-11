@@ -4,10 +4,16 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<!-- Зачем EXECUTABLE_NAME, а не PRODUCT_NAME: это имя файла внутри
+	     Contents/MacOS, и именно его показывают Dock, «Завершить принудительно»
+	     и Мониторинг системы. PRODUCT_NAME остаётся техническим
+	     (caramba_client.app), потому что на него завязаны сборочные скрипты,
+	     а видимое имя процесса задаётся отдельно в Configs/AppInfo.xcconfig.
+	     Ключа CFBundleIconFile здесь нет намеренно: пустая строка заставляла
+	     Xcode подкладывать в бандл ещё и легаси AppIcon.icns с неполным набором
+	     размеров рядом с полным Assets.car, то есть два источника одной иконки. -->
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
-	<key>CFBundleIconFile</key>
-	<string></string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>

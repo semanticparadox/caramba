@@ -47,9 +47,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 /// Сколько живёт ссылка-приглашение. Тридцать минут — компромисс между
-/// «человек успел дойти до телефона» и «утёкшая переписка быстро протухла».
-/// Больше, чем у 6-значного кода входа (5 минут), потому что ссылку открывают
-/// не сразу, а когда доберутся до устройства.
+/// «человек успел дойти до телефона» и «утёкшая переписка быстро протухла»:
+/// ссылку открывают не сразу, а когда доберутся до устройства.
 pub(crate) const LINK_TTL_MINUTES: i64 = 30;
 
 /// Ответ валидации кода вовлечения. `reason` присутствует только при valid=false
@@ -177,25 +176,105 @@ fn storage_code(code: &str) -> String {
 
 /// Origin коннектора — адрес, по которому приложение будет ходить в API.
 ///
-/// Это НЕ subscription_domain: подписку может отдавать отдельный домен, а API
-/// живёт на панели. Ошибка вместо догадки намеренная — ссылка с неверным origin
-/// молча приведёт приложение не туда, и человек увидит непонятный сбой сети
-/// вместо понятного «оператор не настроил панель».
+/// ЗЕРКАЛО ВАЖНЕЕ ПАНЕЛИ. `subscription_domain` — публичный домен, который уже
+/// прозрачно проксирует `/api/*` на панель (см. apps/caramba-sub), поэтому
+/// ссылка с его origin уводит на него ВЕСЬ сеанс приложения: этот origin
+/// приложение запоминает один раз и склеивает со всеми последующими запросами.
+/// Пока в ссылке стоял `panel_url`, адрес самой панели уезжал каждому
+/// пользователю и светился в каждом запросе с устройства. Зеркала нет —
+/// остаётся `panel_url`: ссылка без адреса вообще бесполезна.
+///
+/// Ошибка вместо догадки намеренная — ссылка с неверным origin молча приведёт
+/// приложение не туда, и человек увидит непонятный сбой сети вместо понятного
+/// «оператор не настроил панель».
 async fn connector_origin(state: &AppState) -> Result<String> {
+    let mirror = state
+        .settings
+        .get_or_default("subscription_domain", "")
+        .await;
     let configured = state.settings.get_or_default("panel_url", "").await;
-    let raw = if configured.trim().is_empty() {
+    let panel = if configured.trim().is_empty() {
         std::env::var("PANEL_URL").unwrap_or_default()
     } else {
         configured
     };
-    let raw = raw.trim().trim_end_matches('/').to_string();
-    if raw.is_empty() || raw == "localhost" {
-        return Err(anyhow!(
-            "panel_url is not configured; a connect link would point nowhere"
-        ));
+
+    let choice = choose_connector_origin(&mirror, &panel);
+    if let Some(reason) = choice.mirror_ignored {
+        // Молча откатиться на panel_url нельзя: оператор настраивал зеркало
+        // именно затем, чтобы адрес панели не уезжал людям, и обязан узнать,
+        // что его настройку не взяли.
+        tracing::warn!(reason, "connect link: subscription_domain ignored");
     }
-    Ok(if raw.starts_with("http") {
-        raw
+    choice.origin.ok_or_else(|| {
+        anyhow!("neither subscription_domain nor panel_url is configured; a connect link would point nowhere")
+    })
+}
+
+/// Что выбрано под origin и почему зеркало не подошло (для warn у вызывающего).
+struct OriginChoice {
+    origin: Option<String>,
+    mirror_ignored: Option<&'static str>,
+}
+
+/// Чистая часть выбора origin. Вынесена из [`connector_origin`], чтобы приоритет
+/// «зеркало > панель» и нормализацию можно было проверить тестом, не поднимая
+/// ни настроек, ни БД.
+fn choose_connector_origin(mirror_raw: &str, panel_raw: &str) -> OriginChoice {
+    let (mirror, mirror_ignored) = match normalize_mirror_origin(mirror_raw) {
+        Ok(v) => (v, None),
+        Err(reason) => (None, Some(reason)),
+    };
+    OriginChoice {
+        origin: mirror.or_else(|| normalize_panel_origin(panel_raw)),
+        mirror_ignored,
+    }
+}
+
+/// Нормализует `subscription_domain` до https-origin.
+///
+/// `Ok(None)` — настройка пуста (зеркала нет). `Err(reason)` — задана, но как
+/// origin непригодна, и брать её нельзя: https обязателен, потому что по этому
+/// адресу устройство носит токены сессии, а путь запрещён, потому что origin
+/// склеивается с `/api/v2/app/...` — лишний сегмент дал бы 404 на каждом
+/// запросе приложения, и увидел бы это только пользователь.
+fn normalize_mirror_origin(raw: &str) -> std::result::Result<Option<String>, &'static str> {
+    let raw = raw.trim().trim_end_matches('/');
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    let host = match raw.split_once("://") {
+        Some((scheme, rest)) if scheme.eq_ignore_ascii_case("https") => rest,
+        Some((scheme, _)) if scheme.eq_ignore_ascii_case("http") => {
+            return Err("http is not allowed: the app carries session tokens to this origin");
+        }
+        Some(_) => return Err("unsupported scheme"),
+        None => raw,
+    };
+    if host.is_empty()
+        || host.contains('/')
+        || host.contains('?')
+        || host.contains('#')
+        || host.contains(char::is_whitespace)
+    {
+        return Err("not a bare origin");
+    }
+    if host == "localhost" || host.starts_with("localhost:") {
+        return Err("localhost is not reachable from a phone");
+    }
+    Ok(Some(format!("https://{host}")))
+}
+
+/// Нормализует `panel_url` — запасной origin, когда зеркала нет. Поведение
+/// прежнее: http оставляем как есть (локальная разработка), голый хост считаем
+/// https.
+fn normalize_panel_origin(raw: &str) -> Option<String> {
+    let raw = raw.trim().trim_end_matches('/');
+    if raw.is_empty() || raw == "localhost" {
+        return None;
+    }
+    Some(if raw.starts_with("http") {
+        raw.to_string()
     } else {
         format!("https://{raw}")
     })
@@ -354,7 +433,7 @@ pub struct RedeemResponse {
 /// Ответы намеренно единообразны (400 «Invalid or expired invite») на всех
 /// промахах: различать «нет такого» и «уже погашен» значит рассказывать о
 /// состоянии чужих кодов. Rate limit не ставим: пространство кода 2^128, перебор
-/// не является угрозой — в отличие от 6-значного кода входа, где лимит есть.
+/// не является угрозой.
 pub async fn redeem_connect_code(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -550,6 +629,58 @@ mod tests {
         let _: axum::Router<()> = axum::Router::new()
             .route("/enroll/{code}", axum::routing::get(|| async {}))
             .route("/enroll/redeem", axum::routing::post(|| async {}));
+    }
+
+    /// Зеркало важнее панели: адрес панели не должен уезжать в ссылку, пока
+    /// настроен публичный домен, который и так проксирует `/api/*`.
+    #[test]
+    fn mirror_domain_wins_over_panel_url() {
+        let choice = choose_connector_origin("https://app.example.org", "https://panel.internal");
+        assert_eq!(choice.origin.as_deref(), Some("https://app.example.org"));
+        assert_eq!(choice.mirror_ignored, None);
+
+        // Голый хост — то, как оператор чаще всего пишет домен руками.
+        let choice = choose_connector_origin("app.example.org/", "https://panel.internal");
+        assert_eq!(choice.origin.as_deref(), Some("https://app.example.org"));
+    }
+
+    /// Зеркала нет — ссылка обязана продолжать работать через панель.
+    #[test]
+    fn empty_mirror_falls_back_to_panel_url() {
+        let choice = choose_connector_origin("   ", "https://panel.internal");
+        assert_eq!(choice.origin.as_deref(), Some("https://panel.internal"));
+        assert_eq!(choice.mirror_ignored, None);
+    }
+
+    /// Непригодное зеркало берём не молча: откат на panel_url раскрывает адрес
+    /// панели, ради сокрытия которого зеркало и настраивали.
+    #[test]
+    fn unusable_mirror_is_ignored_with_a_reason() {
+        for bad in [
+            "http://app.example.org",
+            "https://app.example.org/sub",
+            "wss://app.example.org",
+            "https://localhost:8443",
+        ] {
+            let choice = choose_connector_origin(bad, "https://panel.internal");
+            assert_eq!(
+                choice.origin.as_deref(),
+                Some("https://panel.internal"),
+                "{bad}"
+            );
+            assert!(choice.mirror_ignored.is_some(), "{bad}: причина не названа");
+        }
+    }
+
+    /// Не настроено ничего — выпуск обязан провалиться, а не выдать ссылку в
+    /// никуда: приложение запоминает origin навсегда.
+    #[test]
+    fn nothing_configured_yields_no_origin() {
+        let choice = choose_connector_origin("", "");
+        assert!(choice.origin.is_none());
+        assert!(choice.mirror_ignored.is_none());
+        // localhost так же непригоден, как пустая строка: телефон туда не дойдёт.
+        assert!(choose_connector_origin("", "localhost").origin.is_none());
     }
 
     #[test]

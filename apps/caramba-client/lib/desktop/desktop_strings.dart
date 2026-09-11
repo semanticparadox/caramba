@@ -187,7 +187,10 @@ abstract final class DesktopStrings {
   static const String launchAtLoginNeedsApproval =
       'Разрешите Caramba Connect в Системных настройках → Основные → Объекты входа';
 
-  static const String onWindowCloseTitle = 'При закрытии окна';
+  /// Настройка одна на два жеста: красную кнопку (⌘W, Alt+F4) и сворачивание
+  /// (жёлтая кнопка, ⌘M). Подпись обязана называть оба, иначе человек ждёт
+  /// от сворачивания прежнего поведения и теряет окно.
+  static const String onWindowCloseTitle = 'При закрытии и сворачивании окна';
 
   /// На macOS значок живёт в строке меню, на Windows и Linux в трее.
   static String onWindowCloseHide({required bool isMac}) =>

@@ -3,13 +3,15 @@ abstract final class AppRoute {
   /// Session-probe gate shown while [AuthStage.unknown] (no protected calls).
   static const splash = '/';
 
-  /// Аккаунт панели: ссылка подключения caramba://, код приглашения, вход
-  /// кодом из бота. Накладной экран поверх шелла, а не первый экран
-  /// приложения — первым теперь идёт сам шелл.
+  /// Аккаунт панели: одна дверь к ссылке подключения caramba://. Код
+  /// приглашения и вход кодом из бота удалены вместе с режимом кода (раунд 5).
+  /// Накладной экран поверх шелла, а не первый экран приложения — первым
+  /// теперь идёт сам шелл.
   static const login = '/login';
 
-  /// Энроллмент по инвайт-коду (deeplink `carambaconnect://enroll`, ручной ввод
-  /// или QR). Pre-auth: доступен из unauthenticated. Query: `panel`, `code`.
+  /// Энроллмент по ссылке `carambaconnect://enroll` (только диплинк: ручной
+  /// ввод кода и адреса панели удалён). Pre-auth: доступен из unauthenticated.
+  /// Query: `panel`, `code`, `k`.
   static const enroll = '/enroll';
 
   /// Подключение панели по ссылке `caramba://connect` (диплинк, вставка или
@@ -51,6 +53,15 @@ abstract final class AppRoute {
   /// вкладки остались списки. Путь теперь называет ровно то, что за ним лежит,
   /// и живёт под настройками, откуда сюда и приходят.
   static const siteRules = '/settings/site-rules';
+
+  /// Списки приложений «через VPN только эти» / «эти мимо VPN».
+  ///
+  /// Второй список того же самого режима, что и [siteRules] (в ядре
+  /// `Policy.Split` один), но источник выбора у него платформенный — на Android
+  /// установленные приложения, на десктопе имя процесса, на iOS недоступно
+  /// вовсе. Поэтому свой экран и свой путь, а не вкладка на «Правилах по
+  /// сайтам»: там правят домены текстом, здесь выбирают из списка системы.
+  static const appRules = '/settings/app-rules';
 
   /// Страна ВХОДА в цепочку (relay). Полноэкранный маршрут, а не нижний лист:
   /// в generic-режиме все его строки видны выключенными с причиной, и листу
@@ -125,6 +136,7 @@ abstract final class AppRoute {
   static const Set<String> overlays = <String>{
     protocol,
     siteRules,
+    appRules,
     relay,
     connections,
     csmOperator,

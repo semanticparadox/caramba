@@ -7,6 +7,29 @@
 // The application's name. By default this is also the title of the Flutter window.
 PRODUCT_NAME = caramba_client
 
+// Имя исполняемого файла внутри Contents/MacOS.
+//
+// ЗАЧЕМ ОТДЕЛЬНО ОТ PRODUCT_NAME. По умолчанию EXECUTABLE_NAME наследует
+// PRODUCT_NAME, и человек видел техническое caramba_client везде, где система
+// показывает имя процесса: Dock, «Завершить принудительно», Мониторинг
+// системы, запрос доступа к сети. Сменить PRODUCT_NAME нельзя, на нём висит
+// имя папки caramba_client.app и все сборочные скрипты, поэтому развязываем
+// именно имя бинаря. Сопутствующая правка обязательна: scripts/ci-desktop.sh
+// раньше считал имя бинаря равным basename(.app) и теперь читает
+// CFBundleExecutable из Info.plist.
+EXECUTABLE_NAME = Caramba Connect
+
+// Один источник иконки вместо двух.
+//
+// ЗАЧЕМ. По умолчанию actool кладёт в бандл И каталог Assets.car (на него
+// смотрит CFBundleIconName), И легаси-файл Resources/AppIcon.icns, попутно
+// дописывая в Info.plist ключ CFBundleIconFile. Проверка собранного .app
+// показала, что этот автоматический .icns неполный: в нём только 16, 16@2x,
+// 128 и 128@2x, без 256/512/1024. То есть на крупных размерах система берёт
+// иконку из источника, где её нет. Каталога хватает с macOS 10.13, а у нас
+// цель 12.0, поэтому легаси-файл не нужен вовсе.
+ASSETCATALOG_COMPILER_STANDALONE_ICON_BEHAVIOR = none
+
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = com.caramba.carambaClient
 

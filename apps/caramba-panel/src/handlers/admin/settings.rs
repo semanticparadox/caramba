@@ -467,6 +467,8 @@ pub struct SettingsTemplate {
     pub local_bot_enabled: bool,
     pub local_node_enabled: bool,
     pub auto_update_agents: bool,
+    /// Глобальный тумблер AmneziaWG. Пер-нодовый живёт в карточке ноды.
+    pub amneziawg_enabled: bool,
     pub agent_latest_version: String,
     pub agent_update_url: String,
     pub agent_update_hash: String,
@@ -654,6 +656,7 @@ pub struct SaveSettingsForm {
     pub local_sub_enabled: Option<String>,
     pub local_bot_enabled: Option<String>,
     pub auto_update_agents: Option<String>,
+    pub amneziawg_enabled: Option<String>,
     pub agent_latest_version: Option<String>,
     pub agent_update_url: Option<String>,
     pub agent_update_hash: Option<String>,
@@ -964,6 +967,16 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .get_or_default("auto_update_agents", "true")
         .await
         == "true";
+    // AmneziaWG. Выключен по умолчанию: включать имеет смысл только когда
+    // ноды уже умеют поднимать amneziawg-go (агент версии с разделом `awg`).
+    let amneziawg_enabled = state
+        .settings
+        .get_or_default("amneziawg_enabled", "false")
+        .await
+        == "true";
+    // Держим синхронное зеркало в актуальном состоянии: генераторы подписки
+    // читают тумблер именно оттуда.
+    crate::utils::set_amneziawg_enabled(amneziawg_enabled);
     let mut agent_latest_version = state
         .settings
         .get_or_default("agent_latest_version", "0.0.0")
@@ -1448,6 +1461,7 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         local_bot_enabled,
         local_node_enabled,
         auto_update_agents,
+        amneziawg_enabled,
         agent_latest_version,
         agent_update_url,
         agent_update_hash,
@@ -1942,6 +1956,19 @@ pub async fn save_settings(
             "false".to_string()
         },
     );
+
+    // Зеркало обновляем сразу, не дожидаясь ближайшего heartbeat узла: иначе
+    // подписка, запрошенная в ту же секунду, вышла бы ещё без AmneziaWG.
+    let awg_on = is_checkbox_enabled(form.amneziawg_enabled.as_deref());
+    settings.insert(
+        "amneziawg_enabled".to_string(),
+        if awg_on {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
+    );
+    crate::utils::set_amneziawg_enabled(awg_on);
 
     settings.insert(
         "expiry_reminders_enabled".to_string(),

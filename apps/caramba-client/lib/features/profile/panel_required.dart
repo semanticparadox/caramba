@@ -58,9 +58,9 @@ class PanelRequiredScreen extends StatelessWidget {
               style: AppType.bodyMd.copyWith(color: c.textMed),
             ),
             const SizedBox(height: AppSpace.s5),
-            // Одно действие: код приглашения и вход кодом из бота лежат там же,
-            // на «Аккаунте панели», и дублировать их здесь значило бы задавать
-            // вопрос «каким способом», на который человек ещё не готов отвечать.
+            // Одно действие: способ подключения теперь тоже один — ссылка
+            // caramba:// с «Аккаунта панели». Спрашивать «каким способом»
+            // больше не о чем.
             FilledButton(
               onPressed: () => context.go(AppRoute.login),
               child: const Text('Подключить панель'),

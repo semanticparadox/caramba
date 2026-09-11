@@ -367,28 +367,6 @@ pub async fn callback_handler(
 
     if let Some(data) = q.data {
         match data.as_str() {
-            "get_login_code" => {
-                let _ = bot.answer_callback_query(callback_id).await;
-                if let Some(msg) = q.message {
-                    // Ссылка первой: она не требует ввода вообще. Код следом —
-                    // запасной путь там, где схема caramba:// не перехватывается.
-                    crate::bot::handlers::command::send_connect_link(
-                        &bot,
-                        &state,
-                        msg.chat().id,
-                        tg_id,
-                    )
-                    .await;
-                    crate::bot::handlers::command::send_login_code(
-                        &bot,
-                        &state,
-                        msg.chat().id,
-                        tg_id,
-                    )
-                    .await;
-                }
-            }
-
             // Выдача установщика файлом — обход блокировки домена панели.
             // Кнопка приезжает только когда владелец загрузил APK боту
             // (`bot::apk_delivery`), но состояние могло измениться между

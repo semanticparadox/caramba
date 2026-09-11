@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     Цвет фонового слоя adaptive-иконки (mipmap-anydpi-v26/ic_launcher.xml).
+     Совпадает с фоном исходного edge-to-edge силуэта корабля
+     (assets/brand/caramba-connect.png), чтобы адаптивная и legacy-иконки
+     выглядели одинаково на всех Android-версиях.
+-->
+<resources>
+    <color name="ic_launcher_background">#0A0A0A</color>
+</resources>

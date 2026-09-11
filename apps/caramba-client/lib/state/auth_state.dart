@@ -102,18 +102,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> loginEmail({required String email, required String password}) =>
       _runAuth(() => _api.loginEmail(email: email, password: password));
 
-  /// Логин по коду из Telegram-бота (6 цифр). Панель сверяет код в Redis
-  /// (`app:logincode:{code}`), привязанный к Telegram-аккаунту, и выдаёт
-  /// JWT-пару. На неверный/истёкший код — 401 с inline-ошибкой в форме.
-  ///
-  /// После успеха профиль панели ОБЯЗАН существовать и быть активным: см.
-  /// [_ensurePanelProfile].
-  Future<void> loginCode({required String code, String? enrollCode}) =>
-      _runAuth(
-        () => _api.loginCode(code: code, enrollCode: enrollCode),
-        unauthorizedMessage: 'Код неверный или истёк. Запросите новый в боте.',
-      );
-
   /// Telegram-логин (initData WebApp или поля Login Widget).
   Future<void> loginTelegram({
     String? initData,
@@ -207,12 +195,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
         _ref.read(connectionProfilesProvider).activeId == existing) {
       return;
     }
-    // Имя оператора приложение здесь ещё не знает, поэтому берём хост: он
-    // правдив. Уже названный профиль это не переименует — `addPanelAccount`
-    // трогает имя, только пока оно равно самому URL панели.
+    // Имя оператора приложение здесь ещё не знает. Раньше на его место
+    // подставлялся ХОСТ ПАНЕЛИ, и это была утечка адреса в постоянное
+    // состояние: имя профиля печатается на главном экране и в списке
+    // подключений, где адрес ничего не подтверждает и никуда не исчезает.
+    // Нейтральная подпись правдива ровно настолько же и никого не выдаёт;
+    // настоящее имя придёт от панели брендингом. Уже названный профиль это не
+    // переименует — `addPanelAccount` трогает имя, только пока оно равно самому
+    // URL панели.
     final id = await profiles.addPanelAccount(
       panelUrl: origin,
-      displayName: Uri.parse(origin).host,
+      displayName: 'Оператор',
     );
     await profiles.setPanelCredentials(
       id,

@@ -295,10 +295,19 @@ build_macos() {
   [[ -n "${app}" ]] || die "не найден .app после сборки"
   log "собрано: ${app} ($(size_of "${app}"))"
 
+  # Имя бинаря берём из Info.plist, а не из имени папки .app: EXECUTABLE_NAME
+  # развязан с PRODUCT_NAME (внутри caramba_client.app лежит «Caramba Connect»),
+  # и прежний basename нашёл бы несуществующий файл, а lipo уронил бы прогон.
+  local exe
+  exe="$(plutil -extract CFBundleExecutable raw -o - "${app}/Contents/Info.plist" 2>/dev/null || true)"
+  [[ -n "${exe}" ]] || die "в ${app}/Contents/Info.plist нет CFBundleExecutable"
+  [[ -f "${app}/Contents/MacOS/${exe}" ]] || die "нет бинаря Contents/MacOS/${exe}"
+  log "бинарь бандла: Contents/MacOS/${exe}"
+
   # Ядро внутри бандла — единственная проверка, отличающая релиз от mock-сборки.
   if [[ -f "${app}/Contents/Frameworks/libcaramba_core.dylib" ]]; then
     log "ядро в бандле: Contents/Frameworks/libcaramba_core.dylib"
-    lipo -archs "${app}/Contents/MacOS/$(basename "${app}" .app)" | sed 's/^/    срезы .app: /'
+    lipo -archs "${app}/Contents/MacOS/${exe}" | sed 's/^/    срезы .app: /'
   elif [[ "${USE_NATIVE_VPN:-true}" == "false" ]]; then
     warn "ядра в бандле нет — но это осознанная mock-сборка (USE_NATIVE_VPN=false)"
   else

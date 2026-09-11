@@ -782,14 +782,10 @@ translations! {
     "support.not_configured" => { ru: "❌ Контакт поддержки ещё не настроен.", en: "❌ Support contact is not configured yet." },
     "support.prompt" => { ru: "Нужна помощь? Нажмите кнопку ниже:", en: "Need help? Click the button below to contact support:" },
     "support.contact_btn" => { ru: "💬 Написать в поддержку", en: "💬 Contact support" },
-    "login.code_failed" => { ru: "⚠️ Не получилось создать код. Попробуйте через минуту.", en: "⚠️ Couldn't create a code. Try again in a minute." },
-    // {0} = шестизначный код
-    "login.code" => {
-        ru: "🔑 <b>Код для входа</b>\n\n<code>{0}</code>\n\nЭто запасной способ — если ссылка не сработала. Введите код в приложении. Он действует 5 минут и только один раз.",
-        en: "🔑 <b>Sign-in code</b>\n\n<code>{0}</code>\n\nA fallback in case the link didn't work. Type the code in the app. It lasts 5 minutes and works once."
-    },
-    // Кнопка под сообщением с кодом: присылает заново и ссылку, и код.
-    "login.get_code_btn" => { ru: "🔁 Прислать заново", en: "🔁 Send again" },
+    // Нативная кнопка Telegram «скопировать в буфер» под сообщением со ссылкой:
+    // тап по <code> копирует не на всех клиентах, а вставить ссылку в приложение
+    // человеку нужно обязательно.
+    "app.copy_link_btn" => { ru: "📋 Скопировать ссылку", en: "📋 Copy the link" },
     // Адрес APK задаёт оператор в настройках (`app_download_url_android`).
     "app.download_android_btn" => { ru: "📲 Скачать для Android", en: "📲 Download for Android" },
     // Выдача установщика файлом прямо в Telegram — путь в обход блокировки

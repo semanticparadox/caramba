@@ -1,4 +1,5 @@
 pub mod api_key_repo;
+pub mod awg_repo;
 pub mod license_repo;
 pub mod node_repo;
 pub mod org_repo;

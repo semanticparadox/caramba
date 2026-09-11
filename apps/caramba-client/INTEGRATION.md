@@ -810,12 +810,26 @@ instance.
 ## Step 4: AmneziaWG and the node side
 
 For AmneziaWG to actually obfuscate and move packets, both the node and the
-client must be AmneziaWG capable. The full end to end (panel gate
-`CARAMBA_ENABLE_AMNEZIAWG`, the AmneziaWG capable sing-box fork on the node, the
-mihomo `wireguard` outbound on the client, protocol pinning and autotune) is
-documented in `docs/AMNEZIAWG.md`. Read it before enabling AmneziaWG in
-production, because a bare sing-box node fails `sing-box check` on an AmneziaWG
-inbound and takes down the whole node config.
+client must be AmneziaWG capable. The node side ships now: AmneziaWG is **not**
+a sing-box inbound (stock sing-box cannot serve it) — the node runs its own
+`amneziawg-go` process on a separate `awg0` interface, driven by the panel
+through a new `awg` section on the existing node-config endpoint, applied
+without ever restarting sing-box. Two admin toggles gate it end to end
+(**Settings → AmneziaWG**, global, plus a per-node toggle in the node card) —
+the old `CARAMBA_ENABLE_AMNEZIAWG` / `CARAMBA_ENABLE_AMNEZIAWG_CLIENT` env vars
+are gone, neither is read anymore.
+
+On the client, nothing changed: the mihomo `wireguard` outbound, protocol
+pinning (`SetProtocol("AmneziaWG")`) and autotune priority were already
+correct before the node side existed, and still are — when AmneziaWG isn't
+offered (either toggle off), the client degrades softly to `Auto-All` instead
+of failing, so there is nothing here to gate on the client build.
+
+The full end to end — the node's binary delivery and hash pinning, the UAPI
+wire protocol, the config contract shared between node and panel
+(`libs/caramba-shared`), traffic/online accounting per peer, and a checklist
+for verifying a live node — is documented in `docs/AMNEZIAWG.md`. Read it
+before turning either toggle on in production.
 
 ---
 
@@ -894,7 +908,9 @@ named gap. Before you expect a real tunnel elsewhere:
   `asInvoker`) and has no code-signing certificate; Linux needs root or
   `CAP_NET_ADMIN`.
 - Android needs the user to accept the VPN consent dialog on first connect.
-- AmneziaWG needs an AmneziaWG capable node fork and the panel flag.
+- AmneziaWG needs both the panel's global and per-node toggles on, and the
+  node's `amneziawg-go` binary hash pinned in the release pipeline before it
+  will even download — see `docs/AMNEZIAWG.md`.
 
 ### What is needed from the owner
 

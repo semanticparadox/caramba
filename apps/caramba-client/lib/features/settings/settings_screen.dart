@@ -7,6 +7,7 @@ import 'package:caramba_client/data/models/csm_settings.dart';
 import 'package:caramba_client/features/settings/reconnect_banner.dart';
 import 'package:caramba_client/features/csm/config_age_card.dart';
 import 'package:caramba_client/features/csm/keep_or_revert_card.dart';
+import 'package:caramba_client/features/settings/app_rules_screen.dart';
 import 'package:caramba_client/features/settings/csm_settings_bridge.dart';
 import 'package:caramba_client/features/settings/csm_write_status_note.dart';
 import 'package:caramba_client/features/settings/enhancements_summary.dart';
@@ -181,6 +182,17 @@ class SettingsScreen extends ConsumerWidget {
                     settingKey: CsmSettingKey.splitMode,
                   ),
                   onTap: () => context.go(AppRoute.siteRules),
+                ),
+                // Второй список того же режима: сайты отвечают на «куда», а
+                // приложения — на «кто». Метки происхождения у строки нет:
+                // режим свой тег уже носит строкой выше, а сам список
+                // приложений локальный (INV-15) и оператору не принадлежит.
+                _StackedRow(
+                  icon: Lucide.appWindow,
+                  label: kAppRulesTitle,
+                  subtitle: appRulesSummary(cfg),
+                  chevron: true,
+                  onTap: () => context.go(AppRoute.appRules),
                 ),
               ],
             ),

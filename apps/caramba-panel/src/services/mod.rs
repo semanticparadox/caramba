@@ -1,6 +1,7 @@
 pub mod activity_service; // Legacy, to be replaced by logging_service
 pub mod analytics_service;
 pub mod api_domain;
+pub mod awg_service; // AmneziaWG: сервер узла живёт вне sing-box
 pub mod backup_service;
 pub mod bonus_traffic; // One-off traffic allowance granted on top of the plan
 pub mod connection_service;

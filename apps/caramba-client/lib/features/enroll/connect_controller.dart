@@ -182,8 +182,10 @@ class ConnectNotifier extends StateNotifier<ConnectState> {
   ///
   /// Имя профиля берётся из ответа панели, а не из ссылки: ссылка не подписана,
   /// а ответ пришёл по TLS с того самого origin, который она назвала. Когда имя
-  /// пустое, остаётся заявленное ссылкой — иначе профиль назывался бы голым
-  /// адресом там, где имя вообще-то известно.
+  /// пустое, остаётся заявленное ссылкой, а если пусто и оно — нейтральная
+  /// подпись, но НИКОГДА не адрес: имя профиля печатается на главном экране и в
+  /// списке подключений, то есть адрес панели осел бы в постоянном состоянии
+  /// приложения. Тот же инвариант держит AuthNotifier._ensurePanelProfile.
   Future<void> _attachPanel(
     CarambaConnectLink link,
     ConnectRedeemResult result,
@@ -191,7 +193,7 @@ class ConnectNotifier extends StateNotifier<ConnectState> {
     final profiles = _ref.read(connectionProfilesProvider.notifier);
     final name = result.panelName.isNotEmpty
         ? result.panelName
-        : (link.operatorName.isNotEmpty ? link.operatorName : link.origin);
+        : (link.operatorName.isNotEmpty ? link.operatorName : 'Оператор');
     final id = await profiles.addPanelAccount(
       panelUrl: link.origin,
       displayName: name,

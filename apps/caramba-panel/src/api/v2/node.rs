@@ -456,6 +456,26 @@ pub async fn heartbeat(
         }
     }
 
+    // 4.5 Кто живой на узле. Один список на оба источника: sing-box-теги
+    // приходят из того же v2ray-дельта-пути, что и `user_usage`, AWG-пиры из
+    // UAPI. Трафик здесь НЕ начисляется — байты уже посчитаны выше по
+    // `user_usage`, и второе начисление удвоило бы расход квоты; в
+    // `node_user_activity` дельты лежат только как справка для UI.
+    if let Some(ref active) = req.active_users
+        && !active.is_empty()
+    {
+        let awg_service = crate::services::awg_service::AwgService::new(state.pool.clone());
+        // Тумблер читается здесь же: генераторы подписки синхронные и сами в
+        // БД сходить не могут, а heartbeat идёт с каждого узла регулярно.
+        let _ = awg_service.refresh_gate().await;
+        if let Err(e) = awg_service.record_activity(node_id, active).await {
+            warn!(
+                "Не удалось записать активность пользователей узла {}: {}",
+                node_id, e
+            );
+        }
+    }
+
     // 5. Agent Update Logic (Phase 67)
     let auto_update_agents: bool = state
         .settings
@@ -646,11 +666,30 @@ pub async fn get_config(
                     .execute(&state.pool)
                     .await;
 
+            // Раздел `awg` едет РЯДОМ с sing-box-конфигом и со своим хешем.
+            // Отдельный хеш здесь принципиален: `hash` выше стережёт перезапуск
+            // sing-box, и если бы состав AWG-пиров входил в него, добавление
+            // одного пира рвало бы sing-box-сессии всем живым клиентам узла.
+            let awg_service = crate::services::awg_service::AwgService::new(state.pool.clone());
+            let awg = match awg_service.build_section(node_id).await {
+                Ok(section) => section,
+                Err(e) => {
+                    warn!(
+                        "AmneziaWG: раздел awg для узла {} не собран: {}",
+                        node_id, e
+                    );
+                    None
+                }
+            };
+            let awg_hash = awg.as_ref().map(crate::services::awg_service::section_hash);
+
             (
                 StatusCode::OK,
                 Json(ConfigResponse {
                     hash,
                     content: config_value,
+                    awg,
+                    awg_hash,
                 }),
             )
                 .into_response()

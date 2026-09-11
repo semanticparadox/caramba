@@ -84,6 +84,9 @@ class _FakeWindowPort implements WindowPort {
   Future<void> unmaximize() async {}
 
   @override
+  Future<void> restore() async {}
+
+  @override
   Future<void> setPreventClose(bool value) async {}
 
   @override

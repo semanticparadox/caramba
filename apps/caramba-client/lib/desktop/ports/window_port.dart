@@ -45,11 +45,23 @@ class WindowPortListener {
 
   final VoidCallback? onFocus;
 
+  /// Окно свёрнуто (жёлтая кнопка, ⌘M, клик по значку в Dock, «Свернуть» из
+  /// меню «Окно»).
+  ///
+  /// ЗАЧЕМ ОНО ОТДЕЛЬНО ОТ [onClose]. Сворачивание нельзя перехватить: аналога
+  /// `setPreventClose` для него в плагине нет, и событие приходит уже ПОСЛЕ
+  /// того, как система свернула окно в Dock. Поэтому решение «прятать в трей»
+  /// исполняется задним числом: развернуть и тут же спрятать. Событие отдаётся
+  /// портом, а не читается сервисом у плагина, ровно по той же причине, что и
+  /// остальные: иначе поведение жёлтой кнопки не проверить тестом.
+  final VoidCallback? onMinimize;
+
   const WindowPortListener({
     this.onClose,
     this.onResized,
     this.onMoved,
     this.onFocus,
+    this.onMinimize,
   });
 }
 
@@ -73,6 +85,10 @@ abstract class WindowPort {
   Future<void> maximize();
 
   Future<void> unmaximize();
+
+  /// Вернуть окно из свёрнутого состояния. Нужен перед [hide]: спрятать
+  /// свёрнутое в Dock окно нельзя, оно так и останется миниатюрой.
+  Future<void> restore();
 
   /// `true` — закрытие окна приходит колбэком [WindowPortListener.onClose]
   /// вместо того, чтобы уничтожить окно. На этом держится «прятать в трей».
@@ -140,6 +156,9 @@ class WindowManagerPort implements WindowPort {
   Future<void> unmaximize() => windowManager.unmaximize();
 
   @override
+  Future<void> restore() => windowManager.restore();
+
+  @override
   Future<void> setPreventClose(bool value) =>
       windowManager.setPreventClose(value);
 
@@ -183,4 +202,7 @@ class _ManagerListenerAdapter with WindowListener {
 
   @override
   void onWindowFocus() => _callbacks.onFocus?.call();
+
+  @override
+  void onWindowMinimize() => _callbacks.onMinimize?.call();
 }

@@ -79,7 +79,15 @@ class CoreConfig {
 
   // Раздельное туннелирование.
   final SplitMode splitMode;
-  final Set<String> splitApps; // выбранные id приложений
+
+  /// Выбранные приложения: имена ПАКЕТОВ на Android (`com.android.chrome`) и
+  /// имена ПРОЦЕССОВ на десктопе (`chrome.exe`, `Telegram`).
+  ///
+  /// Одно поле на обе формы намеренно: в ядре это один и тот же
+  /// `Policy.Split.Apps`, а устройство у человека одно, и второе поле «для
+  /// десктопа» только развело бы выбор по двум местам. Список локальный
+  /// (INV-15): оператор его не видит и не задаёт.
+  final Set<String> splitApps;
 
   /// Домены мимо туннеля, как их ввёл пользователь (запятые/переводы строк).
   /// Сырой текст храним намеренно: он должен переживать редактирование,
@@ -367,9 +375,26 @@ class CoreConfigNotifier extends StateNotifier<CoreConfig> {
   }
 
   void toggleSplitApp(String id) {
+    final key = id.trim();
+    if (key.isEmpty) return;
     final next = {...state.splitApps};
-    if (!next.add(id)) next.remove(id);
+    if (!next.add(key)) next.remove(key);
     state = state.copyWith(splitApps: next);
+  }
+
+  /// Добавляет приложение в список. В отличие от [toggleSplitApp] повторное
+  /// добавление НЕ убирает уже выбранное: на десктопе имя процесса вводят и
+  /// выбирают файлом, и «добавил второй раз — удалилось» читалось бы как сбой.
+  void addSplitApp(String id) {
+    final key = id.trim();
+    if (key.isEmpty || state.splitApps.contains(key)) return;
+    state = state.copyWith(splitApps: {...state.splitApps, key});
+  }
+
+  void removeSplitApp(String id) {
+    final key = id.trim();
+    if (!state.splitApps.contains(key)) return;
+    state = state.copyWith(splitApps: {...state.splitApps}..remove(key));
   }
 
   /// Применяет результат автоподбора (autotune).

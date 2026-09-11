@@ -107,6 +107,15 @@ internal object CarambaVpnKeys {
     const val PREF_POLICY_JSON = "policy.json"
     const val PREF_TUNNEL_MODE = "tunnel.mode"
     const val PREF_MIXED_PORT = "tunnel.mixedPort"
+
+    // listInstalledApps(): поля одной записи ответа. Имена — часть контракта
+    // канала, их читает Dart (packages/caramba_vpn/lib/src/installed_app.dart).
+    // Иконка едет байтами PNG (StandardMessageCodec отдаёт их как Uint8List):
+    // путь к ресурсу чужого пакета Flutter нарисовать нечем, а base64 стоил бы
+    // лишней перекодировки на обеих сторонах.
+    const val APP_PACKAGE = "packageName"
+    const val APP_LABEL = "label"
+    const val APP_ICON_PNG = "iconPng"
 }
 
 // A status snapshot in the exact shape of the com.caramba/vpn/status map.
@@ -182,5 +191,107 @@ internal data class CarambaTrafficSnapshot(
 
     companion object {
         val ZERO = CarambaTrafficSnapshot()
+    }
+}
+
+// Раздельное туннелирование ПО ПРИЛОЖЕНИЯМ — решение, а не применение.
+//
+// ЗАЧЕМ ОТДЕЛЬНОЙ ЧИСТОЙ ФУНКЦИЕЙ. На Android правила `PROCESS-NAME` ядра
+// mihomo заведомо мертвы: поиск владельца сокета читает /data/system/packages.xml,
+// куда обычному приложению хода нет, поэтому движок сам гасит FindProcessMode
+// (libs/caramba-core/engine/engine_mihomo.go). Единственный работающий путь на
+// этой платформе — VpnService.Builder, и он принимает решение ровно один раз,
+// в момент establish(), на устройстве, в сервисе, который нечем запустить из
+// теста. Поэтому «кого исключить, кого впустить» вынесено сюда: на входе
+// строка политики, на выходе списки пакетов, и ошибку видно чтением, а не
+// обрывом сети у человека.
+//
+// ГЛАВНОЕ ОГРАНИЧЕНИЕ ПЛАТФОРМЫ. addAllowedApplication и
+// addDisallowedApplication нельзя смешивать на одном Builder — Android бросает
+// UnsupportedOperationException и туннель не поднимается вовсе. Поэтому режимы
+// здесь взаимоисключающие by construction: непустой allow-список означает, что
+// disallow-списка нет вовсе.
+internal enum class CarambaSplitMode {
+    /** Раздельного туннелирования нет: в туннель идут все, кроме самого приложения. */
+    OFF,
+
+    /** Все через туннель, КРОМЕ перечисленных пакетов. */
+    BYPASS,
+
+    /** Через туннель идут ТОЛЬКО перечисленные пакеты. */
+    ALLOW,
+}
+
+internal data class CarambaSplitPlan(
+    val mode: CarambaSplitMode,
+    val apps: List<String>,
+) {
+    /**
+     * Пакеты, которые НЕ должны попасть в туннель.
+     *
+     * Своё приложение здесь всегда: запросы конфига и подписки не должны
+     * петлять через mihomo, пока туннель ещё поднимается. В режиме [CarambaSplitMode.ALLOW]
+     * список пуст — там действует [allowedApps], а смешивать нельзя.
+     */
+    fun disallowedApps(selfPackage: String): List<String> {
+        if (mode == CarambaSplitMode.ALLOW) return emptyList()
+        val out = LinkedHashSet<String>(apps.size + 1)
+        if (mode == CarambaSplitMode.BYPASS) out.addAll(apps)
+        if (selfPackage.isNotBlank()) out.add(selfPackage)
+        return out.toList()
+    }
+
+    /**
+     * Пакеты, которым туннель разрешён, и только они.
+     *
+     * Своё приложение сюда НЕ добавляется: в allow-режиме Android и так
+     * оставляет вне туннеля всех, кого нет в списке, а добавленное сюда
+     * приложение как раз оказалось бы ВНУТРИ — ровно то, от чего сервис
+     * защищается в противоположном режиме.
+     */
+    fun allowedApps(selfPackage: String): List<String> {
+        if (mode != CarambaSplitMode.ALLOW) return emptyList()
+        val out = LinkedHashSet<String>(apps.size)
+        for (app in apps) {
+            if (app == selfPackage) continue
+            out.add(app)
+        }
+        return out.toList()
+    }
+
+    companion object {
+        val OFF = CarambaSplitPlan(CarambaSplitMode.OFF, emptyList())
+
+        /**
+         * Разбор `{"split":{"mode":"bypass","apps":["com.example"]}}` из политики
+         * ABI v2 (её пишет setPolicy, см. CarambaVpnKeys.PREF_POLICY_JSON).
+         *
+         * Пустой список означает OFF в ОБОИХ режимах, и это осознанно: «только
+         * список через VPN» при пустом списке — туннель, в который не идёт
+         * никто, то есть молча отключённая сеть у человека, который включал
+         * защиту. Битый JSON тоже OFF: политику пишет само приложение, и
+         * неразбираемая строка означает поломку сборки, а не выбор человека.
+         */
+        fun fromPolicyJson(json: String?): CarambaSplitPlan {
+            if (json.isNullOrBlank()) return OFF
+            val split = try {
+                org.json.JSONObject(json).optJSONObject("split")
+            } catch (_: Throwable) {
+                null
+            } ?: return OFF
+            val mode = when (split.optString("mode", "off").lowercase()) {
+                "bypass" -> CarambaSplitMode.BYPASS
+                "allow" -> CarambaSplitMode.ALLOW
+                else -> return OFF
+            }
+            val raw = split.optJSONArray("apps") ?: return OFF
+            val apps = LinkedHashSet<String>(raw.length())
+            for (i in 0 until raw.length()) {
+                val app = raw.optString(i, "").trim()
+                if (app.isNotEmpty()) apps.add(app)
+            }
+            if (apps.isEmpty()) return OFF
+            return CarambaSplitPlan(mode, apps.toList())
+        }
     }
 }

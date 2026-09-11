@@ -1641,12 +1641,10 @@ pub async fn message_handler(
             }
 
             MenuAction::Login => {
-                // Сначала ссылка: она не требует от человека ввода вообще.
+                // Ровно ОДНО сообщение — ссылка. Шестизначный код входа убран
+                // целиком: ввести его было некуда, пока приложение не знает
+                // адрес панели, а теперь адрес живёт только внутри ссылки.
                 send_connect_link(&bot, &state, msg.chat.id, tg_id).await;
-                // Следом — прежний одноразовый 6-значный код. Он остаётся
-                // запасным путём: ссылка бесполезна там, где приложение не
-                // перехватывает схему caramba:// (десктоп, старая сборка).
-                send_login_code(&bot, &state, msg.chat.id, tg_id).await;
             }
 
             MenuAction::Apk => {
@@ -1674,9 +1672,9 @@ pub async fn message_handler(
 /// сообщение, а не «ссылку-заглушку»: неработающая ссылка молча уводит
 /// приложение не туда, и человек видит непонятный сетевой сбой вместо причины.
 ///
-/// Кнопка «Скачать для Android» вешается ТОЛЬКО на успешное сообщение: под
-/// извинением за неудачу предложение скачать приложение выглядит как ответ не
-/// на тот вопрос — скачивать нечего, пока ссылки нет.
+/// Клавиатура («Скопировать ссылку», затем способы забрать приложение) вешается
+/// ТОЛЬКО на успешное сообщение: копировать под извинением нечего, а предложение
+/// скачать приложение выглядит ответом не на тот вопрос, пока ссылки нет.
 pub async fn send_connect_link(bot: &Bot, state: &AppState, chat_id: ChatId, tg_id: i64) {
     let lang = crate::bot::utils::lang_by_tg_id(state, tg_id).await;
 
@@ -1708,7 +1706,9 @@ pub async fn send_connect_link(bot: &Bot, state: &AppState, chat_id: ChatId, tg_
                 .send_message(chat_id, connect_link_text(lang, &link))
                 .parse_mode(ParseMode::Html);
             let send =
-                match crate::bot::keyboards::app_download_keyboard(&state.settings, lang).await {
+                match crate::bot::keyboards::connect_link_keyboard(&state.settings, lang, &link)
+                    .await
+                {
                     Some(kb) => send.reply_markup(kb),
                     None => send,
                 };
@@ -1741,6 +1741,8 @@ pub(crate) fn connect_link_text(lang: Lang, link: &str) -> String {
             "🔗 <b>Вход в приложение Caramba Connect</b>\n\n<code>{link}</code>\n\n\
              Нажмите на ссылку — она скопируется. Откройте приложение, вставьте её, \
              и оно само подключится: вводить больше ничего не нужно.\n\n\
+             Если ссылка не открывает приложение, скопируйте её кнопкой ниже и \
+             вставьте в приложении на экране «Добавить подключение».\n\n\
              Ссылка работает один раз и только 30 минут. Она не зашифрована: у кого \
              окажется — тот и войдёт в ваш аккаунт. Никому её не пересылайте."
         ),
@@ -1748,6 +1750,8 @@ pub(crate) fn connect_link_text(lang: Lang, link: &str) -> String {
             "🔗 <b>Sign in to the Caramba Connect app</b>\n\n<code>{link}</code>\n\n\
              Tap the link to copy it. Open the app and paste it — the app connects on \
              its own, nothing else to type.\n\n\
+             If the link doesn't open the app, copy it with the button below and paste \
+             it on the \"Add connection\" screen in the app.\n\n\
              The link works once and only for 30 minutes. It is not encrypted: whoever \
              has it can sign in to your account. Don't forward it to anyone."
         ),
@@ -1788,50 +1792,6 @@ fn connect_link_failed_text(lang: Lang) -> &'static str {
     }
 }
 
-/// Генерирует одноразовый 6-значный код для входа в приложение и отправляет его
-/// пользователю. Код кладётся в Redis по ключу "app:logincode:{code}" => tg_id
-/// (TTL 300с, одноразовый). Перезаписывает предыдущий активный код этого юзера.
-///
-/// Общая логика для команды /login и инлайн-кнопки «Получить код для входа».
-pub async fn send_login_code(bot: &Bot, state: &AppState, chat_id: ChatId, tg_id: i64) {
-    use rand::Rng;
-
-    let lang = crate::bot::utils::lang_by_tg_id(state, tg_id).await;
-
-    // Перетираем предыдущий активный код пользователя, чтобы валидным был только
-    // один. Ключ обратного индекса tg_id -> code хранит текущий код юзера.
-    let user_index_key = format!("app:logincode:user:{}", tg_id);
-    if let Ok(Some(prev_code)) = state.redis.get(&user_index_key).await {
-        let _ = state
-            .redis
-            .del(&format!("app:logincode:{}", prev_code))
-            .await;
-    }
-
-    // 6 цифр, ведущие нули допустимы (000000..=999999).
-    let code: String = format!("{:06}", rand::rng().random_range(0..1_000_000u32));
-    let code_key = format!("app:logincode:{}", code);
-
-    // TTL 300с (5 минут), single-use. Значение — tg_id строкой.
-    if let Err(e) = state.redis.set(&code_key, &tg_id.to_string(), 300).await {
-        error!("Failed to store login code in Redis: {}", e);
-        let _ = bot
-            .send_message(chat_id, t(lang, "login.code_failed"))
-            .await;
-        return;
-    }
-    // Обратный индекс с тем же TTL — чтобы при следующем /login перетереть код.
-    let _ = state.redis.set(&user_index_key, &code, 300).await;
-
-    let text = tf(lang, "login.code", &[&code]);
-    let _ = bot
-        .send_message(chat_id, text)
-        .parse_mode(ParseMode::Html)
-        .reply_markup(crate::bot::keyboards::login_code_keyboard(lang))
-        .await
-        .map_err(|e| error!("Failed to send login code: {}", e));
-}
-
 #[cfg(test)]
 mod connect_link_text_tests {
     use super::*;
@@ -1862,6 +1822,20 @@ mod connect_link_text_tests {
             !text.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c)),
             "в английском тексте оказалась кириллица: {text}"
         );
+    }
+
+    /// Ради этой подсказки всё и затевалось: на части устройств `caramba://`
+    /// не перехватывается, и единственный путь внутрь — вставить ссылку руками
+    /// на экране «Добавить подключение». Молча оставить человека с
+    /// неоткрывающейся ссылкой нельзя.
+    #[test]
+    fn both_languages_explain_the_manual_paste() {
+        let ru = connect_link_text(Lang::Ru, "caramba://connect?d=ABC123");
+        assert!(ru.contains("Добавить подключение"), "{ru}");
+        assert!(ru.contains("не открывает приложение"), "{ru}");
+
+        let en = connect_link_text(Lang::En, "caramba://connect?d=ABC123");
+        assert!(en.contains("Add connection"), "{en}");
     }
 
     /// В HTML parse mode неэкранированный `&` роняет отправку целиком, а

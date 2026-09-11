@@ -187,16 +187,21 @@ static NAIVE_SETTINGS_VALIDATOR: LazyLock<Validator> = LazyLock::new(|| {
     .expect("naive schema must compile")
 });
 
+// AmneziaWG больше не инбаунд sing-box, а зеркало строки `node_awg`: сервер
+// живёт отдельным процессом amneziawg-go на ноде, пиры уезжают разделом `awg`
+// конфига узла. Поэтому `users` здесь пуст всегда (раньше требовался непустым),
+// а приватный ключ сервера в зеркало не кладётся вовсе — схема описывает ровно
+// то, что нужно генератору подписки: публичный ключ, порт и параметры обфускации.
 static AMNEZIAWG_SETTINGS_VALIDATOR: LazyLock<Validator> = LazyLock::new(|| {
     draft7::new(&json!({
         "type": "object",
         "properties": {
-            "users": { "type": "array", "minItems": 1 },
+            "users": { "type": "array" },
             "private_key": { "type": "string" },
             "public_key": { "type": "string" },
             "listen_port": { "type": "integer" }
         },
-        "required": ["users", "private_key", "public_key", "listen_port"]
+        "required": ["public_key", "listen_port"]
     }))
     .expect("amneziawg schema must compile")
 });
@@ -209,12 +214,16 @@ impl ConfigValidationService {
         settings_json: &str,
         stream_settings_json: &str,
     ) -> Result<(), String> {
+        // Гейт остался, но причина другая. Раньше AWG-инбаунд валил `sing-box
+        // check` и клал весь узел; теперь AWG на ноде это отдельный процесс
+        // amneziawg-go, и в sing-box-конфиг он не попадает вовсе. Запрет здесь
+        // означает лишь «протокол выключен в настройках панели».
         if protocol.trim().eq_ignore_ascii_case("amneziawg") && !crate::utils::amneziawg_enabled() {
             return Err(
-                "AmneziaWG is currently disabled: official sing-box cannot run a WireGuard \
-                 inbound with AmneziaWG obfuscation fields, so it would break the node config. \
-                 Set CARAMBA_ENABLE_AMNEZIAWG=1 only when your nodes run an AmneziaWG-capable \
-                 sing-box fork."
+                "AmneziaWG is currently disabled: turn it on in Settings (AmneziaWG toggle) \
+                 and enable it per node in the node card. The panel then hands the node an \
+                 `awg` section and the node runs amneziawg-go on awg0; sing-box is not \
+                 involved and never sees this inbound."
                     .to_string(),
             );
         }
@@ -355,18 +364,37 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    /// Оба состояния тумблера в одном тесте намеренно: зеркало
+    /// `utils::amneziawg_enabled` глобальное на процесс, а тесты внутри крейта
+    /// идут параллельно — двумя отдельными тестами они бы мешали друг другу.
     #[test]
-    fn rejects_amneziawg_when_flag_disabled() {
-        // CARAMBA_ENABLE_AMNEZIAWG is unset by default → creation must be refused
-        // regardless of payload validity, before any schema checks run.
-        let result = ConfigValidationService::validate_inbound_json("amneziawg", r#"{}"#, r#"{}"#);
+    fn amneziawg_follows_the_panel_toggle() {
+        let _guard = crate::utils::GATE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
 
-        assert!(result.is_err());
+        // Выключено: отказ до любых проверок схемы.
+        crate::utils::set_amneziawg_enabled(false);
+        let disabled =
+            ConfigValidationService::validate_inbound_json("amneziawg", r#"{}"#, r#"{}"#);
+        assert!(disabled.is_err());
         assert!(
-            result
+            disabled
                 .unwrap_err()
                 .contains("AmneziaWG is currently disabled")
         );
+
+        // Включено: зеркало `node_awg` проходит. Пользователей в нём нет (пиры
+        // уезжают разделом `awg`), приватного ключа сервера тоже — раньше схема
+        // требовала и то и другое.
+        crate::utils::set_amneziawg_enabled(true);
+        let enabled = ConfigValidationService::validate_inbound_json(
+            "amneziawg",
+            r#"{"protocol":"amneziawg","users":[],"private_key":"","public_key":"cHVia2V5","listen_port":17400,"jc":5,"jmin":50,"jmax":700,"s1":30,"s2":40,"h1":1,"h2":2,"h3":3,"h4":4}"#,
+            r#"{}"#,
+        );
+        crate::utils::set_amneziawg_enabled(false);
+        assert!(enabled.is_ok(), "зеркало AWG отвергнуто: {enabled:?}");
     }
 
     #[test]

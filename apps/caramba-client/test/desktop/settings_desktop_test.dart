@@ -81,14 +81,14 @@ class _Store implements ConnectionProfilesStore {
 }
 
 ConnectionProfile _profile(CsmProfileState? csm) => ConnectionProfile(
-      id: 'cp_1',
-      type: ProfileType.rawSub,
-      displayName: 'Моя подписка',
-      source: 'https://sub.example/a',
-      rawConfig: 'proxies: []',
-      format: 'clash',
-      csm: csm,
-    );
+  id: 'cp_1',
+  type: ProfileType.rawSub,
+  displayName: 'Моя подписка',
+  source: 'https://sub.example/a',
+  rawConfig: 'proxies: []',
+  format: 'clash',
+  csm: csm,
+);
 
 /// Правка настройки проходит через нотифаер профилей и возвращается в
 /// провайдеры следующим кадром. Восемь кадров с запасом.
@@ -168,15 +168,16 @@ Future<ProviderContainer> _pump(
 /// Контрол строки: у формы все контролы одного типа, поэтому искать их можно
 /// только через строку, к которой они привязаны.
 Finder _controlIn(String label, Type control) => find.descendant(
-      of: find.ancestor(of: find.text(label), matching: find.byType(FormRow)),
-      matching: find.byType(control),
-    );
+  of: find.ancestor(of: find.text(label), matching: find.byType(FormRow)),
+  matching: find.byType(control),
+);
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
-  testWidgets('settings form stays within 720 pixels on a wide window',
-      (tester) async {
+  testWidgets('settings form stays within 720 pixels on a wide window', (
+    tester,
+  ) async {
     await _desktop(tester, () async {
       tester.view.physicalSize = const Size(1800, 900);
       await _pump(tester);
@@ -186,40 +187,43 @@ void main() {
     });
   });
 
-  testWidgets('last index section is selected when the form reaches its bottom',
-      (tester) async {
-    await _desktop(tester, () async {
-      await _pump(tester);
-      await tester.tap(find.text(DesktopStrings.settingsAppSection));
-      await tester.pumpAndSettle();
-      final indexSemantics = find.ancestor(
-        of: find.text(DesktopStrings.settingsAppSection),
-        matching: find.byWidgetPredicate(
-          (w) => w is Semantics && w.properties.selected == true,
-        ),
-      );
-      expect(indexSemantics, findsOneWidget);
-      final form = tester.widget<SingleChildScrollView>(
-        find.byType(SingleChildScrollView).last,
-      );
-      expect(form.controller!.position.extentAfter, lessThanOrEqualTo(1));
-      form.controller!.jumpTo(0);
-      await tester.pump();
-      expect(
-        find.ancestor(
-          of: find.text('Подключение'),
+  testWidgets(
+    'last index section is selected when the form reaches its bottom',
+    (tester) async {
+      await _desktop(tester, () async {
+        await _pump(tester);
+        await tester.tap(find.text(DesktopStrings.settingsAppSection));
+        await tester.pumpAndSettle();
+        final indexSemantics = find.ancestor(
+          of: find.text(DesktopStrings.settingsAppSection),
           matching: find.byWidgetPredicate(
             (w) => w is Semantics && w.properties.selected == true,
           ),
-        ),
-        findsOneWidget,
-      );
-    });
-  });
+        );
+        expect(indexSemantics, findsOneWidget);
+        final form = tester.widget<SingleChildScrollView>(
+          find.byType(SingleChildScrollView).last,
+        );
+        expect(form.controller!.position.extentAfter, lessThanOrEqualTo(1));
+        form.controller!.jumpTo(0);
+        await tester.pump();
+        expect(
+          find.ancestor(
+            of: find.text('Подключение'),
+            matching: find.byWidgetPredicate(
+              (w) => w is Semantics && w.properties.selected == true,
+            ),
+          ),
+          findsOneWidget,
+        );
+      });
+    },
+  );
 
   for (final scale in <double>[1, 1.5, 2]) {
-    testWidgets('desktop action label fits at text scale $scale',
-        (tester) async {
+    testWidgets('desktop action label fits at text scale $scale', (
+      tester,
+    ) async {
       await _desktop(tester, () async {
         await tester.pumpWidget(
           MaterialApp(
@@ -234,8 +238,9 @@ void main() {
             ),
           ),
         );
-        final paragraph =
-            tester.renderObject<RenderParagraph>(find.text('Изменить'));
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.text('Изменить'),
+        );
         final painter = TextPainter(
           text: paragraph.text,
           textDirection: TextDirection.ltr,
@@ -287,6 +292,16 @@ void main() {
 
       expect(container.read(coreConfigProvider).dns, 0);
 
+      // Пикер живёт ниже сгиба: форма длинная, и одна новая строка в разделе
+      // выше («Правила по приложениям») уводит его за нижнюю кромку окна.
+      // Прокручиваем к строке, а не полагаемся на то, что она видна сразу, —
+      // иначе тест ловит не поведение пикера, а высоту формы.
+      await tester.scrollUntilVisible(
+        _controlIn('DNS-резолвер', DesktopPicker),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
       await tester.tap(_controlIn('DNS-резолвер', DesktopPicker));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Cloudflare'));
@@ -390,26 +405,28 @@ void main() {
     });
   });
 
-  testWidgets('pending approval explains why requested autostart is not active',
-      (tester) async {
-    await _desktop(tester, () async {
-      final container = await _pump(tester, autostart: true);
-      container.read(desktopPrefsProvider.notifier).setLaunchAtLogin(true);
-      container.read(autostartApprovalPendingProvider.notifier).state = true;
-      await tester.tap(find.text(DesktopStrings.settingsAppSection));
-      await tester.pumpAndSettle();
-      expect(
-        find.text(DesktopStrings.launchAtLoginNeedsApproval),
-        findsOneWidget,
-      );
-      final sw = tester.widget<Switch>(
-        _controlIn(DesktopStrings.launchAtLoginTitle, Switch),
-      );
-      expect(sw.value, isTrue);
-      expect(sw.onChanged, isNotNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-    });
-  });
+  testWidgets(
+    'pending approval explains why requested autostart is not active',
+    (tester) async {
+      await _desktop(tester, () async {
+        final container = await _pump(tester, autostart: true);
+        container.read(desktopPrefsProvider.notifier).setLaunchAtLogin(true);
+        container.read(autostartApprovalPendingProvider.notifier).state = true;
+        await tester.tap(find.text(DesktopStrings.settingsAppSection));
+        await tester.pumpAndSettle();
+        expect(
+          find.text(DesktopStrings.launchAtLoginNeedsApproval),
+          findsOneWidget,
+        );
+        final sw = tester.widget<Switch>(
+          _controlIn(DesktopStrings.launchAtLoginTitle, Switch),
+        );
+        expect(sw.value, isTrue);
+        expect(sw.onChanged, isNotNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    },
+  );
 
   testWidgets('на системе с автозапуском тумблер работает и молчит', (
     tester,
@@ -426,9 +443,7 @@ void main() {
         reason: 'подпись про macOS 13 на рабочей системе — ложь',
       );
 
-      await tester.tap(
-        _controlIn(DesktopStrings.launchAtLoginTitle, Switch),
-      );
+      await tester.tap(_controlIn(DesktopStrings.launchAtLoginTitle, Switch));
       await _settle(tester);
       expect(container.read(desktopPrefsProvider).launchAtLogin, isTrue);
 

@@ -1573,6 +1573,27 @@
                         </div>
                         <div>
                             <label
+                                class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">AmneziaWG</label>
+                            <div
+                                class="flex items-center justify-between p-3 bg-slate-950/30 rounded-xl border border-border-default">
+                                <div>
+                                    <span class="block text-xs font-bold text-slate-900 dark:text-white">AmneziaWG</span>
+                                    <span class="text-[10px] text-slate-500 dark:text-slate-500">Глобальный
+                                        тумблер протокола. Сервер поднимает отдельный процесс amneziawg-go на
+                                        ноде, sing-box в этом не участвует. Включите здесь, затем тумблером в
+                                        карточке нужной ноды.</span>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" form="main-settings-form" name="amneziawg_enabled"
+                                        value="true" class="sr-only peer" {% if amneziawg_enabled %}checked{% endif %}>
+                                    <div
+                                        class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand">
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                        <div>
+                            <label
                                 class="block text-xs font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Auto-rollout
                                 on heartbeat</label>
                             <div

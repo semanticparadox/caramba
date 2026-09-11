@@ -1,4 +1,4 @@
-use caramba_shared::api::{HeartbeatRequest, HeartbeatResponse};
+use caramba_shared::api::{ActiveUser, HeartbeatRequest, HeartbeatResponse};
 use caramba_shared::config::ConfigResponse;
 use caramba_shared::self_update::{apply_self_update, restart_service, sha256_hex_of_file};
 use clap::Parser;
@@ -8,6 +8,7 @@ use std::time::Duration;
 use sysinfo::System;
 use tracing::{error, info, warn};
 
+mod awg;
 mod scanner;
 mod v2rayapi;
 
@@ -385,7 +386,13 @@ struct AgentState {
     cached_speed_mbps: Option<i32>,
     recent_discoveries: std::sync::Arc<tokio::sync::Mutex<Vec<caramba_shared::DiscoveredSni>>>,
     scan_trigger: tokio::sync::mpsc::Sender<()>, // NEW: Pulse for neighbor sniper
-    last_user_usage_totals: std::collections::HashMap<String, u64>,
+    /// Накопительные счётчики sing-box по пользователям: (uplink, downlink).
+    /// Направления разделены с тех пор, как heartbeat отдаёт их панели по
+    /// отдельности; сумма для квот считается из них же.
+    last_user_usage_totals: std::collections::HashMap<String, (u64, u64)>,
+    /// Сервер AmneziaWG: отдельный процесс и интерфейс, живущие рядом с
+    /// sing-box и не зависящие от его перезапусков.
+    awg: awg::AwgManager,
     // Защита от бесконечной ротации SNI:
     // Ротация блокируется если:
     //   - прошло < SNI_ROTATION_COOLDOWN_SECS с последней ротации
@@ -472,6 +479,7 @@ async fn main() -> anyhow::Result<()> {
         recent_discoveries: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
         scan_trigger: scan_tx,
         last_user_usage_totals: std::collections::HashMap::new(),
+        awg: awg::AwgManager::new(),
         last_sni_rotation: None,
         sni_rotation_count_this_hour: 0,
         sni_rotation_hour: 0,
@@ -1078,8 +1086,13 @@ async fn send_heartbeat(
     // пользователей, которое уходит в телеметрию. Раньше это были два
     // независимых источника, и они расходились — панель показывала ноль
     // подключённых при растущем трафике.
-    let user_usage = collect_user_usage_delta(client, &mut state.last_user_usage_totals).await;
-    let active_users = user_usage.as_ref().map(|m| m.len()).unwrap_or(0);
+    let singbox_delta = collect_user_usage_delta(client, &mut state.last_user_usage_totals).await;
+    // AWG живёт вне sing-box, поэтому его пиры приходят вторым источником и
+    // сливаются с первым здесь: панели должен прийти один список людей, а не
+    // два несогласованных.
+    let awg_usage = state.awg.collect_usage().await;
+    let (user_usage, active_user_list) = merge_active_users(singbox_delta.as_ref(), &awg_usage);
+    let active_users = active_user_list.iter().filter(|u| u.online).count();
 
     // Collect Telemetry
     let (latency, cpu, ram, connections, max_ram, cpu_cores, cpu_model) =
@@ -1134,6 +1147,12 @@ async fn send_heartbeat(
         // U23: hand the panel any pending block-detection canary result, then
         // consume it so we only report each detection once.
         block_signals: state.pending_block_signals.take(),
+        // Кто прокачал байты и кто сейчас онлайн — из обоих источников сразу.
+        active_users: if active_user_list.is_empty() {
+            None
+        } else {
+            Some(active_user_list)
+        },
     };
 
     let resp = client
@@ -1264,29 +1283,27 @@ async fn collect_total_traffic(client: &reqwest::Client) -> Option<(u64, u64)> {
 /// Считаем дельту у себя, где потерянный опрос лишь откладывает учёт.
 async fn collect_user_usage_delta(
     _client: &reqwest::Client,
-    last_totals: &mut std::collections::HashMap<String, u64>,
-) -> Option<std::collections::HashMap<String, u64>> {
-    let stats = query_user_traffic_stats().await?;
-
-    let mut current_totals: std::collections::HashMap<String, u64> =
-        std::collections::HashMap::new();
-    for (user, bytes) in stats {
-        let entry = current_totals.entry(user).or_insert(0);
-        *entry = entry.saturating_add(bytes);
-    }
+    last_totals: &mut std::collections::HashMap<String, (u64, u64)>,
+) -> Option<std::collections::HashMap<String, (u64, u64)>> {
+    let current_totals = query_user_traffic_stats().await?;
 
     let mut delta_map = std::collections::HashMap::new();
-    for (user, current_total) in &current_totals {
-        let previous_total = last_totals.get(user).copied().unwrap_or(0);
-        let delta = if *current_total >= previous_total {
-            current_total.saturating_sub(previous_total)
+    for (user, (rx_total, tx_total)) in &current_totals {
+        let (prev_rx, prev_tx) = last_totals.get(user).copied().unwrap_or((0, 0));
+        // Счётчик уехал вниз — sing-box перезапустили. Отдаём наблюдаемое
+        // значение один раз, иначе трафик после рестарта потерялся бы.
+        let rx = if *rx_total >= prev_rx {
+            rx_total - prev_rx
         } else {
-            // Счётчик уехал вниз — sing-box перезапустили. Отдаём наблюдаемое
-            // значение один раз, иначе трафик после рестарта потерялся бы.
-            *current_total
+            *rx_total
         };
-        if delta > 0 {
-            delta_map.insert(user.clone(), delta);
+        let tx = if *tx_total >= prev_tx {
+            tx_total - prev_tx
+        } else {
+            *tx_total
+        };
+        if rx > 0 || tx > 0 {
+            delta_map.insert(user.clone(), (rx, tx));
         }
     }
 
@@ -1299,11 +1316,77 @@ async fn collect_user_usage_delta(
     }
 }
 
-/// Суммарные (uplink + downlink) накопительные счётчики по каждому пользователю.
+/// Свести два источника в один отчёт: сумму байт для квот и список людей.
+///
+/// Источника ровно два и они принципиально разные. sing-box считает трафик
+/// по каждому проксированному соединению, и «онлайн» у него выводится из
+/// дельты: прошли байты — человек здесь. У AmneziaWG соединений нет вовсе,
+/// зато есть хендшейк, поэтому там онлайн приходит отдельным признаком и
+/// молчащий пир остаётся онлайном.
+///
+/// `user_usage` сохраняет прежний смысл — сумма обоих направлений, из которой
+/// панель списывает квоту, — и теперь включает AWG-трафик, не меняя схему БД.
+fn merge_active_users(
+    singbox: Option<&std::collections::HashMap<String, (u64, u64)>>,
+    awg: &[awg::stats::PeerUsage],
+) -> (
+    Option<std::collections::HashMap<String, u64>>,
+    Vec<ActiveUser>,
+) {
+    let mut usage: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    let mut active: Vec<ActiveUser> = Vec::new();
+
+    let mut add = |tag: &str, rx: u64, tx: u64, online: bool| {
+        let total = rx.saturating_add(tx);
+        if total > 0 {
+            let entry = usage.entry(tag.to_string()).or_insert(0);
+            *entry = entry.saturating_add(total);
+        }
+        // Один человек может идти и через sing-box, и через AWG одновременно
+        // (телефон и ноутбук). Две строки с одним тегом панель сложила бы в
+        // произвольном порядке, поэтому складываем здесь.
+        if let Some(existing) = active.iter_mut().find(|u| u.tag == tag) {
+            existing.rx_delta = existing.rx_delta.saturating_add(rx);
+            existing.tx_delta = existing.tx_delta.saturating_add(tx);
+            existing.online = existing.online || online;
+        } else {
+            active.push(ActiveUser {
+                tag: tag.to_string(),
+                rx_delta: rx,
+                tx_delta: tx,
+                online,
+            });
+        }
+    };
+
+    if let Some(delta) = singbox {
+        for (tag, (rx, tx)) in delta {
+            // Для sing-box «онлайн» — это и есть прошедший трафик: в карте
+            // дельт нулевых записей не бывает.
+            add(tag, *rx, *tx, rx.saturating_add(*tx) > 0);
+        }
+    }
+    for peer in awg {
+        add(&peer.tag, peer.rx_delta, peer.tx_delta, peer.online);
+    }
+
+    // Порядок карты непредсказуем, а панель пишет строки одним запросом —
+    // сортировка делает и логи, и тесты воспроизводимыми.
+    active.sort_by(|a, b| a.tag.cmp(&b.tag));
+
+    let usage = if usage.is_empty() { None } else { Some(usage) };
+    (usage, active)
+}
+
+/// Накопительные счётчики (uplink, downlink) по каждому пользователю.
+///
+/// Направления разделены, потому что панель теперь показывает не только
+/// «сколько списать», но и «сколько человек скачал и отдал». Сумма для квот
+/// считается из этой же пары, так что второй источник правды не появляется.
 ///
 /// Ошибка соединения — это `None`, а не пустая карта: пустая означала бы
 /// «весь трафик обнулился» и породила бы ложные дельты после восстановления.
-async fn query_user_traffic_stats() -> Option<std::collections::HashMap<String, u64>> {
+async fn query_user_traffic_stats() -> Option<std::collections::HashMap<String, (u64, u64)>> {
     use v2rayapi::stats_service_client::StatsServiceClient;
 
     let mut client = match StatsServiceClient::connect(v2ray_api_endpoint()).await {
@@ -1332,22 +1415,38 @@ async fn query_user_traffic_stats() -> Option<std::collections::HashMap<String, 
         }
     };
 
-    let mut totals: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    let mut totals: std::collections::HashMap<String, (u64, u64)> =
+        std::collections::HashMap::new();
     for stat in response.stat {
-        let Some(user) = parse_stat_user(&stat.name) else {
+        let Some((user, direction)) = parse_stat_counter(&stat.name) else {
             continue;
         };
         let value = u64::try_from(stat.value).unwrap_or(0);
-        *totals.entry(user).or_insert(0) += value;
+        let entry = totals.entry(user).or_insert((0, 0));
+        match direction {
+            StatDirection::Uplink => entry.0 = entry.0.saturating_add(value),
+            StatDirection::Downlink => entry.1 = entry.1.saturating_add(value),
+        }
     }
     Some(totals)
 }
 
-/// `user>>>user_42>>>traffic>>>uplink` → `user_42`.
+/// Направление счётчика sing-box.
 ///
-/// Имя пользователя может содержать что угодно кроме разделителя, поэтому
-/// разбираем по позиции, а не поиском подстроки.
-fn parse_stat_user(name: &str) -> Option<String> {
+/// «Uplink» у sing-box — это то, что пользователь ОТПРАВИЛ, то есть принятое
+/// узлом. Поэтому в heartbeat оно уезжает как `rx_delta`, ровно как
+/// `rx_bytes` у WireGuard: обе стороны контракта смотрят со стороны узла.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatDirection {
+    Uplink,
+    Downlink,
+}
+
+/// `user>>>user_42>>>traffic>>>uplink` → (`user_42`, Uplink).
+///
+/// Разбираем по позиции, а не поиском подстроки: имя пользователя может
+/// содержать что угодно, кроме самого разделителя.
+fn parse_stat_counter(name: &str) -> Option<(String, StatDirection)> {
     let mut parts = name.split(">>>");
     if parts.next()? != "user" {
         return None;
@@ -1356,7 +1455,22 @@ fn parse_stat_user(name: &str) -> Option<String> {
     if user.is_empty() {
         return None;
     }
-    Some(user.to_string())
+    if parts.next()? != "traffic" {
+        return None;
+    }
+    let direction = match parts.next()?.trim() {
+        "uplink" => StatDirection::Uplink,
+        "downlink" => StatDirection::Downlink,
+        _ => return None,
+    };
+    Some((user.to_string(), direction))
+}
+
+/// Только имя пользователя из счётчика. Живёт ради тестов разбора: рабочий код
+/// без направления обойтись уже не может.
+#[cfg(test)]
+fn parse_stat_user(name: &str) -> Option<String> {
+    parse_stat_counter(name).map(|(user, _)| user)
 }
 
 async fn check_and_update_config(
@@ -1379,6 +1493,13 @@ async fn check_and_update_config(
     }
 
     let config_resp: ConfigResponse = resp.json().await?;
+
+    // Раздел awg запоминаем ДО разбора sing-box-конфига и применяем в самом
+    // конце. Он намеренно не участвует в `hash`: панель считает его только от
+    // sing-box-конфига, поэтому добавление AWG-пира не перезаписывает
+    // /etc/sing-box/config.json и не перезапускает sing-box — иначе каждая
+    // выдача ключа рвала бы сессии всем остальным.
+    state.awg.set_desired(config_resp.awg.clone());
 
     // Check if hash changed
     if state.current_hash.as_ref() != Some(&config_resp.hash) {
@@ -1456,6 +1577,11 @@ async fn check_and_update_config(
             refresh_clash_secret(&config_resp.content);
         }
     }
+
+    // Интерфейс AWG доводим до желаемого состояния на каждой проверке, а не
+    // только при изменении конфига: процесс мог не пережить перезагрузку узла,
+    // и поднять его обязан сам агент.
+    state.awg.ensure_applied(client).await;
 
     Ok(())
 }
@@ -2510,6 +2636,133 @@ mod v2ray_stats_tests {
     #[test]
     fn a_blank_user_is_not_a_user() {
         assert_eq!(parse_stat_user("user>>>   >>>traffic>>>uplink"), None);
+    }
+}
+
+#[cfg(test)]
+mod active_users_tests {
+    use super::{ActiveUser, merge_active_users};
+    use crate::awg::stats::PeerUsage;
+    use std::collections::HashMap;
+
+    fn singbox(pairs: &[(&str, u64, u64)]) -> HashMap<String, (u64, u64)> {
+        pairs
+            .iter()
+            .map(|(tag, rx, tx)| (tag.to_string(), (*rx, *tx)))
+            .collect()
+    }
+
+    fn find<'a>(list: &'a [ActiveUser], tag: &str) -> &'a ActiveUser {
+        list.iter().find(|u| u.tag == tag).expect("тег в списке")
+    }
+
+    /// Квота списывается с суммы направлений — прежний смысл `user_usage`
+    /// сохраняется, иначе после разделения rx/tx биллинг поехал бы.
+    #[test]
+    fn the_quota_total_is_the_sum_of_both_directions() {
+        let delta = singbox(&[("user_42", 100, 400)]);
+        let (usage, active) = merge_active_users(Some(&delta), &[]);
+        assert_eq!(usage.unwrap().get("user_42"), Some(&500));
+        assert_eq!(find(&active, "user_42").rx_delta, 100);
+        assert_eq!(find(&active, "user_42").tx_delta, 400);
+    }
+
+    /// Для sing-box онлайн — это и есть прошедший трафик: других признаков
+    /// присутствия у прокси-протоколов нет.
+    #[test]
+    fn singbox_traffic_means_online() {
+        let delta = singbox(&[("user_42", 1, 0)]);
+        let (_, active) = merge_active_users(Some(&delta), &[]);
+        assert!(find(&active, "user_42").online);
+    }
+
+    /// AWG-пир может молчать и быть подключённым — он обязан попасть в список
+    /// и при этом не добавить ни байта в квоту.
+    #[test]
+    fn a_silent_awg_peer_is_online_without_touching_the_quota() {
+        let awg = vec![PeerUsage {
+            tag: "user_7".to_string(),
+            rx_delta: 0,
+            tx_delta: 0,
+            online: true,
+        }];
+        let (usage, active) = merge_active_users(None, &awg);
+        assert!(
+            usage.is_none(),
+            "нулевой трафик не должен создавать запись квоты"
+        );
+        assert!(find(&active, "user_7").online);
+    }
+
+    /// Трафик AWG попадает в тот же `user_usage`: схема app_traffic_daily
+    /// протокол-агностична, и второго пайплайна учёта быть не должно.
+    #[test]
+    fn awg_traffic_lands_in_the_same_usage_map() {
+        let awg = vec![PeerUsage {
+            tag: "user_7".to_string(),
+            rx_delta: 10,
+            tx_delta: 90,
+            online: true,
+        }];
+        let (usage, _) = merge_active_users(None, &awg);
+        assert_eq!(usage.unwrap().get("user_7"), Some(&100));
+    }
+
+    /// Один человек с телефоном на AWG и ноутбуком на sing-box — одна строка,
+    /// а не две: панель пишет активность одним запросом по тегу.
+    #[test]
+    fn one_person_on_two_protocols_is_a_single_row() {
+        let delta = singbox(&[("user_42", 100, 200)]);
+        let awg = vec![PeerUsage {
+            tag: "user_42".to_string(),
+            rx_delta: 5,
+            tx_delta: 7,
+            online: true,
+        }];
+        let (usage, active) = merge_active_users(Some(&delta), &awg);
+        assert_eq!(active.len(), 1);
+        let row = find(&active, "user_42");
+        assert_eq!((row.rx_delta, row.tx_delta), (105, 207));
+        assert_eq!(usage.unwrap().get("user_42"), Some(&312));
+    }
+
+    /// Офлайн по одному источнику не отменяет онлайна по другому.
+    #[test]
+    fn online_from_any_source_wins() {
+        let awg = vec![
+            PeerUsage {
+                tag: "user_42".to_string(),
+                rx_delta: 0,
+                tx_delta: 0,
+                online: false,
+            },
+            PeerUsage {
+                tag: "user_42".to_string(),
+                rx_delta: 0,
+                tx_delta: 0,
+                online: true,
+            },
+        ];
+        let (_, active) = merge_active_users(None, &awg);
+        assert!(find(&active, "user_42").online);
+    }
+
+    /// Тишина с обеих сторон — пустой отчёт, а не список нулей.
+    #[test]
+    fn nothing_happening_reports_nothing() {
+        let (usage, active) = merge_active_users(None, &[]);
+        assert!(usage.is_none());
+        assert!(active.is_empty());
+    }
+
+    /// Порядок строк устойчив: иначе журнал и тесты зависели бы от порядка
+    /// обхода карты.
+    #[test]
+    fn the_report_is_sorted_by_tag() {
+        let delta = singbox(&[("user_9", 1, 1), ("user_1", 1, 1), ("user_5", 1, 1)]);
+        let (_, active) = merge_active_users(Some(&delta), &[]);
+        let tags: Vec<&str> = active.iter().map(|u| u.tag.as_str()).collect();
+        assert_eq!(tags, vec!["user_1", "user_5", "user_9"]);
     }
 }
 

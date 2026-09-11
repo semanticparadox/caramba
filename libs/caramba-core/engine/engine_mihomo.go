@@ -8,6 +8,7 @@ package engine
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 	"time"
 
@@ -85,9 +86,20 @@ func (e *mihomoEngine) Start(configPath string) error {
 		// Поиск процесса на Android читает /data/system/packages.xml, куда у
 		// обычного приложения нет доступа: TUN-листенер падает с permission
 		// denied и туннель молча не поднимается. Раздельное туннелирование по
-		// приложениям на мобильных делает сама ОС (VpnService.Builder), поэтому
-		// ядру этот режим не нужен.
-		cfg.General.FindProcessMode = process.FindProcessOff
+		// приложениям на Android делает сама ОС (VpnService.Builder), поэтому
+		// ядру этот режим там не нужен.
+		//
+		// Раньше гейт срабатывал на любой платформе, получающей TUN-дескриптор
+		// извне (tunFd >= 0) — это заодно гасило поиск процесса и на macOS/iOS
+		// (там TUN тоже отдаёт не ядро, а Network Extension), хотя причина
+		// (packages.xml) специфична только для Android. На macOS процессные
+		// правила (PROCESS-NAME) в split-tunnel по приложениям как раз нужны —
+		// молчаливый Off лишал их смысла без единой строки об этом в коде.
+		// На Windows/Linux эта ветка вообще не выполняется: там tunFd всегда
+		// -1, ядро поднимает TUN само.
+		if shouldForceFindProcessOff(runtime.GOOS) {
+			cfg.General.FindProcessMode = process.FindProcessOff
+		}
 	}
 
 	// force=true — полностью переинициализировать ядро под новый конфиг
@@ -241,6 +253,22 @@ func activeProxyName() string {
 		name = inner
 	}
 	return name
+}
+
+// shouldForceFindProcessOff решает, нужно ли принудительно выключать поиск
+// процесса mihomo (PROCESS-NAME/PROCESS-PATH правила) для платформы goos.
+//
+// Вызывается только внутри ветки tunFd >= 0 (TUN-дескриптор пришёл от
+// платформы, а не поднят ядром), поэтому здесь достаточно различать сами
+// платформы: только Android читает /data/system/packages.xml без доступа и
+// валит TUN-листенер permission denied (см. комментарий в Start). На macOS и
+// iOS TUN тоже отдаёт не ядро (Network Extension), но эта причина — Android-
+// специфичная, и раньше единый гейт `tunFd >= 0` ошибочно выключал процессные
+// правила и там, хотя на macOS split-tunnel по приложениям как раз опирается
+// на PROCESS-NAME-правила ядра (per-app VPN там делает не Builder, как на
+// Android, — своего аналога у Apple нет).
+func shouldForceFindProcessOff(goos string) bool {
+	return goos == "android"
 }
 
 // forgetTunConf забывает конфигурацию TUN, которую mihomo запомнил при подъёме.

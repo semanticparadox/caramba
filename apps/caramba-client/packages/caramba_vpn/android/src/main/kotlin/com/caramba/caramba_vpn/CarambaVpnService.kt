@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
@@ -97,7 +98,7 @@ class CarambaVpnService : VpnService() {
         // Build the local TUN interface and detach its fd for the Go core.
         val pfd: ParcelFileDescriptor
         try {
-            pfd = buildInterface(serverName)
+            pfd = buildInterface(serverName, seam.policyJson)
         } catch (t: Throwable) {
             publishStatus(CarambaStage.ERROR, "Failed to create tunnel interface: ${t.message}")
             stopForegroundCompat()
@@ -315,7 +316,17 @@ class CarambaVpnService : VpnService() {
 
     // MARK: VPN interface
 
-    private fun buildInterface(serverName: String): ParcelFileDescriptor {
+    /**
+     * Интерфейс туннеля и раздельное туннелирование по приложениям.
+     *
+     * [policyJson] — та же строка политики ABI v2, которую сервис ниже отдаёт
+     * ядру. Она нужна ЗДЕСЬ, потому что на Android правила `PROCESS-NAME`
+     * ядра не работают вовсе (движок гасит поиск процесса: /data/system/packages.xml
+     * обычному приложению недоступен), и единственное место, где выбор человека
+     * превращается в поведение, — этот Builder. Раньше он про политику не знал,
+     * и список приложений уезжал в ядро, где его молча никто не применял.
+     */
+    private fun buildInterface(serverName: String, policyJson: String): ParcelFileDescriptor {
         val builder = Builder()
             .setSession(if (serverName.isNotEmpty()) "exarobot — $serverName" else "exarobot")
             .setMtu(CarambaTun.MTU)
@@ -328,12 +339,45 @@ class CarambaVpnService : VpnService() {
             .addDnsServer(CarambaTun.DNS)
             .addDnsServer(CarambaTun.DNS_FALLBACK)
 
-        // Keep our own app out of the tunnel so config/subscription fetches and
-        // the management plane never loop back through mihomo while connecting.
-        try {
-            builder.addDisallowedApplication(packageName)
-        } catch (_: Exception) {
-            // packageName always installed; guard is defensive only.
+        // Раздельное туннелирование по приложениям.
+        //
+        // Списки взаимоисключающие: allow и disallow нельзя смешивать на одном
+        // Builder, Android бросает UnsupportedOperationException и туннель не
+        // поднимается совсем. Решение принимает CarambaSplitPlan, здесь только
+        // применение.
+        //
+        // Своё приложение всегда вне туннеля в режимах off/bypass: запросы
+        // конфига и подписки не должны петлять через mihomo, пока туннель ещё
+        // поднимается. В режиме allow его нет в списке, и Android оставляет его
+        // снаружи сам.
+        val plan = CarambaSplitPlan.fromPolicyJson(policyJson)
+        val allowed = plan.allowedApps(packageName)
+        var allowedApplied = 0
+        for (app in allowed) {
+            try {
+                builder.addAllowedApplication(app)
+                allowedApplied++
+            } catch (_: PackageManager.NameNotFoundException) {
+                // Приложение успели удалить после выбора. Свой try на КАЖДЫЙ
+                // пакет именно поэтому: один протухший пакет не должен оставить
+                // человека без туннеля целиком.
+                Log.w("CarambaVpnService", "split: allowed package not installed: $app")
+            }
+        }
+        if (allowedApplied == 0) {
+            // Сюда приходят два случая: режим не allow — и allow, у которого не
+            // уцелело ни одного выбранного приложения. Во втором Builder остался
+            // бы вовсе без списков, то есть пустил бы в туннель ВСЕХ, включая
+            // нас самих, — поэтому своё приложение исключается в любом случае.
+            val disallowed = plan.disallowedApps(packageName)
+                .ifEmpty { CarambaSplitPlan.OFF.disallowedApps(packageName) }
+            for (app in disallowed) {
+                try {
+                    builder.addDisallowedApplication(app)
+                } catch (_: PackageManager.NameNotFoundException) {
+                    Log.w("CarambaVpnService", "split: disallowed package not installed: $app")
+                }
+            }
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

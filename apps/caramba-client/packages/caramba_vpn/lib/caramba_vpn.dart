@@ -17,6 +17,7 @@ import 'package:caramba_vpn/src/core_policy.dart';
 import 'package:caramba_vpn/src/ffi/caramba_core_bindings.dart'
     show CarambaCoreMissingSymbol;
 import 'package:caramba_vpn/src/ffi_vpn_connection.dart';
+import 'package:caramba_vpn/src/installed_app.dart';
 import 'package:caramba_vpn/src/method_channel_vpn_connection.dart';
 import 'package:caramba_vpn/src/mock_vpn_connection.dart';
 import 'package:flutter/foundation.dart'
@@ -41,6 +42,8 @@ export 'package:caramba_vpn/src/ffi/core_loader.dart'
 export 'package:caramba_vpn/src/ffi/library_lookup.dart'
     show carambaCoreLibFileName, carambaCoreLibraryCandidates;
 export 'package:caramba_vpn/src/ffi_vpn_connection.dart' show FfiVpnConnection;
+export 'package:caramba_vpn/src/installed_app.dart'
+    show InstalledApp, installedAppsFromChannel;
 export 'package:caramba_vpn/src/method_channel_vpn_connection.dart'
     show MethodChannelVpnConnection;
 export 'package:caramba_vpn/src/mock_vpn_connection.dart'
@@ -93,6 +96,9 @@ class CarambaVpn {
   /// Имя метода seam-конфигурации.
   static const String _configureMethod = 'configure';
 
+  /// Имя метода перечисления установленных приложений.
+  static const String _listInstalledAppsMethod = 'listInstalledApps';
+
   /// Передаёт нативному ядру auth/config-seam до подключения.
   ///
   /// * [panelUrl] — базовый URL панели (`https://panel.example`), обязателен.
@@ -129,6 +135,40 @@ class CarambaVpn {
         accessExpiry: accessExpiry,
       ).toArgs(),
     );
+  }
+
+  /// Установленные приложения, из которых человек выбирает правила по
+  /// приложениям (раздельное туннелирование).
+  ///
+  /// ЕСТЬ ТОЛЬКО НА ANDROID, и это не временный пробел. Там раздельное
+  /// туннелирование применяет `VpnService.Builder` по именам пакетов, и
+  /// система даёт их перечислить. На десктопе реестра установленных программ в
+  /// этом смысле нет вовсе (правила ядра работают по имени процесса, и его
+  /// выбирают файловым диалогом), на iOS per-app VPN требует MDM-профиля.
+  ///
+  /// На всех прочих платформах — ПУСТОЙ СПИСОК, а не исключение: вызывающий
+  /// экран показывает свой источник выбора, и разбирать там платформу второй
+  /// раз значило бы завести второе место, где живёт это знание.
+  ///
+  /// [MissingPluginException] тоже даёт пустой список: старая нативная сборка
+  /// этого метода не регистрирует, и для экрана это то же самое «выбирать
+  /// нечего», а не поломка, о которой человеку надо что-то решать.
+  Future<List<InstalledApp>> listInstalledApps({
+    TargetPlatform? platform,
+    bool isWeb = kIsWeb,
+  }) async {
+    final target = platform ?? defaultTargetPlatform;
+    if (isWeb || target != TargetPlatform.android) {
+      return const <InstalledApp>[];
+    }
+    try {
+      final reply = await _channel.invokeMethod<Object?>(
+        _listInstalledAppsMethod,
+      );
+      return installedAppsFromChannel(reply);
+    } on MissingPluginException {
+      return const <InstalledApp>[];
+    }
   }
 
   /// Какой бэкенд выбрать на текущей платформе.

@@ -36,6 +36,7 @@ import 'package:caramba_client/desktop/widgets/desktop_picker.dart';
 import 'package:caramba_client/desktop/widgets/form_row.dart';
 import 'package:caramba_client/features/csm/config_age_card.dart';
 import 'package:caramba_client/features/csm/keep_or_revert_card.dart';
+import 'package:caramba_client/features/settings/app_rules_screen.dart';
 import 'package:caramba_client/features/settings/csm_settings_bridge.dart';
 import 'package:caramba_client/features/settings/csm_write_status_note.dart';
 import 'package:caramba_client/features/settings/enhancements_summary.dart';
@@ -71,19 +72,21 @@ const String _kChange = 'Изменить';
 /// настроек. Список закрытый и от состояния не зависит, поэтому он константа.
 const List<({String name, String desc, String? icon})> _kTunnelOptions =
     <({String name, String desc, String? icon})>[
-  (
-    name: 'Системный TUN',
-    desc: 'Весь трафик устройства. Нужны права '
-        'администратора или системное расширение.',
-    icon: null,
-  ),
-  (
-    name: 'Локальный прокси',
-    desc: 'SOCKS5 и HTTP на 127.0.0.1:7890. Без прав, '
-        'трафик направляют приложения или система.',
-    icon: null,
-  ),
-];
+      (
+        name: 'Системный TUN',
+        desc:
+            'Весь трафик устройства. Нужны права '
+            'администратора или системное расширение.',
+        icon: null,
+      ),
+      (
+        name: 'Локальный прокси',
+        desc:
+            'SOCKS5 и HTTP на 127.0.0.1:7890. Без прав, '
+            'трафик направляют приложения или система.',
+        icon: null,
+      ),
+    ];
 
 class SettingsDesktopScreen extends ConsumerStatefulWidget {
   const SettingsDesktopScreen({super.key});
@@ -137,13 +140,15 @@ class _SettingsDesktopScreenState extends ConsumerState<SettingsDesktopScreen> {
 
     // Short final sections cannot reach the upper edge. At the bottom,
     // select the last section instead of leaving the preceding one active.
-    final atBottom = _scroll.hasClients &&
+    final atBottom =
+        _scroll.hasClients &&
         _scroll.position.maxScrollExtent > 0 &&
         _scroll.position.extentAfter <= 1;
     var next = atBottom ? _ids.length - 1 : 0;
     for (var i = 0; !atBottom && i < _ids.length; i++) {
-      final box = _sectionKeys[_ids[i]]?.currentContext?.findRenderObject()
-          as RenderBox?;
+      final box =
+          _sectionKeys[_ids[i]]?.currentContext?.findRenderObject()
+              as RenderBox?;
       if (box == null || !box.attached) continue;
       if (box.localToGlobal(Offset.zero, ancestor: form).dy <= _kActiveEdge) {
         next = i;
@@ -168,10 +173,9 @@ class _SettingsDesktopScreenState extends ConsumerState<SettingsDesktopScreen> {
   /// списки значений не переписываются под вторую платформу.
   List<({String name, String desc, String? icon})> _coreOptions(
     List<CoreOption> options,
-  ) =>
-      <({String name, String desc, String? icon})>[
-        for (final o in options) (name: o.name, desc: o.desc, icon: null),
-      ];
+  ) => <({String name, String desc, String? icon})>[
+    for (final o in options) (name: o.name, desc: o.desc, icon: null),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -276,6 +280,17 @@ class _SettingsDesktopScreenState extends ConsumerState<SettingsDesktopScreen> {
               onPressed: () => context.go(AppRoute.siteRules),
             ),
           ),
+          // На десктопе список приложений это имена ПРОЦЕССОВ (их выбирают
+          // файловым диалогом), но строка настроек та же самая и в том же
+          // разделе: вопрос «какой трафик куда идёт» один на все платформы.
+          FormRow(
+            label: kAppRulesTitle,
+            description: appRulesSummary(cfg),
+            control: FormOpenButton(
+              label: _kOpen,
+              onPressed: () => context.go(AppRoute.appRules),
+            ),
+          ),
         ],
         extras: <Widget>[
           // Граница метода, а не состояние сборки: стоит рядом с включённым
@@ -286,7 +301,8 @@ class _SettingsDesktopScreenState extends ConsumerState<SettingsDesktopScreen> {
             const InlineBanner(
               tone: BannerTone.info,
               glyph: Lucide.alert,
-              text: 'Блок режет по имени домена из первого пакета '
+              text:
+                  'Блок режет по имени домена из первого пакета '
                   'соединения. Реклама, загруженная по голому IP или '
                   'спрятанная шифрованием имени (ECH), проходит мимо — это '
                   'граница метода, а не сбой конкретного списка.',
@@ -351,7 +367,8 @@ class _SettingsDesktopScreenState extends ConsumerState<SettingsDesktopScreen> {
           ),
           FormRow(
             label: 'Захват трафика',
-            description: 'TUN заворачивает весь трафик системы и требует прав. '
+            description:
+                'TUN заворачивает весь трафик системы и требует прав. '
                 'Прокси поднимает 127.0.0.1:$kMixedPort без прав.',
             control: DesktopPicker(
               options: _kTunnelOptions,
@@ -481,8 +498,8 @@ class _SettingsDesktopScreenState extends ConsumerState<SettingsDesktopScreen> {
             // версия новее, — а таких большинство.
             description: autostartSupported
                 ? (approvalPending
-                    ? DesktopStrings.launchAtLoginNeedsApproval
-                    : null)
+                      ? DesktopStrings.launchAtLoginNeedsApproval
+                      : null)
                 : ref.watch(autostartUnavailableMessageProvider),
             control: Switch(
               value: prefs.launchAtLogin,

@@ -3,6 +3,11 @@ package com.caramba.caramba_vpn
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.Drawable
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
@@ -18,6 +23,7 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.PluginRegistry
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
 
 // CarambaVpnPlugin — the app-process Flutter plugin for Android.
@@ -264,6 +270,17 @@ class CarambaVpnPlugin :
                 result.success(null)
             }
 
+            "listInstalledApps" -> {
+                // Перечислять приложения и рисовать их иконки — десятки обращений
+                // к PackageManager и столько же декодирований PNG; на платформенном
+                // потоке это заметная пауза интерфейса ровно в тот момент, когда
+                // человек открыл экран выбора. Поэтому так же, как probe и import:
+                // работа на фоне, ответ на главном потоке.
+                runOnWorker(result, "list_installed_apps_failed") {
+                    CarambaInstalledApps.list(appContext)
+                }
+            }
+
             // --- CSM/1 device keys (ABI v3) --------------------------------------
             //
             // These do NOT touch the Go core: the key lives in the AndroidKeyStore
@@ -493,13 +510,19 @@ class CarambaVpnPlugin :
      * Runs a blocking core call on a background thread and replies on the main
      * thread. importSubscription parses a whole subscription and probe dials
      * every node, so neither may sit on the platform thread.
+     *
+     * Тип ответа параметризован, а не зафиксирован строкой JSON: перечисление
+     * установленных приложений отдаёт список карт с байтами иконок, и
+     * заворачивать его в строку значило бы кодировать картинки в base64 ради
+     * сигнатуры этого хелпера. Для всех прежних вызовов `T` выводится как
+     * String, и они не меняются вовсе.
      */
-    private fun runOnWorker(result: Result, errorCode: String, body: () -> String) {
+    private fun <T> runOnWorker(result: Result, errorCode: String, body: () -> T) {
         Thread({
             val reply: Result = result
             try {
-                val json = body()
-                mainHandler.post { reply.success(json) }
+                val value = body()
+                mainHandler.post { reply.success(value) }
             } catch (t: Throwable) {
                 val message = t.message ?: errorCode
                 mainHandler.post { reply.error(errorCode, message, null) }
@@ -794,5 +817,106 @@ class CarambaVpnPlugin :
         override fun onTraffic(snapshot: CarambaTrafficSnapshot) {
             trafficSink?.success(snapshot.asMap())
         }
+    }
+}
+
+/**
+ * Перечисление установленных приложений для экрана «Правила по приложениям».
+ *
+ * ЗАЧЕМ ЭТО ВООБЩЕ ЕСТЬ. Список выбирает человек, а раздельное туннелирование
+ * на Android применяет VpnService.Builder по именам пакетов — и до этого
+ * перечисления приложению было НЕЧЕМ показать, из чего выбирать: экран правил
+ * по приложениям отсутствовал именно поэтому, а не по недосмотру.
+ *
+ * БЕРЁМ ТОЛЬКО ЗАПУСКАЕМЫЕ (MAIN/LAUNCHER) и только через `<queries>` в
+ * манифесте приложения — без разрешения QUERY_ALL_PACKAGES. Оно дало бы ещё и
+ * фоновые/системные пакеты, но стоило бы отдельного обоснования в Google Play
+ * review; человек выбирает то, что видит в лаунчере, и этот список ему ровно
+ * соответствует.
+ *
+ * Своего пакета в списке нет: он и так всегда вне туннеля (см. CarambaSplitPlan),
+ * и выбирать его было бы выбором без последствий.
+ */
+internal object CarambaInstalledApps {
+    /**
+     * Сторона иконки в пикселях. 96 — это xxhdpi-launcher: на экране строка
+     * списка не больше, а каждая лишняя точка едет через канал в виде PNG
+     * для каждого из полутора сотен приложений.
+     */
+    private const val ICON_SIDE_PX = 96
+
+    fun list(context: Context): List<Map<String, Any?>> {
+        val pm = context.packageManager
+        val selfPackage = context.packageName
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+
+        val seen = HashSet<String>()
+        val out = ArrayList<Map<String, Any?>>()
+        for (info in queryLaunchers(pm, intent)) {
+            val pkg = info.activityInfo?.packageName ?: continue
+            if (pkg == selfPackage) continue
+            // Одно приложение может объявить несколько LAUNCHER-активностей;
+            // в списке ему полагается одна строка.
+            if (!seen.add(pkg)) continue
+
+            val label = try {
+                info.loadLabel(pm).toString().trim()
+            } catch (_: Throwable) {
+                ""
+            }
+            // Иконка необязательна: приложение без неё должно остаться в
+            // списке с именем, а не исчезнуть из выбора.
+            val icon = try {
+                iconPng(info.loadIcon(pm))
+            } catch (_: Throwable) {
+                null
+            }
+
+            out.add(
+                mapOf(
+                    CarambaVpnKeys.APP_PACKAGE to pkg,
+                    CarambaVpnKeys.APP_LABEL to if (label.isNotEmpty()) label else pkg,
+                    CarambaVpnKeys.APP_ICON_PNG to icon,
+                )
+            )
+        }
+        // Сортировка здесь, а не в Dart: сравнение строк без учёта регистра
+        // платформа делает один раз, а список приезжает готовым к показу.
+        out.sortWith(
+            compareBy(String.CASE_INSENSITIVE_ORDER) { app: Map<String, Any?> ->
+                (app[CarambaVpnKeys.APP_LABEL] as? String).orEmpty()
+            }
+        )
+        return out
+    }
+
+    private fun queryLaunchers(pm: PackageManager, intent: Intent): List<ResolveInfo> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(0L))
+        } else {
+            @Suppress("DEPRECATION")
+            pm.queryIntentActivities(intent, 0)
+        }
+    }
+
+    /**
+     * Иконка в PNG.
+     *
+     * Рисуем через Canvas, а не достаём Bitmap из BitmapDrawable: с Android 8
+     * лаунчерная иконка чаще всего AdaptiveIconDrawable (слои + маска), и у
+     * неё никакого готового Bitmap нет вовсе — приведение типа роняло бы
+     * ровно современные приложения.
+     */
+    private fun iconPng(drawable: Drawable): ByteArray? {
+        val bitmap = Bitmap.createBitmap(ICON_SIDE_PX, ICON_SIDE_PX, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        drawable.setBounds(0, 0, ICON_SIDE_PX, ICON_SIDE_PX)
+        drawable.draw(canvas)
+        val bytes = ByteArrayOutputStream().use { sink ->
+            if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, sink)) return null
+            sink.toByteArray()
+        }
+        bitmap.recycle()
+        return bytes
     }
 }

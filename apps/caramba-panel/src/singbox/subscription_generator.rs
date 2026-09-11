@@ -114,6 +114,33 @@ pub(crate) struct StreamInfo {
     pub(crate) tuic_zero_rtt_handshake: Option<bool>,
 }
 
+/// Публичный ключ сервера AmneziaWG.
+///
+/// Источник правды это строка `node_awg`; в подписку она доезжает зеркальной
+/// строкой `inbounds` (её пишет `AwgService::sync_mirror_inbound`), потому что
+/// генераторы подписки синхронные и в БД сходить не могут. Брать `si.public_key`
+/// нельзя: это ключ Reality из stream_settings, у AWG-инбаунда он пуст, и
+/// раньше подписка выдавала AWG с пустым peer public key.
+pub(crate) fn awg_server_public_key(inbound: &caramba_db::models::network::Inbound) -> String {
+    serde_json::from_str::<Value>(&inbound.settings)
+        .ok()
+        .and_then(|v| {
+            v.get("public_key")
+                .and_then(|k| k.as_str())
+                .map(|k| k.to_string())
+        })
+        .unwrap_or_default()
+}
+
+/// Адрес клиента в пуле AmneziaWG. Та же функция, что выдаёт `allowed_ip`
+/// пиру на ноде, поэтому конфиг клиента и пир на узле не могут разъехаться.
+pub(crate) fn awg_client_address(subscription_id: i64) -> String {
+    format!(
+        "{}/32",
+        crate::services::awg_service::awg_allowed_ip(subscription_id)
+    )
+}
+
 fn is_placeholder_sni(sni: &str) -> bool {
     let sni = sni.trim().to_ascii_lowercase();
     sni.is_empty() || sni == "www.google.com" || sni == "google.com" || sni == "drive.google.com"
@@ -214,8 +241,12 @@ fn build_singbox_outbound(
     if matches!(si.network.as_str(), "xhttp" | "splithttp") {
         return None;
     }
-    // AmneziaWG is hidden unless explicitly enabled (no client/server support yet).
-    if inbound.protocol.eq_ignore_ascii_case("amneziawg") && !crate::utils::amneziawg_enabled() {
+    // AmneziaWG в sing-box-теле не выпускается вообще, ни при каком тумблере.
+    // Тело читают сторонние sing-box-клиенты, а стоковый sing-box не понимает
+    // полей обфускации AWG: он собрал бы голый WireGuard против AWG-сервера,
+    // то есть заведомо мёртвый outbound. AWG уезжает клиенту в clash-теле
+    // (mihomo умеет amnezia-wg-option) и ссылкой wireguard://.
+    if inbound.protocol.eq_ignore_ascii_case("amneziawg") {
         return None;
     }
 
@@ -433,31 +464,6 @@ fn build_singbox_outbound(
                 "naive опущен в sing-box-теле: naive outbound не входит в стоковую сборку sing-box"
             );
             return None;
-        }
-        "amneziawg" => {
-            let client_id = user_keys
-                .hy2_password
-                .split(':')
-                .next()
-                .and_then(|s| s.parse::<i64>().ok())
-                .unwrap_or(0);
-            let local_address = format!("10.10.0.{}/32", (client_id % 250) + 2);
-            ob["type"] = json!("wireguard");
-            ob["server"] = json!(endpoint);
-            ob["server_port"] = json!(inbound.listen_port);
-            ob["local_address"] = json!([local_address]);
-            ob["private_key"] = json!(user_keys._awg_private_key.clone().unwrap_or_default());
-            ob["peer_public_key"] = json!(si.public_key);
-            ob["mtu"] = json!(1280);
-            if let Ok(awg) = serde_json::from_str::<serde_json::Value>(&inbound.settings)
-                && let Some(jc) = awg.get("jc")
-            {
-                ob["reserved"] = json!([
-                    jc.as_u64().unwrap_or(0),
-                    awg["jmin"].as_u64().unwrap_or(0),
-                    awg["jmax"].as_u64().unwrap_or(0)
-                ]);
-            }
         }
         _ => return None,
     }
@@ -822,7 +828,7 @@ fn parse_ss_password(settings_raw: &str, user_uuid: &str) -> String {
 
 /// Generate V2Ray base64 config (multi-protocol link format)
 pub fn generate_v2ray_config(
-    _sub: &Subscription,
+    sub: &Subscription,
     nodes: &[NodeInfo],
     user_keys: &UserKeys,
     _relay_nodes: &[NodeInfo],
@@ -841,7 +847,7 @@ pub fn generate_v2ray_config(
                     continue;
                 }
                 if inbound.protocol.eq_ignore_ascii_case("amneziawg")
-                    && !crate::utils::amneziawg_enabled()
+                    && !crate::utils::amneziawg_client_enabled()
                 {
                     continue;
                 }
@@ -1045,18 +1051,19 @@ pub fn generate_v2ray_config(
                         ));
                     }
                     "amneziawg" => {
-                        let client_id = user_keys
-                            .hy2_password
-                            .split(':')
-                            .next()
-                            .and_then(|s| s.parse::<i64>().ok())
-                            .unwrap_or(0);
-                        let local_address = format!("10.10.0.{}/32", (client_id % 250) + 2);
+                        // Ключ сервера и адрес клиента берутся из одного
+                        // источника с пирами на ноде (`node_awg` и пул по id
+                        // подписки), поэтому ссылка и пир не расходятся.
+                        let server_pub = awg_server_public_key(inbound);
+                        if server_pub.is_empty() {
+                            continue;
+                        }
+                        let local_address = awg_client_address(sub.id);
 
                         // wireguard://private_key@server:port?public_key=...&preshared_key=...#label
                         // Note: Some clients use 'address' param for local address
                         let mut params = vec![
-                            format!("public_key={}", si.public_key),
+                            format!("public_key={}", server_pub),
                             format!("address={}", urlencoding::encode(&local_address)),
                         ];
 
@@ -1276,7 +1283,7 @@ fn apply_clash_http_upgrade(proxy: &mut Value, si: &StreamInfo) {
 
 /// Generate Clash YAML config (multi-protocol)
 pub fn generate_clash_config(
-    _sub: &Subscription,
+    sub: &Subscription,
     nodes: &[NodeInfo],
     user_keys: &UserKeys,
     _relay_nodes: &[NodeInfo],
@@ -1312,12 +1319,13 @@ pub fn generate_clash_config(
                 let relay_suffix = if is_relay_path { " ↪" } else { "" };
                 let name = format!("{} {}{}", node_label, proto_label, relay_suffix);
 
-                // Clash/mihomo path: the mihomo client speaks AmneziaWG natively, so
-                // this emission is gated on the CLIENT flag, independent of the strict
-                // sing-box `amneziawg_enabled()` gate that protects node configs. This
-                // only adds a `wireguard` proxy to the subscription; it never writes an
-                // AmneziaWG inbound to a sing-box node. The proxy is inert unless a real
-                // AmneziaWG server runs on the node (see AmneziaWG helper notes).
+                // Clash/mihomo умеет AmneziaWG нативно (amnezia-wg-option), и
+                // это единственное тело подписки, где AWG выдаётся полноценным
+                // прокси. Тумблер один на весь протокол: раздельные флаги
+                // «клиент отдельно, узел отдельно» были нужны, пока узел AWG
+                // служить не мог. Зеркальная строка присутствует в `inbounds`
+                // только когда включены оба тумблера (глобальный и на ноде),
+                // так что мёртвый прокси в подписку не попадает.
                 if inbound.protocol.eq_ignore_ascii_case("amneziawg")
                     && !crate::utils::amneziawg_client_enabled()
                 {
@@ -1503,13 +1511,16 @@ pub fn generate_clash_config(
                         proxies.push(tuic_proxy);
                     }
                     "amneziawg" => {
-                        let client_id = user_keys
-                            .hy2_password
-                            .split(':')
-                            .next()
-                            .and_then(|s| s.parse::<i64>().ok())
-                            .unwrap_or(0);
-                        let local_address = format!("10.10.0.{}/32", (client_id % 250) + 2);
+                        // Endpoint это адрес узла и порт зеркальной строки
+                        // (= `node_awg.listen_port`), ключ сервера из её
+                        // settings, адрес клиента из общего пула по id
+                        // подписки. Все три источника те же, что у пира на
+                        // ноде, поэтому конфиг и пир не расходятся.
+                        let server_pub = awg_server_public_key(inbound);
+                        if server_pub.is_empty() {
+                            continue;
+                        }
+                        let local_address = awg_client_address(sub.id);
 
                         let mut proxy = json!({
                             "name": name,
@@ -1518,7 +1529,7 @@ pub fn generate_clash_config(
                             "port": inbound.listen_port,
                             "ip": local_address,
                             "private-key": user_keys._awg_private_key.clone().unwrap_or_default(),
-                            "public-key": si.public_key,
+                            "public-key": server_pub,
                             "udp": true,
                             "mtu": 1280,
                         });
@@ -2654,5 +2665,205 @@ mod clash_group_tests {
                 .expect("тело — корректный base64"),
         )
         .expect("ссылки — UTF-8")
+    }
+}
+
+/// AmneziaWG в подписке: endpoint, ключ сервера и адрес клиента обязаны
+/// совпадать с тем, что панель кладёт в пиры на ноде. Разъезд любой из трёх
+/// величин даёт клиенту конфиг, который молча не поднимается.
+#[cfg(test)]
+mod awg_subscription_tests {
+    use super::*;
+
+    /// Зеркальная строка `inbounds`, какую пишет `AwgService`: публичный ключ
+    /// сервера и параметры обфускации в settings, приватного ключа нет.
+    fn awg_mirror(port: i64, public_key: &str) -> caramba_db::models::network::Inbound {
+        caramba_db::models::network::Inbound {
+            id: 900,
+            node_id: 1,
+            tag: "amneziawg-awg0".into(),
+            protocol: "amneziawg".into(),
+            listen_port: port,
+            listen_ip: "0.0.0.0".into(),
+            settings: json!({
+                "protocol": "amneziawg",
+                "users": [],
+                "private_key": "",
+                "public_key": public_key,
+                "listen_port": port,
+                "jc": 5, "jmin": 50, "jmax": 700, "s1": 30, "s2": 40,
+                "h1": 1111u32, "h2": 2222u32, "h3": 3333u32, "h4": 4444u32,
+            })
+            .to_string(),
+            stream_settings: "{}".into(),
+            remark: Some("AmneziaWG (awg0)".into()),
+            enable: true,
+            renew_interval_mins: 0,
+            port_range_start: 0,
+            port_range_end: 0,
+            last_rotated_at: None,
+            created_at: None,
+        }
+    }
+
+    fn node_with_awg(inbound: caramba_db::models::network::Inbound) -> NodeInfo {
+        NodeInfo {
+            name: "de1".into(),
+            address: "198.51.100.7".into(),
+            reality_port: None,
+            reality_sni: None,
+            reality_public_key: None,
+            reality_short_id: None,
+            hy2_port: None,
+            hy2_sni: None,
+            frontend_url: None,
+            inbounds: vec![inbound],
+            relay_info: None,
+            country_code: Some("de".into()),
+            is_relay: false,
+            config_block_ads: false,
+            config_block_porn: false,
+            config_block_torrent: false,
+        }
+    }
+
+    fn keys() -> UserKeys {
+        let uuid = "ebea4631-da5d-4a15-808c-ba126a2b4e16";
+        UserKeys {
+            user_uuid: uuid.into(),
+            hy2_password: "-46:ebea4631da5d4a15808cba126a2b4e16".into(),
+            _awg_private_key: Some(crate::services::awg_service::derive_client_private_key(
+                uuid,
+            )),
+        }
+    }
+
+    /// Тело v2ray отдаётся base64: без раскодирования тест проверял бы шум.
+    fn decode_links(body: &str) -> String {
+        use base64::Engine as _;
+        let raw = base64::engine::general_purpose::STANDARD
+            .decode(body)
+            .unwrap_or_default();
+        String::from_utf8_lossy(&raw).into_owned()
+    }
+
+    fn sub(id: i64) -> Subscription {
+        serde_json::from_value(json!({
+            "id": id,
+            "user_id": 46,
+            "plan_id": 1,
+            "status": "active",
+            "used_traffic": 0,
+            "subscription_uuid": "feb7e480-314d-4834-8304-220db70684c2",
+            "created_at": "2026-09-02T00:00:00Z",
+            "expires_at": "2026-12-02T00:00:00Z",
+        }))
+        .expect("подписка-заглушка")
+    }
+
+    #[test]
+    fn awg_follows_the_toggle_and_uses_node_awg_as_the_source() {
+        let _guard = crate::utils::GATE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        let server_pub = "3Tsh7haY915qWht+DsC4Vxunj15EBbTUo0VIIjycSDQ=";
+        let nodes = vec![node_with_awg(awg_mirror(17400, server_pub))];
+        let keys = keys();
+        let sub = sub(7);
+
+        // Тумблер выключен — AWG нет ни в одном теле подписки.
+        crate::utils::set_amneziawg_enabled(false);
+        let clash_off = generate_clash_config(&sub, &nodes, &keys, &[]).expect("clash");
+        assert!(
+            !clash_off.contains("amnezia-wg-option"),
+            "выключенный AmneziaWG попал в clash-тело"
+        );
+        let v2ray_off =
+            decode_links(&generate_v2ray_config(&sub, &nodes, &keys, &[]).expect("v2ray"));
+        assert!(
+            !v2ray_off.contains("wireguard://"),
+            "выключенный AmneziaWG попал в ссылки"
+        );
+
+        // Тумблер включён.
+        crate::utils::set_amneziawg_enabled(true);
+        let clash_on = generate_clash_config(&sub, &nodes, &keys, &[]).expect("clash");
+        let v2ray_on =
+            decode_links(&generate_v2ray_config(&sub, &nodes, &keys, &[]).expect("v2ray"));
+        let singbox_on = generate_singbox_config(&sub, &nodes, &keys, &[]);
+        crate::utils::set_amneziawg_enabled(false);
+
+        // Адрес клиента берётся из общего пула по id подписки — ровно тот же,
+        // что уедет в `allowed_ip` пира на ноде.
+        let expected_ip = format!(
+            "{}/32",
+            crate::services::awg_service::awg_allowed_ip(sub.id)
+        );
+        assert_eq!(expected_ip, "10.66.1.9/32");
+
+        assert!(clash_on.contains("amnezia-wg-option"), "clash: {clash_on}");
+        assert!(
+            clash_on.contains(server_pub),
+            "clash обязан нести публичный ключ сервера AWG: {clash_on}"
+        );
+        assert!(
+            clash_on.contains(&expected_ip),
+            "clash обязан нести адрес из пула: {clash_on}"
+        );
+        assert!(
+            clash_on.contains("port: 17400"),
+            "endpoint обязан идти по порту зеркала node_awg: {clash_on}"
+        );
+        // mihomo принимает h1..h4 только строками.
+        assert!(
+            clash_on.contains("h1: '1111'") || clash_on.contains("h1: \"1111\""),
+            "h1..h4 обязаны быть строками: {clash_on}"
+        );
+
+        assert!(
+            v2ray_on.contains("wireguard://"),
+            "ссылка wireguard:// обязана появиться"
+        );
+        assert!(
+            v2ray_on.contains(&urlencoding::encode(server_pub).into_owned())
+                || v2ray_on.contains(server_pub),
+            "ссылка обязана нести ключ сервера: {v2ray_on}"
+        );
+
+        // sing-box-тело читают сторонние sing-box-клиенты, а стоковый sing-box
+        // обфускацию AWG не понимает: голый WireGuard против AWG-сервера это
+        // заведомо мёртвый outbound, поэтому его там нет ни при каком тумблере.
+        // Узел с одним лишь AWG для sing-box-тела пуст, и генератор честно
+        // отвечает ошибкой вместо конфига без единого исходящего.
+        match singbox_on {
+            Ok(body) => assert!(
+                !body.contains("\"wireguard\""),
+                "AmneziaWG не должен попадать в sing-box-тело: {body}"
+            ),
+            Err(e) => assert!(
+                e.to_string().contains("No proxy outbounds generated"),
+                "неожиданная ошибка sing-box-тела: {e}"
+            ),
+        }
+    }
+
+    #[test]
+    fn awg_without_a_server_key_is_not_emitted() {
+        let _guard = crate::utils::GATE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        // Полузаполненное зеркало (ключ сервера пуст) раньше уезжало клиенту
+        // как прокси с пустым peer public key — он молча не поднимался.
+        let nodes = vec![node_with_awg(awg_mirror(17400, ""))];
+        crate::utils::set_amneziawg_enabled(true);
+        let clash = generate_clash_config(&sub(7), &nodes, &keys(), &[]).expect("clash");
+        let v2ray =
+            decode_links(&generate_v2ray_config(&sub(7), &nodes, &keys(), &[]).expect("v2ray"));
+        crate::utils::set_amneziawg_enabled(false);
+
+        assert!(!clash.contains("amnezia-wg-option"), "clash: {clash}");
+        assert!(!v2ray.contains("wireguard://"), "v2ray: {v2ray}");
     }
 }

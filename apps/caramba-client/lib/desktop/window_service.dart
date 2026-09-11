@@ -113,6 +113,7 @@ class WindowService {
       onClose: _handleClose,
       onResized: _scheduleBoundsSave,
       onMoved: _scheduleBoundsSave,
+      onMinimize: _handleMinimize,
     );
     _listener = listener;
     port.addListener(listener);
@@ -158,6 +159,30 @@ class WindowService {
       return;
     }
     unawaited(quitApplication());
+  }
+
+  /// Жёлтая кнопка и ⌘M: то же решение, что и у красной.
+  ///
+  /// ЗАЧЕМ ОДНА НАСТРОЙКА НА ДВА ЖЕСТА. Человек, выбравший «сворачивать в
+  /// строку меню», имеет в виду место, где живёт свёрнутое приложение, а не
+  /// конкретную кнопку. Разъехавшись, жесты дали бы окно то в трее, то
+  /// миниатюрой в Dock, и найти его получалось бы через раз.
+  ///
+  /// ПОЧЕМУ СНАЧАЛА [WindowPort.restore]. Перехвата сворачивания в плагине
+  /// нет: к моменту колбэка система уже свернула окно, а спрятать свёрнутое
+  /// окно нельзя. Поэтому разворачиваем и прячем следом. Выключенная настройка
+  /// не делает НИЧЕГО: обычное сворачивание в Dock это штатное поведение.
+  void _handleMinimize() {
+    if (!_readPrefs().closeToTray) return;
+    unawaited(_hideMinimized());
+  }
+
+  /// Порядок обязателен, поэтому отдельным методом, а не двумя `unawaited`:
+  /// параллельные `restore` и `hide` уходят в AppKit в непредсказуемом порядке
+  /// и оставляют окно то на экране, то миниатюрой.
+  Future<void> _hideMinimized() async {
+    await port.restore();
+    await port.hide();
   }
 
   void _scheduleBoundsSave() {

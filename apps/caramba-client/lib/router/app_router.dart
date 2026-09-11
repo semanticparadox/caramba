@@ -28,6 +28,7 @@ import 'package:caramba_client/features/referrals/referrals_screen.dart';
 import 'package:caramba_client/features/servers/relay_screen.dart';
 import 'package:caramba_client/features/servers/servers_desktop.dart';
 import 'package:caramba_client/features/servers/servers_screen.dart';
+import 'package:caramba_client/features/settings/app_rules_screen.dart';
 import 'package:caramba_client/features/settings/settings_desktop.dart';
 import 'package:caramba_client/features/settings/settings_screen.dart';
 import 'package:caramba_client/features/settings/site_rules_screen.dart';
@@ -425,6 +426,14 @@ List<RouteBase> appRoutes() => <RouteBase>[
     path: AppRoute.siteRules,
     parentNavigatorKey: _rootKey,
     pageBuilder: (context, state) => _overlay(state, const SiteRulesScreen()),
+  ),
+  // Списки приложений. Тот же накладной экран под настройками, что и списки
+  // сайтов, и по той же причине: открывают его со строки настроек, а «Назад»
+  // обязано возвращать туда, откуда пришли.
+  GoRoute(
+    path: AppRoute.appRules,
+    parentNavigatorKey: _rootKey,
+    pageBuilder: (context, state) => _overlay(state, const AppRulesScreen()),
   ),
   GoRoute(
     path: AppRoute.relay,

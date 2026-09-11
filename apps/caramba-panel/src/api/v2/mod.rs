@@ -147,7 +147,6 @@ pub fn app_routes(_state: AppState) -> axum::Router<AppState> {
         .route("/register", post(app_auth::register_email))
         .route("/login/email", post(app_auth::login_email))
         .route("/login/telegram", post(app_auth::login_telegram))
-        .route("/login/code", post(app_auth::login_code))
         .route("/refresh", post(app_auth::refresh))
         .route("/logout", post(app_auth::logout))
         // Публичная валидация кода вовлечения (до register/login). READ-ONLY,

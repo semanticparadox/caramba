@@ -1011,6 +1011,12 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/nodes/{id}/config/preview",
             axum::routing::get(handlers::admin::nodes::get_node_config_preview),
         )
+        // Пер-нодовый тумблер AmneziaWG. Отдельным маршрутом, потому что
+        // /nodes/{id}/update пересоздаёт все инбаунды узла.
+        .route(
+            "/nodes/{id}/awg/toggle",
+            axum::routing::post(handlers::admin::nodes::toggle_node_awg),
+        )
         .route(
             "/nodes/{id}/update",
             axum::routing::post(handlers::admin::update_node),

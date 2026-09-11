@@ -1,5 +1,9 @@
 // Энроллмент не оставляет за собой мусора и доносит креды до профиля.
 //
+// Вход 6-значным кодом из бота удалён вместе со всем режимом кода (раунд 5):
+// единственный путь создания аккаунта из ссылки это регистрация, и проверяется
+// здесь именно она.
+//
 // Профиль панели заводится ДО валидации кода (аккаунт обязателен, профиль ведёт
 // вход). Раньше на невалидном коде он оставался в списке подключений навсегда,
 // а после успешного входа так и не получал subscription_uuid/access_token — из
@@ -163,7 +167,7 @@ void main() {
     () async {
       final adapter = _StubAdapter({
         '/enroll/ABC123': (200, '{"valid":true,"panel_name":"Панель X"}'),
-        '/login/code': (
+        '/register': (
           200,
           '{"access_token":"acc-1","refresh_token":"ref-1","user_id":7}',
         ),
@@ -178,7 +182,10 @@ void main() {
       final notifier = container.read(enrollProvider.notifier);
 
       await notifier.startWith(link);
-      await notifier.loginCodeWithEnroll(botCode: '123456');
+      await notifier.registerWithEnroll(
+        email: 'a@example.org',
+        password: 'secret',
+      );
 
       final profile = container
           .read(connectionProfilesProvider)
@@ -194,7 +201,7 @@ void main() {
   test('входа без подписки достаточно: сохраняются URL и токен', () async {
     final adapter = _StubAdapter({
       '/enroll/ABC123': (200, '{"valid":true}'),
-      '/login/code': (
+      '/register': (
         200,
         '{"access_token":"acc-2","refresh_token":"ref-2","user_id":8}',
       ),
@@ -205,7 +212,10 @@ void main() {
     final notifier = container.read(enrollProvider.notifier);
 
     await notifier.startWith(link);
-    await notifier.loginCodeWithEnroll(botCode: '123456');
+    await notifier.registerWithEnroll(
+      email: 'b@example.org',
+      password: 'secret',
+    );
 
     final profile = container.read(connectionProfilesProvider).profiles.single;
     expect(profile.panelUrl, 'https://panel.example');

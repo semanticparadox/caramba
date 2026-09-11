@@ -83,6 +83,7 @@ const Set<String> _panelWideRoots = <String>{
   AppRoute.servers,
   AppRoute.connections,
   AppRoute.siteRules,
+  AppRoute.appRules,
   AppRoute.protocol,
   AppRoute.relay,
   // Ветка проверки CSM целиком: /csm/operator, /csm/documents, /csm/transport,

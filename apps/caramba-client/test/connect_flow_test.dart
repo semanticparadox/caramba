@@ -68,9 +68,9 @@ class _StubAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
-Dio _dio(_StubAdapter adapter) => Dio(
-  BaseOptions(validateStatus: (s) => s != null && s < 500),
-)..httpClientAdapter = adapter;
+Dio _dio(_StubAdapter adapter) =>
+    Dio(BaseOptions(validateStatus: (s) => s != null && s < 500))
+      ..httpClientAdapter = adapter;
 
 AuthTokens _tokens() => const AuthTokens(
   accessToken: 'acc-1',
@@ -122,7 +122,7 @@ void main() {
 
   tearDown(() => messenger.setMockMethodCallHandler(secureStorage, null));
 
-  _loginByCodeTests();
+  _panelProfileAfterLoginTests();
 
   // --------------------------------------------------------------------------
   // Маршрутизация ссылки.
@@ -249,24 +249,27 @@ void main() {
       expect(adapter.requests.single.data, {'code': _goldenCode});
     });
 
-    test('отсутствие подписки показывается причиной, а не выдуманным адресом', () async {
-      final adapter = _StubAdapter(200, '''
+    test(
+      'отсутствие подписки показывается причиной, а не выдуманным адресом',
+      () async {
+        final adapter = _StubAdapter(200, '''
 {"access_token":"acc-1","refresh_token":"ref-1","token_type":"Bearer",
  "expires_in":3600,"user_id":46,
  "subscription_url":null,"subscription_uuid":null,"subscription_status":null,
  "subscription_reason":"subscription_domain_not_configured",
  "panel_name":"EXA ROBOT"}''');
 
-      final result = await redeemConnectCode(
-        origin: _goldenOrigin,
-        code: _goldenCode,
-        client: _dio(adapter),
-      );
+        final result = await redeemConnectCode(
+          origin: _goldenOrigin,
+          code: _goldenCode,
+          client: _dio(adapter),
+        );
 
-      expect(result.subscriptionUrl, isNull);
-      expect(result.hasSubscription, isFalse);
-      expect(result.subscriptionReasonText, contains('домен подписок'));
-    });
+        expect(result.subscriptionUrl, isNull);
+        expect(result.hasSubscription, isFalse);
+        expect(result.subscriptionReasonText, contains('домен подписок'));
+      },
+    );
 
     test('неизвестная причина не прячется', () async {
       final adapter = _StubAdapter(200, '''
@@ -281,27 +284,30 @@ void main() {
       expect(result.subscriptionReasonText, contains('something_new'));
     });
 
-    test('400 это одна причина на три случая, и приложение её не выдумывает', () async {
-      final adapter = _StubAdapter(
-        400,
-        'Invalid or expired invite',
-        contentType: 'text/plain; charset=utf-8',
-      );
-      await expectLater(
-        redeemConnectCode(
-          origin: _goldenOrigin,
-          code: _goldenCode,
-          client: _dio(adapter),
-        ),
-        throwsA(
-          isA<ConnectRedeemException>().having(
-            (e) => e.isInvalidCode,
-            'isInvalidCode',
-            isTrue,
+    test(
+      '400 это одна причина на три случая, и приложение её не выдумывает',
+      () async {
+        final adapter = _StubAdapter(
+          400,
+          'Invalid or expired invite',
+          contentType: 'text/plain; charset=utf-8',
+        );
+        await expectLater(
+          redeemConnectCode(
+            origin: _goldenOrigin,
+            code: _goldenCode,
+            client: _dio(adapter),
           ),
-        ),
-      );
-    });
+          throwsA(
+            isA<ConnectRedeemException>().having(
+              (e) => e.isInvalidCode,
+              'isInvalidCode',
+              isTrue,
+            ),
+          ),
+        );
+      },
+    );
 
     test('ответ без токенов это отказ, а не пустая сессия', () async {
       final adapter = _StubAdapter(200, '{"panel_name":"X"}');
@@ -362,24 +368,27 @@ void main() {
       expect(container.read(connectionProfilesProvider).profiles, isEmpty);
     });
 
-    test('подтверждение заводит профиль панели и делает его активным', () async {
-      final container = boot(redeem: okRedeem());
-      final notifier = container.read(connectProvider.notifier);
-      notifier.open(_goldenLink);
-      await notifier.confirm();
+    test(
+      'подтверждение заводит профиль панели и делает его активным',
+      () async {
+        final container = boot(redeem: okRedeem());
+        final notifier = container.read(connectProvider.notifier);
+        notifier.open(_goldenLink);
+        await notifier.confirm();
 
-      expect(container.read(connectProvider).stage, ConnectStage.done);
-      final profiles = container.read(connectionProfilesProvider).profiles;
-      expect(profiles, hasLength(1));
-      final profile = profiles.single;
-      expect(profile.isPanel, isTrue);
-      expect(profile.panelUrl, _goldenOrigin);
-      // Имя берём у панели по TLS, а не из неподписанной ссылки.
-      expect(profile.displayName, 'EXA ROBOT');
-      expect(profile.subscriptionUuid, 'feb7e480');
-      expect(profile.accessToken, 'acc-1');
-      expect(container.read(activeConnectionProfileProvider)?.id, profile.id);
-    });
+        expect(container.read(connectProvider).stage, ConnectStage.done);
+        final profiles = container.read(connectionProfilesProvider).profiles;
+        expect(profiles, hasLength(1));
+        final profile = profiles.single;
+        expect(profile.isPanel, isTrue);
+        expect(profile.panelUrl, _goldenOrigin);
+        // Имя берём у панели по TLS, а не из неподписанной ссылки.
+        expect(profile.displayName, 'EXA ROBOT');
+        expect(profile.subscriptionUuid, 'feb7e480');
+        expect(profile.accessToken, 'acc-1');
+        expect(container.read(activeConnectionProfileProvider)?.id, profile.id);
+      },
+    );
 
     test('аккаунт без подписки всё равно становится профилем панели', () async {
       final container = boot(
@@ -392,16 +401,16 @@ void main() {
       final s = container.read(connectProvider);
       expect(s.stage, ConnectStage.done);
       expect(s.result!.subscriptionReasonText, isNotNull);
-      final profile = container.read(connectionProfilesProvider).profiles.single;
+      final profile = container
+          .read(connectionProfilesProvider)
+          .profiles
+          .single;
       expect(profile.panelUrl, _goldenOrigin);
       expect(profile.subscriptionUuid, isNull);
     });
 
     test('просроченная ссылка отвергается и профиля не создаёт', () {
-      final container = boot(
-        redeem: okRedeem(),
-        nowSec: _goldenExpires + 1,
-      );
+      final container = boot(redeem: okRedeem(), nowSec: _goldenExpires + 1);
       container.read(connectProvider.notifier).open(_goldenLink);
 
       final s = container.read(connectProvider);
@@ -447,12 +456,16 @@ void main() {
 }
 
 // ============================================================================
-// Вход по коду из бота: сессия без профиля панели была пустой вкладкой
-// «Серверы».
+// Вход в уже существующий аккаунт: сессия без профиля панели была пустой
+// вкладкой «Серверы».
+//
+// Проверяется `_ensurePanelProfile` — общий хвост любого входа. Раньше тесты
+// шли через вход 6-значным кодом из бота; режим кода удалён целиком (раунд 5),
+// и тот же хвост теперь проверяется входом по email.
 // ============================================================================
 
 /// Отдаёт ответы по пути запроса. Отдельный адаптер от [_StubAdapter]: там один
-/// ответ на всё, а вход по коду дёргает три разных пути.
+/// ответ на всё, а вход дёргает три разных пути.
 class _RouteAdapter implements HttpClientAdapter {
   _RouteAdapter(this.responses);
 
@@ -480,8 +493,8 @@ class _RouteAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
-void _loginByCodeTests() {
-  group('вход по коду из бота', () {
+void _panelProfileAfterLoginTests() {
+  group('вход в существующий аккаунт', () {
     const panel = 'https://panel.example';
 
     ProviderContainer boot(_RouteAdapter adapter) {
@@ -507,7 +520,7 @@ void _loginByCodeTests() {
       // «Серверы» оставалась пустой ровно у тех, кто вошёл. Резолвер
       // конфигурации ядра читает panelUrl ИЗ ПРОФИЛЯ, а не из сессии.
       final adapter = _RouteAdapter({
-        '/login/code': (
+        '/login/email': (
           200,
           '{"access_token":"acc-1","refresh_token":"ref-1","user_id":46}',
         ),
@@ -515,7 +528,9 @@ void _loginByCodeTests() {
       });
       final container = boot(adapter);
 
-      await container.read(authProvider.notifier).loginCode(code: '123456');
+      await container
+          .read(authProvider.notifier)
+          .loginEmail(email: 'owner@example.org', password: 'secret');
 
       final profiles = container.read(connectionProfilesProvider).profiles;
       expect(profiles, hasLength(1));
@@ -535,7 +550,7 @@ void _loginByCodeTests() {
 
     test('повторный вход не плодит вторую запись и не переименовывает', () async {
       final adapter = _RouteAdapter({
-        '/login/code': (
+        '/login/email': (
           200,
           '{"access_token":"acc-2","refresh_token":"ref-2","user_id":46}',
         ),
@@ -547,7 +562,9 @@ void _loginByCodeTests() {
           .read(connectionProfilesProvider.notifier)
           .addPanelAccount(panelUrl: panel, displayName: 'Моя панель');
 
-      await container.read(authProvider.notifier).loginCode(code: '123456');
+      await container
+          .read(authProvider.notifier)
+          .loginEmail(email: 'owner@example.org', password: 'secret');
 
       final profiles = container.read(connectionProfilesProvider).profiles;
       expect(profiles, hasLength(1));
@@ -560,11 +577,13 @@ void _loginByCodeTests() {
       expect(await container.read(tokenStoreProvider).readAccess(), 'acc-2');
     });
 
-    test('неверный код не заводит профиль', () async {
-      final adapter = _RouteAdapter({'/login/code': (401, 'bad code')});
+    test('отказ входа не заводит профиль', () async {
+      final adapter = _RouteAdapter({'/login/email': (401, 'bad password')});
       final container = boot(adapter);
 
-      await container.read(authProvider.notifier).loginCode(code: '000000');
+      await container
+          .read(authProvider.notifier)
+          .loginEmail(email: 'owner@example.org', password: 'wrong');
 
       expect(container.read(authProvider).stage, AuthStage.unauthenticated);
       expect(container.read(connectionProfilesProvider).profiles, isEmpty);

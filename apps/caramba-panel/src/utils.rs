@@ -20,56 +20,45 @@ pub fn format_bytes(s: &i64) -> Result<String> {
     Ok(format_bytes_str(*s as u64))
 }
 
-/// Feature flag: AmneziaWG support.
+/// Глобальный тумблер AmneziaWG (настройка панели `amneziawg_enabled`).
 ///
-/// Disabled by default. Official sing-box (installed from deb.sagernet.org) has
-/// NO `wireguard` INBOUND type and does not understand AmneziaWG obfuscation
-/// fields, so an AmneziaWG inbound makes `sing-box check` FAIL and takes down the
-/// whole node config. Until nodes ship an AmneziaWG-capable sing-box fork, the
-/// protocol is hidden: creation is rejected and it is omitted from subscriptions.
+/// Раньше это был env `CARAMBA_ENABLE_AMNEZIAWG`, и смысл был обратный:
+/// «не пускать AWG-инбаунд в конфиг sing-box, иначе узел ляжет». Теперь AWG на
+/// ноде это отдельный процесс amneziawg-go с интерфейсом awg0, sing-box про
+/// него ничего не знает, и уронить узел включением нечем. Поэтому тумблер
+/// переехал в админку: оператор включает протокол целиком, а конкретные ноды
+/// объявляют его своим пер-нодовым тумблером (`node_awg.enabled`).
 ///
-/// Set `CARAMBA_ENABLE_AMNEZIAWG=1` (or `true`/`yes`/`on`) to re-enable.
-pub fn amneziawg_enabled() -> bool {
-    matches!(
-        std::env::var("CARAMBA_ENABLE_AMNEZIAWG")
-            .ok()
-            .map(|v| v.trim().to_ascii_lowercase())
-            .as_deref(),
-        Some("1") | Some("true") | Some("yes") | Some("on")
-    )
+/// Зеркало атомарное, а не запрос к БД, потому что генераторы подписки
+/// синхронные. Обновляет его `AwgService::refresh_gate` на каждом heartbeat
+/// узла и сразу при сохранении настроек. До первого обновления после старта
+/// панели значение консервативное — выключено.
+static AMNEZIAWG_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Обновляет зеркало тумблера. Единственный, кто это делает, —
+/// `AwgService::refresh_gate`.
+pub fn set_amneziawg_enabled(enabled: bool) {
+    AMNEZIAWG_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// Feature flag: AmneziaWG in the mihomo/clash subscription (the Go client core).
-///
-/// This is SEPARATE from `amneziawg_enabled()` on purpose. `amneziawg_enabled()`
-/// gates the sing-box NODE path: stock sing-box has no `wireguard` inbound, so
-/// emitting an AmneziaWG inbound breaks `sing-box check` and the whole node. The
-/// mihomo CLIENT, by contrast, speaks AmneziaWG natively and can consume a
-/// `wireguard` proxy with the `amnezia-wg-option` block — provided a real
-/// AmneziaWG-capable WireGuard server is actually listening on the node (plain
-/// sing-box cannot serve it; deployment needs an AmneziaWG-capable sing-box fork).
-///
-/// Decoupling lets an operator hand a working AmneziaWG proxy to the mihomo
-/// client WITHOUT also un-gating the node-breaking sing-box inbound. The clash
-/// emission turns on when EITHER flag is set:
-///   - `CARAMBA_ENABLE_AMNEZIAWG=1`        — legacy combined switch (node + client),
-///   - `CARAMBA_ENABLE_AMNEZIAWG_CLIENT=1` — client/mihomo emission only.
-///
-/// Safety: this flag only adds a proxy to the clash subscription. It never causes
-/// an AmneziaWG inbound to be written to a sing-box node config, so a node that
-/// cannot serve AmneziaWG is never put into a failing state by it. The proxy is
-/// inert unless a matching AmneziaWG server is running on the node.
+/// Включён ли AmneziaWG на панели.
+pub fn amneziawg_enabled() -> bool {
+    AMNEZIAWG_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Тумблер глобальный на процесс, а тесты внутри крейта идут параллельно:
+/// без общей блокировки тест, включающий AmneziaWG, ломал бы тест, который
+/// проверяет поведение при выключенном.
+#[cfg(test)]
+pub static GATE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Раньше клиентская эмиссия (mihomo/clash) гейтилась отдельным флагом: узел
+/// не мог служить AWG, и надо было уметь отдать прокси клиенту, не ломая
+/// конфиг узла. Теперь узел служит AWG по-настоящему, и раздельных состояний
+/// больше нет: тумблер один. Функция оставлена как единая точка вызова для
+/// клиентских путей (каталог CSM, api/v2/app, генератор clash).
 pub fn amneziawg_client_enabled() -> bool {
-    if amneziawg_enabled() {
-        return true;
-    }
-    matches!(
-        std::env::var("CARAMBA_ENABLE_AMNEZIAWG_CLIENT")
-            .ok()
-            .map(|v| v.trim().to_ascii_lowercase())
-            .as_deref(),
-        Some("1") | Some("true") | Some("yes") | Some("on")
-    )
+    amneziawg_enabled()
 }
 
 // Askama filters are functions.

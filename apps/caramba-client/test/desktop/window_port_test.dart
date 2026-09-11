@@ -7,6 +7,10 @@
 // поднимаются только через AppKit. Поэтому показ обязан сперва позвать наш
 // канал `caramba/desktop_window`, и обязан довести показ до конца, даже если
 // канала нет (Windows, Linux) или он отказал.
+//
+// Второе: сворачивание. Плагин шлёт `onWindowMinimize`, порт обязан довести
+// его до подписчика, иначе решение «прятать в трей» жёлтой кнопки не увидит,
+// а окно уедет миниатюрой в Dock (ровно это и было до правки).
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,6 +51,21 @@ void main() {
 
   setUp(() => calls = <String>[]);
 
+  /// Событие окна так, как его шлёт нативная сторона плагина: метод `onEvent`
+  /// на том же канале, входящим сообщением. Не мок исходящих вызовов, а именно
+  /// доставка внутрь — иначе разбор события в самом плагине остался бы
+  /// непроверенным.
+  Future<void> emitPluginEvent(String name) {
+    const codec = StandardMethodCodec();
+    return messenger.handlePlatformMessage(
+      _pluginChannel.name,
+      codec.encodeMethodCall(
+        MethodCall('onEvent', <String, Object?>{'eventName': name}),
+      ),
+      (_) {},
+    );
+  }
+
   test('показ сначала просит AppKit поднять окно целиком', () async {
     mockNative();
     mockPlugin();
@@ -64,6 +83,38 @@ void main() {
     await WindowManagerPort().show();
 
     expect(calls, contains('plugin:show'));
+  });
+
+  test('restore идёт в плагин как есть', () async {
+    mockPlugin();
+
+    await WindowManagerPort().restore();
+
+    expect(calls, contains('plugin:restore'));
+  });
+
+  test('сворачивание доезжает до подписчика', () async {
+    var minimized = 0;
+    final port = WindowManagerPort();
+    final listener = WindowPortListener(onMinimize: () => minimized++);
+    port.addListener(listener);
+    addTearDown(() => port.removeListener(listener));
+
+    await emitPluginEvent('minimize');
+
+    expect(minimized, 1);
+  });
+
+  test('снятый подписчик сворачивания больше не слышит', () async {
+    var minimized = 0;
+    final port = WindowManagerPort();
+    final listener = WindowPortListener(onMinimize: () => minimized++);
+    port.addListener(listener);
+    port.removeListener(listener);
+
+    await emitPluginEvent('minimize');
+
+    expect(minimized, 0);
   });
 
   test('отказ нативной стороны не отменяет показ', () async {

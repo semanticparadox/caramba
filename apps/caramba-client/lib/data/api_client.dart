@@ -247,29 +247,6 @@ class ApiClient {
     return _tokensFrom(res);
   }
 
-  /// POST /login/code — вход по коду из Telegram-бота (6 цифр). Панель сверяет
-  /// код, привязанный к Telegram-аккаунту, и выдаёт JWT-пару.
-  ///
-  /// [enrollCode] (P2, опц.) — enroll-код энроллмента. login/code НЕ создаёт
-  /// свежий аккаунт (резолвит уже существующий tg_id, заведённый ботом), так
-  /// что панель его расходует только если за этим входом стоит создание нового
-  /// аккаунта; иначе это no-op. Шлём как `enroll_code`.
-  Future<AuthTokens> loginCode({
-    required String code,
-    String? enrollCode,
-  }) async {
-    final res = await _dio.post<dynamic>(
-      '/login/code',
-      data: {
-        'code': code,
-        if (enrollCode != null && enrollCode.isNotEmpty)
-          'enroll_code': enrollCode,
-      },
-      options: Options(extra: {'skipAuth': true}),
-    );
-    return _tokensFrom(res);
-  }
-
   /// POST /logout — отзыв refresh-токена на сервере (идемпотентно).
   Future<void> logout(String refreshToken) async {
     try {

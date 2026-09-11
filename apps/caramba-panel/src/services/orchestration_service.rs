@@ -925,26 +925,15 @@ impl OrchestrationService {
                 stream_json = serde_json::to_string(&stream_obj)?;
             }
         } else if template.protocol == "amneziawg" {
-            let (priv_key, pub_key) = self.generate_wireguard_keys()?;
-            let (jc, jmin, jmax, s1, s2, h1, h2, h3, h4) = self.generate_awg_params();
-
-            if let Ok(mut awg_obj) = serde_json::from_str::<
-                caramba_db::models::network::AmneziaWgSettings,
-            >(&settings_json)
-            {
-                awg_obj.private_key = priv_key;
-                awg_obj.public_key = pub_key;
-                awg_obj.jc = jc;
-                awg_obj.jmin = jmin;
-                awg_obj.jmax = jmax;
-                awg_obj.s1 = s1;
-                awg_obj.s2 = s2;
-                awg_obj.h1 = h1;
-                awg_obj.h2 = h2;
-                awg_obj.h3 = h3;
-                awg_obj.h4 = h4;
-                settings_json = serde_json::to_string(&awg_obj)?;
-            }
+            // AWG-инбаунд из шаблона больше не создаётся: сервер AmneziaWG это
+            // отдельный процесс amneziawg-go на ноде, а строка в `inbounds`
+            // лишь зеркало `node_awg` и пишется `AwgService`. Шаблонная
+            // генерация ключей здесь только разъезжалась бы с ним.
+            warn!(
+                "Шаблон '{}' с протоколом amneziawg пропущен: AWG заводится тумблером в карточке ноды, а не шаблоном",
+                template.name
+            );
+            return Ok(());
         }
 
         let random_suffix = uuid::Uuid::new_v4()
@@ -1003,27 +992,6 @@ impl OrchestrationService {
         Ok((priv_key, pub_key, short_id))
     }
 
-    fn generate_wireguard_keys(&self) -> anyhow::Result<(String, String)> {
-        use std::process::Command;
-        let output = Command::new("sing-box")
-            .args(["generate", "wireguard-keypair"])
-            .output()
-            .map_err(|e| anyhow::anyhow!("sing-box awg generate error: {}", e))?;
-
-        let output_str = String::from_utf8_lossy(&output.stdout);
-        let mut priv_key = String::new();
-        let mut pub_key = String::new();
-
-        for line in output_str.lines() {
-            if let Some(key) = line.strip_prefix("PrivateKey:") {
-                priv_key = key.trim().to_string();
-            } else if let Some(key) = line.strip_prefix("PublicKey:") {
-                pub_key = key.trim().to_string();
-            }
-        }
-        Ok((priv_key, pub_key))
-    }
-
     pub async fn allocate_port(&self, node_id: i64, start: i64, end: i64) -> anyhow::Result<i64> {
         let (mut start, mut end) = if start <= end {
             (start, end)
@@ -1065,22 +1033,6 @@ impl OrchestrationService {
             start,
             end
         ))
-    }
-
-    fn generate_awg_params(&self) -> (u16, u16, u16, u16, u16, u32, u32, u32, u32) {
-        use rand::Rng;
-        let mut rng = rand::rng();
-        (
-            rng.random_range(3..=10),
-            rng.random_range(40..=100),
-            rng.random_range(500..=1000),
-            rng.random_range(20..=100),
-            rng.random_range(20..=100),
-            rng.random::<u32>(),
-            rng.random::<u32>(),
-            rng.random::<u32>(),
-            rng.random::<u32>(),
-        )
     }
 
     pub async fn reset_inbounds(&self, node_id: i64) -> anyhow::Result<()> {
@@ -1147,6 +1099,50 @@ impl OrchestrationService {
             node_id,
             node.name
         );
+
+        // 2.1 AmneziaWG. Сервер AWG на ноде это отдельный процесс amneziawg-go
+        // с интерфейсом awg0, а НЕ инбаунд sing-box: стоковый sing-box не умеет
+        // wireguard-inbound с полями обфускации, такой инбаунд валит
+        // `sing-box check` и уносит весь конфиг узла. Поэтому здесь мы только
+        // держим в актуальном состоянии строку `node_awg` и её зеркало в
+        // `inbounds` (оно занимает порт и питает генератор подписки), а из
+        // конфига sing-box любой amneziawg-инбаунд выбрасываем.
+        let awg_service = crate::services::awg_service::AwgService::new(self.pool.clone());
+        let awg_globally_enabled = awg_service.refresh_gate().await;
+        let awg_row = match awg_service.get(node_id).await {
+            Ok(Some(existing)) => Some(existing),
+            // Строку заводим только когда протокол включён на панели: иначе
+            // выключённый AmneziaWG молча плодил бы ключи и порты по всем узлам.
+            Ok(None) if awg_globally_enabled => match awg_service.ensure_node_awg(node_id).await {
+                Ok(created) => Some(created),
+                Err(e) => {
+                    warn!("AmneziaWG: узлу {} не выдан сервер awg0: {}", node_id, e);
+                    None
+                }
+            },
+            Ok(None) => None,
+            Err(e) => {
+                warn!(
+                    "AmneziaWG: не прочитать node_awg для узла {}: {}",
+                    node_id, e
+                );
+                None
+            }
+        };
+        if let Some(ref awg) = awg_row {
+            awg_service
+                .sync_mirror_inbound(node_id, awg, awg_globally_enabled)
+                .await;
+        }
+        let before_awg_filter = inbounds.len();
+        inbounds.retain(|i| !crate::services::awg_service::is_awg_inbound(i));
+        if before_awg_filter != inbounds.len() {
+            info!(
+                "Step 2.1: {} amneziawg-инбаунд(ов) узла {} не попадут в sing-box-конфиг (их поднимает amneziawg-go)",
+                before_awg_filter - inbounds.len(),
+                node_id
+            );
+        }
 
         // 2.5 Lazy Initialization & Key Validation/Scrubbing
         let mut node = node;
@@ -1429,43 +1425,10 @@ impl OrchestrationService {
                                 }
                             }
                         }
-                        InboundType::AmneziaWg(awg) => {
-                            use caramba_db::models::network::AmneziaWgUser;
-                            for sub in &active_subs {
-                                if let (_sub_id, Some(uuid), client_id, _) =
-                                    (sub.0, &sub.1, sub.2, &sub.3)
-                                {
-                                    if !visited_users.insert(client_id) {
-                                        continue;
-                                    }
-                                    let auth_name = crate::services::user_tag::user_tag(client_id);
-
-                                    let client_priv = self.derive_awg_key(uuid);
-                                    let client_pub = self.priv_to_pub(&client_priv);
-
-                                    info!(
-                                        "🔑 Injecting AMNEZIAWG user: {} (Public: {})",
-                                        auth_name, client_pub
-                                    );
-                                    awg.users.push(AmneziaWgUser {
-                                        name: Some(auth_name),
-                                        private_key: client_priv,
-                                        public_key: client_pub,
-                                        preshared_key: None,
-                                        // rem_euclid, а не `%`: идентичность
-                                        // клиента бывает отрицательной (см.
-                                        // config_client_identity — аккаунты
-                                        // без Telegram id), а `-42 % 250` в
-                                        // Rust даёт -42 и собрало бы строку
-                                        // "10.10.0.-40" — невалидный конфиг.
-                                        client_ip: format!(
-                                            "10.10.0.{}",
-                                            client_id.rem_euclid(250) + 2
-                                        ),
-                                    });
-                                }
-                            }
-                        }
+                        // Пиры AmneziaWG в sing-box-инбаунд больше не пишутся:
+                        // зеркальная строка выброшена из конфига выше, а сами
+                        // пиры уезжают на ноду разделом `awg` (AwgService).
+                        InboundType::AmneziaWg(_) => {}
                         InboundType::Trojan(trojan) => {
                             use caramba_db::models::network::TrojanClient;
                             for sub in &active_subs {
@@ -1665,44 +1628,6 @@ impl OrchestrationService {
 
         info!("Config generation successful for node {}", node_id);
         Ok((node, serde_json::to_value(&config)?))
-    }
-
-    /// Derives a stable X25519 private key from a UUID string
-    fn derive_awg_key(&self, uuid: &str) -> String {
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(uuid.as_bytes());
-        hasher.update(b"amneziawg-key-salt");
-        let result = hasher.finalize();
-
-        let mut key = [0u8; 32];
-        key.copy_from_slice(&result[..32]);
-
-        // Clamp the key to be a valid X25519 private key
-        key[0] &= 248;
-        key[31] &= 127;
-        key[31] |= 64;
-
-        base64::Engine::encode(&base64::prelude::BASE64_STANDARD, key)
-    }
-
-    /// Converts an X25519 private key (base64) to a public key (base64)
-    fn priv_to_pub(&self, priv_b64: &str) -> String {
-        use x25519_dalek::{PublicKey, StaticSecret};
-
-        let priv_bytes =
-            base64::Engine::decode(&base64::prelude::BASE64_STANDARD, priv_b64).unwrap_or_default();
-        if priv_bytes.len() != 32 {
-            return "".to_string();
-        }
-
-        let mut key_arr = [0u8; 32];
-        key_arr.copy_from_slice(&priv_bytes);
-
-        let secret = StaticSecret::from(key_arr);
-        let public = PublicKey::from(&secret);
-
-        base64::Engine::encode(&base64::prelude::BASE64_STANDARD, public.as_bytes())
     }
 }
 

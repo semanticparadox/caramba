@@ -262,6 +262,24 @@ pub struct NodeManageTemplate {
     pub discovered_snis: Vec<NodeSniDisplay>,
     pub nginx_proxy_config: String,
     pub caddy_proxy_config: String,
+    /// AmneziaWG узла. `None` = панель этому узлу AWG ещё не выдавала.
+    pub awg: Option<NodeAwgView>,
+}
+
+/// Карточка AmneziaWG: только чтение. Приватного ключа сервера здесь нет и
+/// быть не должно — он уезжает исключительно в раздел `awg` конфига узла.
+pub struct NodeAwgView {
+    /// Пер-нодовый тумблер (`node_awg.enabled`).
+    pub enabled: bool,
+    /// Глобальный тумблер панели. Интерфейс поднимается только когда оба.
+    pub globally_enabled: bool,
+    pub listen_port: i32,
+    pub public_key: String,
+    pub address_cidr: String,
+    /// Параметры обфускации одной строкой, для глаз оператора.
+    pub params: String,
+    /// Сколько пиров этого узла нода видела онлайн на последнем heartbeat.
+    pub online_count: usize,
 }
 
 #[derive(sqlx::FromRow, serde::Serialize)]
@@ -884,6 +902,64 @@ pub async fn toggle_node_enable(
     }
 }
 
+/// Пер-нодовый тумблер AmneziaWG.
+///
+/// Отдельный маршрут, а не поле в форме редактирования ноды: `update_node`
+/// после сохранения зовёт `reset_inbounds`, то есть пересоздаёт все инбаунды
+/// узла. Гонять это ради одного переключателя нельзя — у живых клиентов
+/// сменились бы порты и ключи.
+pub async fn toggle_node_awg(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let awg_service = crate::services::awg_service::AwgService::new(state.pool.clone());
+    let globally_enabled = awg_service.refresh_gate().await;
+    if !globally_enabled {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            "AmneziaWG выключен глобально: включите его в настройках панели",
+        )
+            .into_response();
+    }
+
+    let current = match awg_service.get(id).await {
+        Ok(row) => row.map(|r| r.enabled).unwrap_or(false),
+        Err(e) => {
+            error!("AmneziaWG: не прочитать состояние узла {}: {}", id, e);
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to read AmneziaWG state",
+            )
+                .into_response();
+        }
+    };
+
+    if let Err(e) = awg_service.set_enabled(id, !current).await {
+        error!("AmneziaWG: не переключить узел {}: {}", id, e);
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to toggle AmneziaWG",
+        )
+            .into_response();
+    }
+
+    info!(
+        "AmneziaWG на узле {}: {}",
+        id,
+        if current {
+            "выключен"
+        } else {
+            "включён"
+        }
+    );
+
+    // Узлу нужен новый конфиг: раздел `awg` меняется, sing-box при этом не
+    // перезапускается — у раздела свой хеш.
+    let _ = state.orchestration_service.notify_node_update(id).await;
+
+    (axum::http::StatusCode::OK, "Toggled").into_response()
+}
+
 /// Admin override: принудительная активация ноды через панель.
 /// В нормальном flow это происходит автоматически при первом heartbeat (Task 3).
 /// Используется только при ручном вмешательстве администратора.
@@ -1236,6 +1312,38 @@ pub async fn get_node_manage(
         .await
         .unwrap_or_default();
 
+    // AmneziaWG. Строку не создаём: она появляется, когда протокол включён
+    // глобально и узел выдал конфиг. Карточка лишь показывает состояние.
+    let awg_service = crate::services::awg_service::AwgService::new(state.pool.clone());
+    let awg_globally_enabled = awg_service.refresh_gate().await;
+    let awg = match awg_service.get(id).await {
+        Ok(Some(row)) => {
+            let online_count =
+                caramba_db::repositories::awg_repo::AwgRepository::new(state.pool.clone())
+                    .list_online_on_node(id)
+                    .await
+                    .map(|rows| rows.len())
+                    .unwrap_or(0);
+            Some(NodeAwgView {
+                enabled: row.enabled,
+                globally_enabled: awg_globally_enabled,
+                listen_port: row.listen_port,
+                public_key: row.public_key.clone(),
+                address_cidr: row.address_cidr.clone(),
+                params: format!(
+                    "jc={} jmin={} jmax={} s1={} s2={} h1={} h2={} h3={} h4={}",
+                    row.jc, row.jmin, row.jmax, row.s1, row.s2, row.h1, row.h2, row.h3, row.h4
+                ),
+                online_count,
+            })
+        }
+        Ok(None) => None,
+        Err(e) => {
+            warn!("AmneziaWG: карточка узла {} без данных awg: {}", id, e);
+            None
+        }
+    };
+
     // Fetch discovered SNIs with pinning status, with compatibility fallback for legacy schemas.
     let discovered_snis = {
         use sqlx::Row;
@@ -1489,6 +1597,7 @@ server {{
         discovered_snis,
         nginx_proxy_config,
         caddy_proxy_config,
+        awg,
     };
 
     Html(template.render().unwrap_or_default()).into_response()

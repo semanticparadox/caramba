@@ -37,6 +37,7 @@ class FakeWindowPort implements WindowPort {
 
   bool visible = true;
   bool maximized = false;
+  bool minimized = false;
   bool preventClose = false;
   String title = '';
   Rect bounds = const Rect.fromLTWH(120, 80, 1120, 720);
@@ -83,6 +84,12 @@ class FakeWindowPort implements WindowPort {
   Future<void> unmaximize() async => maximized = false;
 
   @override
+  Future<void> restore() async {
+    calls.add('restore');
+    minimized = false;
+  }
+
+  @override
   Future<void> setPreventClose(bool value) async {
     calls.add('setPreventClose($value)');
     preventClose = value;
@@ -101,6 +108,16 @@ class FakeWindowPort implements WindowPort {
 
   /// Как система: пользователь нажал красную кнопку.
   void tapClose() => listener?.onClose?.call();
+
+  /// Как система: пользователь свернул окно (жёлтая кнопка, ⌘M).
+  ///
+  /// Окно к моменту колбэка УЖЕ свёрнуто: перехвата сворачивания в плагине
+  /// нет, событие приходит по факту. Фейк повторяет этот порядок, иначе тест
+  /// сторожил бы поведение, которого на живой системе не бывает.
+  void tapMinimize() {
+    minimized = true;
+    listener?.onMinimize?.call();
+  }
 
   /// Как система: жест изменения размера завершён.
   void endResize(Rect value) {
@@ -328,6 +345,44 @@ void main() {
       expect(order, <String>['tray', 'exit']);
     },
   );
+
+  // Жёлтая кнопка и ⌘M: настройка «При закрытии и сворачивании окна» одна на
+  // оба жеста. Раньше сворачивание вообще никуда не приходило (onWindowMinimize
+  // не был подписан), и окно с включённой настройкой уезжало миниатюрой в Dock
+  // вместо строки меню.
+  test('сворачивание прячет окно в трей, развернув его перед этим', () async {
+    build(initial: const DesktopPrefs()).attach();
+
+    port.tapMinimize();
+    await pump();
+    await pump();
+
+    // Порядок обязателен: спрятать свёрнутое окно нельзя, оно осталось бы
+    // миниатюрой в Dock.
+    expect(port.calls, containsAllInOrder(<String>['restore', 'hide']));
+    expect(port.visible, isFalse);
+    expect(port.minimized, isFalse);
+    expect(order, isEmpty, reason: 'ни выхода, ни опускания туннеля');
+  });
+
+  test('с выключенным closeToTray сворачивание остаётся обычным', () async {
+    build(initial: const DesktopPrefs(closeToTray: false)).attach();
+
+    port.tapMinimize();
+    await pump();
+    await pump();
+
+    // attach уже положил сюда setPreventClose, поэтому сторожим не пустоту, а
+    // отсутствие вмешательства в само сворачивание.
+    expect(port.calls, isNot(contains('restore')));
+    expect(port.calls, isNot(contains('hide')));
+    expect(
+      port.minimized,
+      isTrue,
+      reason: 'окно уехало в Dock, как просит система',
+    );
+    expect(order, isEmpty);
+  });
 
   test('выход при поднятом туннеле ждёт кадр остановки', () async {
     core.haltsOnDisconnect = false;

@@ -72,6 +72,15 @@ IDI_APP_ICON            ICON                    "resources\\app_icon.ico"
 #define VERSION_AS_STRING "1.0.0"
 #endif
 
+// Видимое имя продукта, а не технический идентификатор проекта.
+//
+// ЗАЧЕМ. FileDescription это то, что Диспетчер задач и подсказка ярлыка
+// показывают ВМЕСТО имени файла, а ProductName видно в свойствах файла и в
+// списке установленных программ. Со значением caramba_client человек нигде в
+// системе не находил приложение под тем именем, под которым его знает.
+// OriginalFilename намеренно осталось прежним: имя .exe задаёт BINARY_NAME из
+// windows/CMakeLists.txt, на него завязаны scripts/ci-desktop.sh и упаковка,
+// и врать про него нельзя.
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION VERSION_AS_NUMBER
  PRODUCTVERSION VERSION_AS_NUMBER
@@ -90,12 +99,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.caramba" "\0"
-            VALUE "FileDescription", "caramba_client" "\0"
+            VALUE "FileDescription", "Caramba Connect" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "caramba_client" "\0"
+            VALUE "InternalName", "Caramba Connect" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.caramba. All rights reserved." "\0"
             VALUE "OriginalFilename", "caramba_client.exe" "\0"
-            VALUE "ProductName", "caramba_client" "\0"
+            VALUE "ProductName", "Caramba Connect" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

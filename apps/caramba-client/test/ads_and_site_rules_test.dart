@@ -166,7 +166,7 @@ void main() {
 
   group('siteRulesSummary', () {
     test('режим выключен — так и сказано, без выдуманных счётчиков', () {
-      expect(siteRulesSummary(const CoreConfig()), 'Выключено — списков нет');
+      expect(siteRulesSummary(const CoreConfig()), 'Выключено: списков нет');
     });
 
     test('«только выбранные» считает домены и наборы вместе', () {

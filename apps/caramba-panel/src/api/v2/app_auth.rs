@@ -38,11 +38,11 @@ use std::collections::HashMap;
 const ACCESS_TTL_SECS: i64 = 15 * 60; // 15 минут
 const REFRESH_TTL_SECS: i64 = 30 * 24 * 60 * 60; // 30 дней
 
-// Per-IP rate limit для публичных логин-эндпоинтов (login/code, login/email).
-// Эти маршруты не закрыты JWT, а login/code перебирается по пространству 10^6
-// при TTL 300с — без троттлинга атакующий может брутфорсить живые коды и
-// заниматься credential stuffing по email. Окно узкое (fixed-window через
-// Redis), общее для обоих эндпоинтов на один IP.
+// Per-IP rate limit для публичного логин-эндпоинта (login/email).
+// Маршрут не закрыт JWT: без троттлинга атакующий занимается credential
+// stuffing по email и подбором паролей. Окно узкое (fixed-window через
+// Redis), ключ общий на один IP — если появятся новые публичные логин-пути,
+// они попадают под тот же счётчик.
 const LOGIN_RL_LIMIT: usize = 10;
 const LOGIN_RL_WINDOW_SECS: usize = 60;
 
@@ -158,7 +158,7 @@ async fn issue_refresh_token(
 }
 
 /// Выпускает пару (access + refresh) для пользователя — единый путь выпуска
-/// токенов, общий для login_email / login_telegram / login_code. Гарантирует,
+/// токенов, общий для login_email / login_telegram / enroll redeem. Гарантирует,
 /// что все способы входа отдают идентичный success-JSON (см. `token_pair`).
 pub(crate) async fn issue_session(
     state: &AppState,
@@ -216,13 +216,6 @@ pub struct LoginTelegramRequest {
     /// (Telegram требует включать в DCS ВСЕ полученные поля, кроме `hash`).
     #[serde(flatten)]
     pub extra: std::collections::BTreeMap<String, serde_json::Value>,
-}
-
-/// Логин по одноразовому коду из Telegram-бота.
-/// Код генерируется ботом по /login и хранится в Redis ("app:logincode:{code}").
-#[derive(Deserialize)]
-pub struct LoginCodeRequest {
-    pub code: String,
 }
 
 #[derive(Deserialize)]
@@ -876,78 +869,6 @@ pub async fn login_telegram(
             }
         }
     }
-
-    match issue_session(&state, user.id, &headers).await {
-        Ok(pair) => Json(pair).into_response(),
-        Err(s) => s.into_response(),
-    }
-}
-
-/// POST /api/v2/app/login/code — вход по одноразовому коду из Telegram-бота.
-///
-/// Бот по /login кладёт в Redis ключ "app:logincode:{code}" => tg_id (TTL 300с,
-/// одноразовый). Здесь мы атомарно ищем-и-удаляем код (GETDEL, single-use),
-/// резолвим tg_id -> users.id и выпускаем ту же пару JWT, что и
-/// login_email/login_telegram (общий путь `issue_session`). Ответ идентичен
-/// прочим логинам, чтобы клиенты использовали один парсер. На промах/просрочку —
-/// 401 без деталей.
-///
-/// Brute-force защита: per-IP rate limit (`check_login_rate_limit`) — то же
-/// окно, что и у login_email. На промахе не раскрываем, что именно не сошлось.
-pub async fn login_code(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(payload): Json<LoginCodeRequest>,
-) -> impl IntoResponse {
-    // Per-IP throttle: пространство кода 10^6, без лимита его можно перебрать.
-    if let Err(s) = check_login_rate_limit(&state, &headers).await {
-        return s.into_response();
-    }
-
-    // Принимаем строго 6 цифр — отсекаем мусор до удара по Redis.
-    let code = payload.code.trim();
-    if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
-        return (StatusCode::UNAUTHORIZED, "Invalid or expired code").into_response();
-    }
-
-    let redis_key = format!("app:logincode:{}", code);
-
-    // Атомарно читаем-и-удаляем код (GETDEL): гарантирует single-use даже при
-    // конкурентных запросах с одним кодом — tg_id получит только первый. Ошибку
-    // Redis НЕ превращаем в 401 (это не «код неверный», а сбой инфраструктуры) —
-    // отдаём 500, чтобы клиент мог повторить.
-    let tg_id_str = match state.redis.get_del(&redis_key).await {
-        Ok(Some(v)) => v,
-        Ok(None) => return (StatusCode::UNAUTHORIZED, "Invalid or expired code").into_response(),
-        Err(e) => {
-            tracing::error!(err = %e, "login_code: redis getdel failed");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-
-    let tg_id: i64 = match tg_id_str.trim().parse() {
-        Ok(v) => v,
-        Err(_) => {
-            tracing::error!(value = %tg_id_str, "login_code: malformed tg_id in redis");
-            return (StatusCode::UNAUTHORIZED, "Invalid or expired code").into_response();
-        }
-    };
-
-    // Резолвим tg_id -> users.id. Пользователь обязан существовать (бот делает
-    // upsert на /start). Если строки нет — отвечаем единообразно (401), не
-    // раскрывая, что именно не сошлось.
-    let repo = UserRepository::new(state.pool.clone());
-    let user = match repo.get_by_tg_id(tg_id).await {
-        Ok(Some(u)) => u,
-        Ok(None) => {
-            tracing::warn!(tg_id, "login_code: no user for tg_id");
-            return (StatusCode::UNAUTHORIZED, "Invalid or expired code").into_response();
-        }
-        Err(e) => {
-            tracing::error!(err = %e, "login_code: user lookup failed");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
 
     match issue_session(&state, user.id, &headers).await {
         Ok(pair) => Json(pair).into_response(),

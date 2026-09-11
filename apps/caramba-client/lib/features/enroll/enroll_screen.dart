@@ -3,9 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:caramba_client/data/brand.dart';
-import 'package:caramba_client/data/models/enrollment.dart';
-import 'package:caramba_client/features/connections/qr_scan_sheet.dart';
-import 'package:caramba_client/features/enroll/connect_link.dart';
 import 'package:caramba_client/features/enroll/enroll_controller.dart';
 import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/theme/spacing.dart';
@@ -14,22 +11,31 @@ import 'package:caramba_client/theme/typography.dart';
 import 'package:caramba_client/widgets/lucide.dart';
 import 'package:caramba_client/widgets/ui.dart';
 
-/// Экран энроллмента (P2, contract A/B/C).
+/// Экран энроллмента по диплинку `carambaconnect://enroll?panel=...&code=...`.
 ///
-/// Точка входа из deeplink `carambaconnect://enroll?panel=...&code=...`, из
-/// ручного ввода (код + URL панели) и из QR (тот же URI). Сначала валидирует
-/// код публичным `GET /api/v2/app/enroll/{code}`, показывает имя панели и
-/// разовый онбординг-трафик, затем ведёт в регистрацию (email/password) или
-/// вход по коду из бота, прокидывая `enroll_code`. Аккаунт обязателен всегда.
+/// РУЧНОГО ВВОДА ЗДЕСЬ БОЛЬШЕ НЕТ (раунд 5). Экран держал два поля — инвайт-код
+/// и URL панели, — и оба противоречат тому, ради чего всё делалось: адрес
+/// панели приложение не показывает и не спрашивает, а код без адреса никуда не
+/// ведёт. Практически это был экран, который никто не мог пройти: кодов на
+/// живой панели не выпускали, а адрес человек взять неоткуда. Вместе с полями
+/// ушли QR-сканер (он жил ради тех же полей; QR со ссылкой подключения
+/// сканирует экран `/connect`) и вход 6-значным кодом из бота — режим кода
+/// удалён целиком, вплоть до `POST /login/code` на панели.
+///
+/// Что осталось: ссылка энроллмента приносит и адрес, и код сама, экран их
+/// валидирует публичным `GET /api/v2/app/enroll/{code}`, показывает имя панели
+/// и разовый онбординг-трафик и ведёт в регистрацию. Аккаунт обязателен всегда.
+/// Пришедшему сюда без ссылки экран говорит, где её берут, и уводит на
+/// «Подключить панель».
 class EnrollScreen extends ConsumerStatefulWidget {
-  /// URL панели из deeplink (query `panel`). `null` => ручной ввод.
+  /// URL панели из deeplink (query `panel`). `null` => ссылки не было.
   final String? initialPanel;
 
   /// `link_pin` из ссылки энроллмента (query `k`), когда она его несёт.
   /// Закрепляется профилем при успешной валидации.
   final String? initialLinkPin;
 
-  /// Инвайт-код из deeplink (query `code`). `null` => ручной ввод.
+  /// Инвайт-код из deeplink (query `code`). `null` => ссылки не было.
   final String? initialCode;
 
   const EnrollScreen({
@@ -44,23 +50,15 @@ class EnrollScreen extends ConsumerStatefulWidget {
 }
 
 class _EnrollScreenState extends ConsumerState<EnrollScreen> {
-  final _panelController = TextEditingController();
-  final _codeController = TextEditingController();
-
-  // Поля регистрации.
+  // Поля регистрации: единственный ввод, который на этом экране остался.
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _nameController = TextEditingController();
 
-  // Поле входа по коду из бота (альтернатива регистрации).
-  final _botCodeController = TextEditingController();
-
   @override
   void initState() {
     super.initState();
-    _panelController.text = widget.initialPanel ?? '';
-    _codeController.text = widget.initialCode ?? '';
-    // Если deeplink принёс обе части — стартуем валидацию сразу после первого кадра.
+    // Диплинк принёс обе части — стартуем валидацию сразу после первого кадра.
     final panel = widget.initialPanel;
     final code = widget.initialCode;
     if (panel != null && panel.isNotEmpty && code != null && code.isNotEmpty) {
@@ -80,12 +78,9 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
 
   @override
   void dispose() {
-    _panelController.dispose();
-    _codeController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _nameController.dispose();
-    _botCodeController.dispose();
     super.dispose();
   }
 
@@ -133,7 +128,7 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
   List<Widget> _body(BuildContext context, EnrollState s) {
     switch (s.stage) {
       case EnrollStage.needInput:
-        return _manualInput(context, s);
+        return _noLink(context, s);
       case EnrollStage.validating:
         return _busy('Проверяем код энроллмента');
       case EnrollStage.invalid:
@@ -148,79 +143,28 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
   }
 
   // --------------------------------------------------------------------------
-  // Ручной ввод (код + URL панели) + QR-аффорданс.
+  // Ссылки нет: говорим, где её берут, и отдаём единственной кнопке.
   // --------------------------------------------------------------------------
 
-  List<Widget> _manualInput(BuildContext context, EnrollState s) {
+  List<Widget> _noLink(BuildContext context, EnrollState s) {
     final c = context.c;
     return [
-      Text('Энроллмент', style: AppType.headline.copyWith(color: c.textHi)),
+      Text('Нужна ссылка', style: AppType.headline.copyWith(color: c.textHi)),
       const SizedBox(height: AppSpace.s3),
-      // Обычный путь теперь ссылка, а не код: её выдаёт бот панели, и вводить
-      // по ней ничего не надо. Ручной ввод оставлен ниже как запасной, но он
-      // требует кода, который оператор должен сначала выпустить, и молчать об
-      // этом нельзя: именно на этом экране раньше застревали люди с кодом,
-      // которого никто не выдавал.
       Text(
-        'Обычно оператор присылает ссылку подключения: её достаточно открыть, '
-        'вводить ничего не нужно.',
+        'Подключение выдаёт бот вашего оператора одной ссылкой: её достаточно '
+        'открыть или вставить, вводить ничего не нужно.',
         style: AppType.bodyMd.copyWith(color: c.textMed),
       ),
-      const SizedBox(height: AppSpace.s3),
-      GhostButton(
-        label: 'У меня есть ссылка',
-        icon: Lucide.externalLink,
-        onPressed: () => context.go(AppRoute.connect),
-      ),
-      const SizedBox(height: AppSpace.s6),
-      Text(
-        'Если оператор дал именно инвайт-код, введите его вместе с адресом '
-        'панели. Код должен быть выпущен вашим оператором: придумать его '
-        'нельзя.',
-        style: AppType.bodyMd.copyWith(color: c.textMed),
-      ),
-      const SizedBox(height: AppSpace.s6),
-      const SectionTitle('Код', padding: EdgeInsets.only(bottom: AppSpace.s3)),
-      TextField(
-        controller: _codeController,
-        style: AppType.monoMd.copyWith(color: c.textHi),
-        decoration: const InputDecoration(hintText: 'INVITE-XXXX'),
-      ),
-      const SizedBox(height: AppSpace.s5),
-      const SectionTitle(
-        'URL панели',
-        padding: EdgeInsets.only(bottom: AppSpace.s3),
-      ),
-      TextField(
-        controller: _panelController,
-        keyboardType: TextInputType.url,
-        autocorrect: false,
-        style: AppType.monoMd.copyWith(color: c.textHi),
-        decoration: const InputDecoration(hintText: 'https://panel.example'),
-      ),
-      const SizedBox(height: AppSpace.s3),
-      // Кнопка есть только там, где сканировать действительно можно. Раньше она
-      // стояла всегда и показывала тост «появится позже»: кнопка, которая врёт,
-      // хуже отсутствующей, потому что человек считает её своим путём и
-      // перестаёт искать настоящий.
-      if (qrScanSupported)
-        GhostButton(
-          label: 'Сканировать QR',
-          icon: Lucide.appWindow,
-          onPressed: _scanQr,
-        )
-      else
-        Text(
-          'Камеры на этой платформе нет, поэтому QR тут не сканируется. '
-          'Введите код и адрес панели или откройте ссылку приглашения.',
-          style: AppType.bodySm.copyWith(color: c.textLow),
-        ),
       if (s.error != null) ...[
         const SizedBox(height: AppSpace.s4),
         _errorLine(context, s.error!),
       ],
       const SizedBox(height: AppSpace.s6),
-      FilledButton(onPressed: _submitManual, child: const Text('Продолжить')),
+      FilledButton(
+        onPressed: () => context.go(AppRoute.connect),
+        child: const Text('Вставить ссылку подключения'),
+      ),
     ];
   }
 
@@ -235,16 +179,21 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
       const SizedBox(height: AppSpace.s4),
       _errorLine(context, s.error ?? 'Код недействителен.'),
       const SizedBox(height: AppSpace.s6),
+      // Ввести «другой код» тут нечем: код приходит ссылкой. Просить у
+      // оператора новую ссылку и есть единственный осмысленный следующий шаг.
       GhostButton(
-        label: 'Ввести другой код',
+        label: 'Вставить другую ссылку',
         icon: Lucide.refresh,
-        onPressed: () => ref.read(enrollProvider.notifier).reset(),
+        onPressed: () {
+          ref.read(enrollProvider.notifier).reset();
+          context.go(AppRoute.connect);
+        },
       ),
     ];
   }
 
   // --------------------------------------------------------------------------
-  // Валиден: имя панели + онбординг-трафик + регистрация / вход по коду.
+  // Валиден: имя панели + онбординг-трафик + регистрация.
   // --------------------------------------------------------------------------
 
   List<Widget> _accountStep(BuildContext context, EnrollState s) {
@@ -321,29 +270,6 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
       ],
       const SizedBox(height: AppSpace.s5),
       FilledButton(onPressed: _register, child: const Text('Создать аккаунт')),
-
-      const SizedBox(height: AppSpace.s6),
-      const SectionTitle(
-        'Уже есть аккаунт',
-        padding: EdgeInsets.only(bottom: AppSpace.s3),
-      ),
-      Text(
-        'Войдите по коду из Telegram-бота этой панели.',
-        style: AppType.bodySm.copyWith(color: c.textMed),
-      ),
-      const SizedBox(height: AppSpace.s3),
-      TextField(
-        controller: _botCodeController,
-        keyboardType: TextInputType.number,
-        style: AppType.monoMd.copyWith(color: c.textHi),
-        decoration: const InputDecoration(hintText: 'Код из бота (6 цифр)'),
-      ),
-      const SizedBox(height: AppSpace.s3),
-      GhostButton(
-        label: 'Войти по коду',
-        icon: Lucide.key,
-        onPressed: _loginByCode,
-      ),
     ];
   }
 
@@ -429,17 +355,6 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
     );
   }
 
-  void _submitManual() {
-    FocusScope.of(context).unfocus();
-    ref
-        .read(enrollProvider.notifier)
-        .submitManual(
-          panelUrl: _panelController.text,
-          code: _codeController.text,
-          linkPin: widget.initialLinkPin,
-        );
-  }
-
   void _register() {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
@@ -455,53 +370,6 @@ class _EnrollScreenState extends ConsumerState<EnrollScreen> {
           password: password,
           fullName: _nameController.text.trim(),
         );
-  }
-
-  void _loginByCode() {
-    final code = _botCodeController.text.replaceAll(RegExp(r'\D'), '');
-    if (code.length < 6) {
-      showCarambaToast(context, 'Введите 6 цифр кода из бота');
-      return;
-    }
-    FocusScope.of(context).unfocus();
-    ref.read(enrollProvider.notifier).loginCodeWithEnroll(botCode: code);
-  }
-
-  /// Реальный скан. QR может нести три разные вещи, и все три встречаются в
-  /// переписке с оператором, поэтому разбираются здесь, а не сваливаются одной
-  /// строкой в поле кода:
-  ///   * `caramba://connect?d=...` — самоописывающееся приглашение, ему тут
-  ///     делать нечего: уводим на экран подтверждения, где вводить не нужно;
-  ///   * `carambaconnect://enroll?panel=...&code=...` — старая ссылка, из неё
-  ///     заполняем оба поля и сразу валидируем;
-  ///   * всё прочее считаем набранным кодом и кладём в поле кода, не трогая
-  ///     адрес панели.
-  Future<void> _scanQr() async {
-    final value = await showQrScanSheet(context);
-    if (value == null || !mounted) return;
-    final scanned = value.trim();
-
-    if (looksLikeConnectLink(scanned)) {
-      context.go(
-        Uri(
-          path: AppRoute.connect,
-          queryParameters: {'link': scanned},
-        ).toString(),
-      );
-      return;
-    }
-
-    final enroll = EnrollLink.tryParse(scanned);
-    if (enroll != null) {
-      _panelController.text = enroll.panelUrl;
-      _codeController.text = enroll.code;
-      setState(() {});
-      _submitManual();
-      return;
-    }
-
-    _codeController.text = scanned;
-    setState(() {});
   }
 
   void _close() {

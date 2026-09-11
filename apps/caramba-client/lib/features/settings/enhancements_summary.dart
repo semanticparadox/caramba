@@ -163,7 +163,9 @@ AdBlockStatus adBlockStatus(CoreConfig cfg, AppliedRoute? applied) {
 /// домены, набранные при выключенном режиме, не считаются, потому что ядру
 /// они не уходят.
 String siteRulesSummary(CoreConfig cfg) => switch (cfg.splitMode) {
-  SplitMode.off => 'Выключено — списков нет',
+  // Двоеточие, а не тире: соседняя строка «Правила по приложениям» в том же
+  // разделе пишет свою сводку так же, а длинных тире в текстах UI мы не ставим.
+  SplitMode.off => 'Выключено: списков нет',
   SplitMode.onlySelected =>
     'Только выбранные · ${_countSites(cfg.siteRuleCount)}',
   SplitMode.bypassSelected =>

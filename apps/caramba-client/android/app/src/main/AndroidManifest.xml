@@ -114,5 +114,19 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Правила по приложениям: экран выбора показывает то, что человек
+             видит в лаунчере, а раздельное туннелирование применяет
+             VpnService.Builder по именам пакетов (CarambaVpnService). С
+             Android 11 пакеты чужих приложений невидимы без объявления, и
+             PackageManager.queryIntentActivities вернул бы почти пустой
+             список — то есть экран выбора без выбора.
+
+             Намеренно БЕЗ разрешения QUERY_ALL_PACKAGES: оно добавило бы
+             фоновые и системные пакеты ценой отдельного обоснования в Google
+             Play review, а выбирают всё равно из запускаемых. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN"/>
+            <category android:name="android.intent.category.LAUNCHER"/>
+        </intent>
     </queries>
 </manifest>

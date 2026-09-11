@@ -1,5 +1,7 @@
 use crate::bot::translations::{Lang, t};
-use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardMarkup};
+use teloxide::types::{
+    CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardMarkup,
+};
 
 /// Главное меню (reply keyboard).
 ///
@@ -133,7 +135,7 @@ pub async fn app_download_url_keyboard(
     Some(InlineKeyboardMarkup::new(vec![vec![button]]))
 }
 
-/// Способы забрать приложение — к сообщению со ссылкой входа.
+/// Способы забрать приложение — строки для клавиатуры сообщения со ссылкой.
 ///
 /// Две строки, обе необязательные: ссылка на домен панели и выдача APK файлом
 /// прямо в Telegram. ПОРЯДОК НЕ СЛУЧАЕН: ссылка отдаёт всегда свежую сборку с
@@ -145,10 +147,10 @@ pub async fn app_download_url_keyboard(
 /// Кнопка выдачи файла появляется только когда `file_id` действительно записан
 /// (см. `apk_delivery`): кнопка, которая отвечает «файла нет», хуже отсутствия
 /// кнопки. Если не настроено ничего — клавиатуры нет вовсе.
-pub async fn app_download_keyboard(
+async fn app_download_rows(
     settings: &crate::settings::SettingsService,
     lang: Lang,
-) -> Option<InlineKeyboardMarkup> {
+) -> Vec<Vec<InlineKeyboardButton>> {
     let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
     if let Some(button) = app_download_url_button(settings, lang).await {
         rows.push(vec![button]);
@@ -164,22 +166,55 @@ pub async fn app_download_keyboard(
             "apk_send",
         )]);
     }
+    rows
+}
+
+/// Предел Telegram на текст кнопки копирования: 1..=256 символов.
+const COPY_TEXT_MAX_CHARS: usize = 256;
+
+/// Строка с нативной кнопкой копирования ссылки, если ссылка в предел влезает.
+///
+/// ЗАЧЕМ ОТДЕЛЬНАЯ КНОПКА. Тап по `<code>` копирует не везде: на части клиентов
+/// он открывает меню, а на десктопе выделяет строку целиком вместе с переносами.
+/// Кнопка копирует ровно ссылку и ровно в буфер — это единственный путь для
+/// человека, у которого схема `caramba://` не перехватывается системой.
+///
+/// `None` при переполнении: Telegram отвергает такую кнопку и роняет ОТПРАВКУ
+/// ВСЕГО сообщения, то есть человек остался бы вообще без ссылки. Ссылка длиннее
+/// 256 символов реальна — её длину задаёт имя оператора из настроек.
+fn copy_link_row(lang: Lang, link: &str) -> Option<Vec<InlineKeyboardButton>> {
+    let len = link.chars().count();
+    if len == 0 || len > COPY_TEXT_MAX_CHARS {
+        return None;
+    }
+    Some(vec![InlineKeyboardButton::copy_text_button(
+        t(lang, "app.copy_link_btn"),
+        CopyTextButton {
+            text: link.to_string(),
+        },
+    )])
+}
+
+/// Клавиатура сообщения со ссылкой входа: сначала «Скопировать ссылку», затем
+/// способы забрать приложение.
+///
+/// ПОРЯДОК НЕ СЛУЧАЕН: копирование относится к самому сообщению и нужно каждому,
+/// кто его открыл; скачивание — только тому, у кого приложения ещё нет.
+pub async fn connect_link_keyboard(
+    settings: &crate::settings::SettingsService,
+    lang: Lang,
+    link: &str,
+) -> Option<InlineKeyboardMarkup> {
+    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+    if let Some(row) = copy_link_row(lang, link) {
+        rows.push(row);
+    }
+    rows.extend(app_download_rows(settings, lang).await);
     if rows.is_empty() {
         None
     } else {
         Some(InlineKeyboardMarkup::new(rows))
     }
-}
-
-/// Инлайн-клавиатура «прислать заново» — висит ТОЛЬКО на сообщении с кодом
-/// входа (`command.rs::send_login_code`). По нажатию callback `get_login_code`
-/// присылает заново обе части: ссылку и код, — потому что человек нажимает её
-/// как раз тогда, когда первая пара уже протухла.
-pub fn login_code_keyboard(lang: Lang) -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
-        t(lang, "login.get_code_btn"),
-        "get_login_code",
-    )]])
 }
 
 /// Выбор языка. Намеренно двуязычная — показывается до того, как язык известен.
@@ -195,4 +230,36 @@ pub fn terms_keyboard(lang: Lang) -> InlineKeyboardMarkup {
         InlineKeyboardButton::callback(t(lang, "terms.accept"), "accept_terms"),
         InlineKeyboardButton::callback(t(lang, "terms.decline"), "decline_terms"),
     ]])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use teloxide::types::InlineKeyboardButtonKind;
+
+    /// Первой строкой обязана идти именно кнопка копирования со ССЫЛКОЙ внутри:
+    /// это единственный путь для человека, у которого `caramba://` не
+    /// перехватывается системой.
+    #[test]
+    fn copy_row_carries_the_link_itself() {
+        let link = "caramba://connect?d=ABC123";
+        let row = copy_link_row(Lang::Ru, link).expect("обычная ссылка влезает в предел");
+        assert_eq!(row.len(), 1);
+        match &row[0].kind {
+            InlineKeyboardButtonKind::CopyText(copy) => assert_eq!(copy.text, link),
+            other => panic!("не кнопка копирования: {other:?}"),
+        }
+    }
+
+    /// Ссылка длиннее предела обязана оставить сообщение без кнопки, а не
+    /// уронить отправку: без сообщения человек остался бы вообще без ссылки.
+    #[test]
+    fn over_long_link_drops_the_button_instead_of_the_message() {
+        let link = format!("caramba://connect?d={}", "A".repeat(COPY_TEXT_MAX_CHARS));
+        assert!(copy_link_row(Lang::Ru, &link).is_none());
+        // Ровно на пределе кнопка обязана быть: гейт отсекает переполнение, а не
+        // «длинные ссылки вообще».
+        let edge = "c".repeat(COPY_TEXT_MAX_CHARS);
+        assert!(copy_link_row(Lang::En, &edge).is_some());
+    }
 }
