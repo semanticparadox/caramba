@@ -61,7 +61,7 @@ for scene in "${scenes[@]}"; do
     concat="$dir/concat.txt"
     : > "$concat"
     while IFS=$'\t' read -r file delay; do
-      printf "file '%s'\nduration %s\n" "$file" "$(echo "$delay / 1000" | bc -l)" >> "$concat"
+      printf "file '%s'\nduration %s\n" "$file" "$(python3 -c "print(f'{$delay/1000:.3f}')")" >> "$concat"
     done < <(jq -r '.[] | [.file, .delay_ms] | @tsv' "$frames")
     last="$(jq -r '.[-1].file' "$frames")"
     printf "file '%s'\n" "$last" >> "$concat"
