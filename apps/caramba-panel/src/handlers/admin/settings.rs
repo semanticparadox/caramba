@@ -517,6 +517,9 @@ pub struct SettingsTemplate {
     pub guide_url_plans: String,
     pub guide_url_devices: String,
     pub guide_url_faq: String,
+    // Тур по функциям (bot::feature_tour): весь контент одной строкой JSON.
+    // Пусто — бот берёт вшитый дефолт; формат описан в заголовке модуля.
+    pub feature_tour_json: String,
     pub app_download_url_android: String,
     pub app_download_url_ios: String,
     pub app_download_url_windows: String,
@@ -749,6 +752,7 @@ pub struct SaveSettingsForm {
     pub guide_url_plans: Option<String>,
     pub guide_url_devices: Option<String>,
     pub guide_url_faq: Option<String>,
+    pub feature_tour_json: Option<String>,
     pub app_download_url_android: Option<String>,
     pub app_download_url_ios: Option<String>,
     pub app_download_url_windows: Option<String>,
@@ -914,6 +918,10 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     let guide_url_plans = state.settings.get_or_default("guide_url_plans", "").await;
     let guide_url_devices = state.settings.get_or_default("guide_url_devices", "").await;
     let guide_url_faq = state.settings.get_or_default("guide_url_faq", "").await;
+    let feature_tour_json = state
+        .settings
+        .get_or_default(crate::bot::feature_tour::SETTING_KEY, "")
+        .await;
     let onboarding_enabled = state
         .settings
         .get_bool_or_default(onboarding::SETTING_ENABLED, true)
@@ -1592,6 +1600,7 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         guide_url_plans,
         guide_url_devices,
         guide_url_faq,
+        feature_tour_json,
         app_download_url_android,
         app_download_url_ios,
         app_download_url_windows,
@@ -1994,6 +2003,26 @@ pub async fn save_settings(
     }
     if let Some(v) = form.guide_url_faq {
         settings.insert("guide_url_faq".to_string(), v.trim().to_string());
+    }
+    // Тур по функциям. Мусор не сохраняем вовсе: настройка замещает вшитый
+    // контент целиком, и принятый «на всякий случай» битый JSON означал бы
+    // тихий откат тура к дефолту через час после правки, когда бот перечитает
+    // настройку. Пустое поле — осознанный сброс к дефолту, это разрешено.
+    if let Some(v) = form.feature_tour_json {
+        let normalized = v.trim().to_string();
+        if normalized.is_empty() {
+            settings.insert(
+                crate::bot::feature_tour::SETTING_KEY.to_string(),
+                String::new(),
+            );
+        } else if let Err(e) = crate::bot::feature_tour::parse(&normalized) {
+            return (StatusCode::BAD_REQUEST, format!("Feature tour JSON: {e}")).into_response();
+        } else {
+            settings.insert(
+                crate::bot::feature_tour::SETTING_KEY.to_string(),
+                normalized,
+            );
+        }
     }
     if let Some(v) = form.onboarding_enabled {
         settings.insert(

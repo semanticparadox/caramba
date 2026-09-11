@@ -168,6 +168,10 @@ translations! {
     "guides.prompt" => { ru: "Начните с «Ваши следующие шаги», затем выберите своё устройство. Одна подписка работает на всех устройствах в пределах лимита тарифа.", en: "Start with «Your next steps», then pick your device. One subscription works on all your devices within the plan limit." },
     "guides.missing" => { ru: "Инструкции ещё не опубликованы. Напишите в поддержку, поможем подключиться.", en: "Guides are not published yet. Contact support and we will help you connect." },
     "guides.index_btn" => { ru: "📖 Пошаговая инструкция", en: "📖 Step-by-step guide" },
+    // Кнопка тура по функциям (`bot::feature_tour`). Живёт здесь, а не в JSON
+    // тура: её текст показывается ДО того, как тур загружен, в клавиатуре
+    // инструкций.
+    "tour.open_btn" => { ru: "✨ Что умеет сервис", en: "✨ What the service can do" },
     // Первая кнопка в «📖 Инструкция»: корневая страница «Ваши следующие шаги»
     // (`guide_url_index`); за ней платформы, затем страницы базы знаний.
     "guides.index" => { ru: "📖 Ваши следующие шаги", en: "📖 Your next steps" },

@@ -167,6 +167,14 @@
                     </div>
 
                     <div class="pt-6 border-t border-border-default">
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-1 ml-1">Feature tour</p>
+                        <p class="text-xs text-slate-500 mb-4 ml-1">Content of the bot tour: <code>/tour</code>, the «What the service can do» button under the guides, and the <code>tour_&lt;id&gt;</code> buttons inside every tour message. A JSON array of <code>{"id", "title", "button", "button_en", "animation_file_id", "caption_html", "caption_html_en", "buttons": [[text, url]]}</code>. <code>id</code> is 1–32 characters of <code>a-z</code> and <code>_</code>, an <code>overview</code> element is required, captions are HTML and at most 1024 characters, button URLs must be http(s). Leave the field empty and the bot uses the built-in content. Animation <code>file_id</code> values come from uploading the MP4 files to this bot — paste them into <code>animation_file_id</code>; an element without one is sent as plain text. Invalid JSON is rejected and nothing is saved.</p>
+                        <textarea form="main-settings-form" name="feature_tour_json" rows="10" spellcheck="false"
+                            placeholder='[{"id": "overview", "button": "✨ Что умеет сервис", "caption_html": "…", "buttons": [["📥 Скачать приложение", "https://t.me/…"]]}]'
+                            class="input-field font-mono text-xs">{{ feature_tour_json }}</textarea>
+                    </div>
+
+                    <div class="pt-6 border-t border-border-default">
                         <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-1 ml-1">Caramba Connect app — download links</p>
                         <p class="text-xs text-slate-500 mb-4 ml-1">Shown by the bot under the sign-in link and in the Mini App. Leave a field empty and the panel builds the link itself from the file it already serves — through the subscription mirror when one is set, so the panel address never leaves. If you fill a field in, prefer the mirror host (<code>https://app.&lt;your-domain&gt;/downloads/…</code>) over the panel address. A field stays empty and no file is on disk → that platform shows «coming soon».</p>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

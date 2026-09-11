@@ -404,6 +404,21 @@ pub async fn callback_handler(
                 }
             }
 
+            // Тур по функциям: `tour_<id>`. Кнопки живут в уже разосланных
+            // сообщениях, поэтому неизвестный id (настройку тура правили после
+            // рассылки) сводится к мастер-посту внутри `send_feature`, а не к
+            // молчанию.
+            tour if tour.starts_with(crate::bot::feature_tour::CALLBACK_PREFIX) => {
+                let _ = bot.answer_callback_query(callback_id).await;
+                if let Some(msg) = q.message {
+                    let id = tour
+                        .trim_start_matches(crate::bot::feature_tour::CALLBACK_PREFIX)
+                        .to_string();
+                    crate::bot::feature_tour::send_feature(&bot, msg.chat().id, lang, &state, &id)
+                        .await;
+                }
+            }
+
             "set_lang_en" | "set_lang_ru" => {
                 // Выбор пользователя перекрывает всё, что мы разрешили выше.
                 let chosen = if data.contains("en") {

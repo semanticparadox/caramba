@@ -113,6 +113,14 @@ pub async fn guides_keyboard(
     if let Some(index) = guide_button(settings, lang, "index").await {
         rows.push(vec![index]);
     }
+    // Тур по функциям сразу под корневой страницей: инструкция объясняет, КАК
+    // подключиться, тур — ЧТО ещё умеет приложение, и второе люди не ищут, пока
+    // им не покажут. Контент вшит дефолтом, поэтому кнопка не зависит от
+    // настроек и строка есть всегда.
+    rows.push(vec![InlineKeyboardButton::callback(
+        t(lang, "tour.open_btn"),
+        crate::bot::feature_tour::overview_callback_data(),
+    )]);
     let mut row: Vec<InlineKeyboardButton> = Vec::new();
     for id in GUIDE_PLATFORMS {
         let Some(button) = guide_button(settings, lang, id).await else {
@@ -134,7 +142,10 @@ pub async fn guides_keyboard(
         }
     }
     rows.extend(two_per_row(pages));
-    if rows.is_empty() {
+    // Кнопка тура добавлена всегда, поэтому «пусто» — это когда кроме неё в
+    // клавиатуре ничего нет: тогда показывать надо текст «инструкций пока нет»,
+    // а не клавиатуру из одной кнопки под обещанием списка платформ.
+    if rows.len() <= 1 {
         None
     } else {
         Some(InlineKeyboardMarkup::new(rows))

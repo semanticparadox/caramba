@@ -2,6 +2,7 @@ use teloxide::{dptree, prelude::*, types::Update};
 use tracing::{error, info};
 
 pub mod apk_delivery;
+pub mod feature_tour;
 pub mod handlers;
 pub mod keyboards;
 pub mod translations;

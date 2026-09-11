@@ -1,0 +1,143 @@
+[
+  {
+    "id": "overview",
+    "title": "Что такое Caramba Connect",
+    "button": "✨ Что умеет сервис",
+    "button_en": "✨ What the service can do",
+    "animation_file_id": "",
+    "caption_html": "🚢 <b>Caramba Connect: всё, что умеет ваш VPN</b>\n\nМы запускаем серию коротких заметок: что есть в приложении, зачем это нужно и где включить.\n\n<b>Чем Caramba Connect отличается</b>\n• Своё приложение для Android, Windows, Mac и Linux. Без логинов и адресов серверов: бот выдаёт ссылку, приложение открывает её и настраивает всё само.\n• Автоподбор: кнопка «Подобрать лучший узел» проверяет каждый сервер настоящим запросом и закрепляет тот, что реально работает прямо сейчас.\n• Протоколы на выбор: VLESS Reality, Hysteria2, TUIC, AmneziaWG. Или «Авто», и ядро решит само.\n• Правила трафика: «Россия (умный)», «Полный обход», «Только Telegram» и другие режимы, блокировка рекламы и трекеров, правила по сайтам и по приложениям.\n• Вход через релей там, где прямое подключение режут.\n• Одна подписка на несколько устройств, список и отвязка в профиле.\n• Новым пользователям 30 дней Gold в подарок.\n\nДальше по одному сообщению на функцию. Начнём с автоподбора.",
+    "caption_html_en": "🚢 <b>Caramba Connect: everything your VPN can do</b>\n\nWe are starting a short series: what is in the app, why it matters and where to turn it on.\n\n<b>What makes Caramba Connect different</b>\n• Our own app for Android, Windows, Mac and Linux. No logins or server addresses: the bot gives you a link, the app opens it and sets everything up itself.\n• Autopilot: the «Pick the best node» button probes every server with a real request and pins the one that actually works right now.\n• Protocols to choose from: VLESS Reality, Hysteria2, TUIC, AmneziaWG. Or «Auto», and the core decides.\n• Traffic rules: «Russia (smart)», «Full bypass», «Telegram only» and other modes, ad and tracker blocking, per-site and per-app rules.\n• Entry through a relay where direct connections are cut.\n• One subscription on several devices, list and unlink in your profile.\n• New users get 30 days of Gold as a gift.\n\nOne message per feature from here. Autopilot first.",
+    "buttons": [
+      [
+        "📥 Скачать приложение",
+        "https://t.me/exa_robot?start=apk"
+      ],
+      [
+        "📖 Что умеет приложение",
+        "https://telegra.ph/Caramba-Connect--CHto-umeet-prilozhenie-09-11"
+      ],
+      [
+        "📖 Ваши следующие шаги",
+        "https://telegra.ph/Caramba-Connect--Vashi-sleduyushchie-shagi-09-11"
+      ],
+      [
+        "🎁 Тарифы и подарок",
+        "https://telegra.ph/Caramba-Connect--Tarify-i-podarok-09-11"
+      ]
+    ]
+  },
+  {
+    "id": "autotune",
+    "title": "Автоподбор",
+    "button": "⚡ Автоподбор",
+    "button_en": "⚡ Autopilot",
+    "animation_file_id": "",
+    "caption_html": "🧠 <b>Автоподбор: приложение само находит рабочий сервер</b>\n\n<b>Зачем.</b> Сегодня хорошо работает один сервер, завтра другой. Вместо перебора вручную нажмите одну кнопку: приложение проверит каждый узел настоящим запросом (туннель для этого не поднимается) и закрепит тот, что отвечает лучше всех. Если новый лидер выиграл совсем немного, прошлый выбор остаётся, чтобы не переподключаться зря.\n\n<b>Где включить</b>\n1. Главный экран → «Подобрать лучший узел» (та же кнопка есть на экране «Серверы»).\n2. Подождите несколько секунд: на экране видно, сколько узлов уже проверено.\n3. Кнопка покажет «Автоподбор: …» с выбранным сервером. Нажмите «Подключить».\n\nСовет: если соединение стало тормозить, просто запустите подбор ещё раз.",
+    "caption_html_en": "🧠 <b>Autopilot: the app finds a working server for you</b>\n\n<b>Why.</b> One server is great today, another one tomorrow. Instead of trying them by hand, tap one button: the app probes every node with a real request (no tunnel is brought up for that) and pins the one that answers best. If the new leader won by a hair, the previous pick stays so you do not reconnect for nothing.\n\n<b>Where</b>\n1. Home screen → «Pick the best node» (the same button lives on the «Servers» screen).\n2. Wait a few seconds: the screen shows how many nodes have been checked.\n3. The button shows «Autopilot: …» with the chosen server. Tap «Connect».\n\nTip: if the connection gets slow, just run the pick again.",
+    "buttons": [
+      [
+        "📖 Что умеет приложение",
+        "https://telegra.ph/Caramba-Connect--CHto-umeet-prilozhenie-09-11"
+      ],
+      [
+        "🛟 Если не подключается",
+        "https://telegra.ph/Caramba-Connect--Esli-ne-podklyuchaetsya-09-11"
+      ]
+    ]
+  },
+  {
+    "id": "protocols",
+    "title": "Тип подключения",
+    "button": "🔌 Тип подключения",
+    "button_en": "🔌 Connection type",
+    "animation_file_id": "",
+    "caption_html": "🔀 <b>Тип подключения: «Авто» или протокол вручную</b>\n\n<b>Зачем.</b> У каждого протокола свой характер. VLESS Reality устойчивее всего к блокировкам. Hysteria2 и TUIC быстрее, но идут по UDP, который провайдеры иногда режут. AmneziaWG это замаскированный WireGuard для сетей, где обычный WireGuard не проходит. По умолчанию стоит «Авто», и ядро выбирает само; переключать вручную стоит, когда «Авто» подводит именно в вашей сети.\n\n<b>Где включить</b>\n1. Главный экран → строка «Тип подключения» (или Настройки → «Подключение» → «Тип подключения»).\n2. Выберите «Авто» или конкретный протокол из тех, что умеет ваш сервер. Здесь же можно замерить задержки входов.\n3. Переподключитесь.\n\nВаш выбор приложение бережёт: оператор не перезапишет его молча, при попытке появится карточка с вопросом.",
+    "caption_html_en": "🔀 <b>Connection type: «Auto» or a protocol by hand</b>\n\n<b>Why.</b> Every protocol has its own character. VLESS Reality resists blocking best. Hysteria2 and TUIC are faster but run over UDP, which some ISPs throttle. AmneziaWG is a disguised WireGuard for networks where plain WireGuard does not pass. «Auto» is the default and the core decides; switch by hand only when «Auto» fails in your network.\n\n<b>Where</b>\n1. Home screen → the «Connection type» row (or Settings → «Connection» → «Connection type»).\n2. Pick «Auto» or a specific protocol your server supports. Entry latencies can be measured right there.\n3. Reconnect.\n\nThe app keeps your choice: the operator will not overwrite it silently, you will see a card asking first.",
+    "buttons": [
+      [
+        "📖 Что умеет приложение",
+        "https://telegra.ph/Caramba-Connect--CHto-umeet-prilozhenie-09-11"
+      ],
+      [
+        "🛟 Если не подключается",
+        "https://telegra.ph/Caramba-Connect--Esli-ne-podklyuchaetsya-09-11"
+      ]
+    ]
+  },
+  {
+    "id": "rules",
+    "title": "Правила трафика",
+    "button": "🧭 Правила трафика",
+    "button_en": "🧭 Traffic rules",
+    "animation_file_id": "",
+    "caption_html": "🧭 <b>Правила трафика: что через VPN, а что напрямую</b>\n\n<b>Зачем.</b> Гнать весь трафик через туннель нужно не всегда: банки и российские сайты спокойнее работают напрямую, а через VPN должно идти только заблокированное. Режим решает это за вас.\n\n<b>Режимы</b>\n• «Россия (умный)»: по умолчанию напрямую, через VPN только заблокированные сервисы.\n• «Полный обход»: всё через VPN, напрямую только локальная сеть.\n• «Только Telegram», «Стриминг и AI», «Только блок рекламы», режимы для Беларуси, Ирана и Китая.\n\n<b>Где включить</b>\n1. Настройки → «Правила трафика» → «Режим».\n2. Переключатель «Блокировать рекламу и трекеры» работает поверх любого режима.\n3. «Правила по сайтам»: свои домены через VPN («Свои сайты») или всегда напрямую («Сайты мимо туннеля»). Правило доменное: youtube.com покрывает и поддомены.",
+    "caption_html_en": "🧭 <b>Traffic rules: what goes through VPN and what goes direct</b>\n\n<b>Why.</b> Pushing all traffic through the tunnel is not always what you want: banks and local sites behave better direct, and only blocked services need the VPN. A mode decides that for you.\n\n<b>Modes</b>\n• «Russia (smart)»: direct by default, VPN only for blocked services.\n• «Full bypass»: everything through VPN, only the local network direct.\n• «Telegram only», «Streaming and AI», «Ad block only», modes for Belarus, Iran and China.\n\n<b>Where</b>\n1. Settings → «Traffic rules» → «Mode».\n2. The «Block ads and trackers» switch works on top of any mode.\n3. «Site rules»: your own domains through VPN («My sites») or always direct («Sites outside the tunnel»). Rules are per domain: youtube.com covers subdomains too.",
+    "buttons": [
+      [
+        "📖 Что умеет приложение",
+        "https://telegra.ph/Caramba-Connect--CHto-umeet-prilozhenie-09-11"
+      ],
+      [
+        "🛟 Если не подключается",
+        "https://telegra.ph/Caramba-Connect--Esli-ne-podklyuchaetsya-09-11"
+      ]
+    ]
+  },
+  {
+    "id": "apps",
+    "title": "Правила по приложениям",
+    "button": "📱 Правила по приложениям",
+    "button_en": "📱 Per-app rules",
+    "animation_file_id": "",
+    "caption_html": "📱 <b>Правила по приложениям: туннель только для того, что нужно</b>\n\n<b>Зачем.</b> Игры, банк и рабочие программы часто должны ходить напрямую, а Telegram и YouTube через VPN. Правила по приложениям решают это списком, без возни с доменами.\n\n<b>Два режима</b>\n• «Все через VPN, кроме списка»: приложения из списка всегда идут напрямую.\n• «Только список через VPN»: через туннель идут только выбранные, остальные напрямую.\n\n<b>Где включить</b>\n1. Настройки → «Правила по приложениям».\n2. Выберите режим.\n3. Добавьте приложения: на Android из списка установленных, на компьютере укажите программу или имя процесса.\n\nРаботает поверх выбранного режима трафика. На iPhone и iPad такого нет: per-app VPN у Apple доступен только через MDM.",
+    "caption_html_en": "📱 <b>App rules: the tunnel only for what needs it</b>\n\n<b>Why.</b> Games, banking and work tools often have to go direct, while Telegram and YouTube go through VPN. App rules handle that with a list, no fiddling with domains.\n\n<b>Two modes</b>\n• «Everything through VPN except the list»: listed apps always go direct.\n• «Only the list through VPN»: only the chosen apps use the tunnel, the rest go direct.\n\n<b>Where</b>\n1. Settings → «App rules».\n2. Pick a mode.\n3. Add apps: on Android from the installed list, on desktop by program or process name.\n\nWorks on top of your traffic mode. Not available on iPhone and iPad: Apple allows per-app VPN only through MDM.",
+    "buttons": [
+      [
+        "📖 Что умеет приложение",
+        "https://telegra.ph/Caramba-Connect--CHto-umeet-prilozhenie-09-11"
+      ],
+      [
+        "📥 Скачать приложение",
+        "https://t.me/exa_robot?start=apk"
+      ]
+    ]
+  },
+  {
+    "id": "entry",
+    "title": "Вход через релей",
+    "button": "🛰 Вход через релей",
+    "button_en": "🛰 Relay entry",
+    "animation_file_id": "",
+    "caption_html": "🚪 <b>Вход: через какую машину трафик заходит в сеть</b>\n\n<b>Зачем.</b> Вход это сервер, через который ваш трафик заходит в сеть. Выход это страна, из которой вы выходите в интернет. Вход нужен там, где прямое подключение к зарубежным серверам режут: обычно это ваша страна. Релей внутри страны принимает трафик и ведёт его дальше по цепочке к выбранному выходу.\n\n<b>Где включить</b>\n1. Экран «Серверы» → «Relay (вход)».\n2. «Авто» (панель выбирает сама), «Выкл» (напрямую к серверу) или конкретный релей, например Россия → Москва.\n3. Выход при этом остаётся тем, что выбран в списке серверов.\n\nЕсли вход выбрали вы, оператор не перезапишет его молча.",
+    "caption_html_en": "🚪 <b>Entry: which machine your traffic enters the network through</b>\n\n<b>Why.</b> The entry is the server your traffic enters the network through. The exit is the country you reach the internet from. An entry is needed where direct connections to foreign servers are cut, which is usually your own country. A relay inside the country accepts the traffic and carries it on down the chain to the exit you chose.\n\n<b>Where</b>\n1. «Servers» screen → «Relay (entry)».\n2. «Auto» (the panel picks), «Off» (straight to the server) or a specific relay, for example Russia → Moscow.\n3. The exit stays whatever you chose in the server list.\n\nIf you picked the entry yourself, the operator will not overwrite it silently.",
+    "buttons": [
+      [
+        "📖 Что умеет приложение",
+        "https://telegra.ph/Caramba-Connect--CHto-umeet-prilozhenie-09-11"
+      ],
+      [
+        "🛟 Если не подключается",
+        "https://telegra.ph/Caramba-Connect--Esli-ne-podklyuchaetsya-09-11"
+      ]
+    ]
+  },
+  {
+    "id": "devices",
+    "title": "Устройства",
+    "button": "💻 Устройства",
+    "button_en": "💻 Devices",
+    "animation_file_id": "",
+    "caption_html": "📲 <b>Устройства: одна подписка на телефон, ноутбук и всё остальное</b>\n\n<b>Зачем.</b> Одна подписка работает сразу на нескольких устройствах. Сколько именно, зависит от тарифа, лимит показан рядом со списком («2 из 5»). Слот занимается при подключении и освобождается, когда вы отвязываете устройство или не пользуетесь им месяц.\n\n<b>Где посмотреть</b>\n1. Профиль → «Устройства». Текущее помечено «Это устройство».\n2. «Переименовать»: своё имя вместо автоматического, например «Телефон Артёма». Видите его только вы.\n3. «Отвязать»: слот освободится, при следующем подключении устройство займёт его заново, переустанавливать ничего не нужно.\n\nВидите «Занято максимум устройств»? Отвяжите то, чем не пользуетесь, или перейдите на тариф с большим лимитом. В мини-приложении бота есть и «Отключить все».",
+    "caption_html_en": "📲 <b>Devices: one subscription for your phone, laptop and everything else</b>\n\n<b>Why.</b> One subscription works on several devices at once. How many depends on the plan, the limit is shown next to the list («2 of 5»). A slot is taken when a device connects and freed when you unlink it or stop using it for a month.\n\n<b>Where</b>\n1. Profile → «Devices». The current one is marked «This device».\n2. «Rename»: your own name instead of the automatic one, for example «Art's phone». Only you see it.\n3. «Unlink»: the slot is freed, the device takes it again on the next connection, nothing to reinstall.\n\nSeeing «Device limit reached»? Unlink one you do not use, or move to a plan with a higher limit. The bot's mini app also has «Disconnect all».",
+    "buttons": [
+      [
+        "📖 Устройства",
+        "https://telegra.ph/Caramba-Connect--Ustrojstva-09-11"
+      ],
+      [
+        "🎁 Тарифы и подарок",
+        "https://telegra.ph/Caramba-Connect--Tarify-i-podarok-09-11"
+      ]
+    ]
+  }
+]

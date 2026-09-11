@@ -27,6 +27,7 @@ enum MenuAction {
     Referral,
     Support,
     Guides,
+    Tour,
     Devices,
     Leaderboard,
     Login,
@@ -56,6 +57,10 @@ fn menu_action(text: &str) -> Option<MenuAction> {
         // `/guide` то же, что кнопка «📖 Инструкция»: команду можно назвать в
         // тексте онбординга, кнопку нет.
         "/guide" | "/guides" => return Some(Guides),
+        // `/tour` — мастер-пост «что умеет сервис». Рассылка уходит тем же
+        // текстом, но пришедшему позже человеку нужен способ открыть тур
+        // самому, а кнопки в чужой пересланной рассылке у него нет.
+        "/tour" => return Some(Tour),
         _ => {}
     }
 
@@ -1523,6 +1528,19 @@ pub async fn message_handler(
                 }
             }
 
+            // Мастер-пост тура: дальше человек ходит по функциям кнопками,
+            // см. `bot::feature_tour`.
+            MenuAction::Tour => {
+                crate::bot::feature_tour::send_feature(
+                    &bot,
+                    msg.chat.id,
+                    lang,
+                    &state,
+                    crate::bot::feature_tour::OVERVIEW_ID,
+                )
+                .await;
+            }
+
             MenuAction::Support => {
                 let support_username = state.settings.get_or_default("support_url", "").await;
 
@@ -1846,6 +1864,14 @@ mod menu_action_tests {
             assert_eq!(menu_action(text), Some(MenuAction::Guides), "{text}");
         }
         assert_eq!(menu_action("/guidebook"), None);
+    }
+
+    /// Тур открывается командой `/tour` и ничем похожим на неё.
+    #[test]
+    fn tour_is_reachable_by_command() {
+        assert_eq!(menu_action("/tour"), Some(MenuAction::Tour));
+        assert_eq!(menu_action("/tours"), None);
+        assert_eq!(menu_action("tour"), None);
     }
 }
 
