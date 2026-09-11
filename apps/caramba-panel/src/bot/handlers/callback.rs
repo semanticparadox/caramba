@@ -531,6 +531,14 @@ pub async fn callback_handler(
                                 .await
                                 .map_err(|e| error!("Failed to send welcome gift: {}", e));
                         }
+
+                        // Онбординг, шаг day0 («Ваши следующие шаги») — третьим
+                        // сообщением, после приветствия и подарка: человек
+                        // сначала узнаёт, что получил, потом что делать. Шаг
+                        // забирается в БД до отправки, поэтому повторное
+                        // нажатие кнопки и фоновый цикл его не продублируют.
+                        crate::services::onboarding_service::send_day0(&state, u.id, tg_id, lang)
+                            .await;
                     }
                 }
             }

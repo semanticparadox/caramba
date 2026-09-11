@@ -21,6 +21,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::bot::apk_delivery::{FilePlatform, SettingField};
+use crate::services::onboarding_service as onboarding;
 
 use super::auth::{get_auth_user, is_authenticated};
 
@@ -440,6 +441,12 @@ pub struct SettingsTemplate {
     pub guide_url_linux: String,
     pub guide_url_tv: String,
     pub guide_url_router: String,
+    // Страницы базы знаний (docs/guides, публикуются скриптом telegraph-publish):
+    // ключи те же, что читает бот в `bot::keyboards::guide_setting_keys`.
+    pub guide_url_app: String,
+    pub guide_url_plans: String,
+    pub guide_url_devices: String,
+    pub guide_url_faq: String,
     pub app_download_url_android: String,
     pub app_download_url_ios: String,
     pub app_download_url_windows: String,
@@ -454,6 +461,10 @@ pub struct SettingsTemplate {
     pub welcome_gift_days: String,
     pub welcome_gift_until: String,
     pub welcome_gift_plans: Vec<WelcomeGiftPlanOption>,
+    // Онбординг новичков (services::onboarding_service): выключатель и часы.
+    pub onboarding_enabled: bool,
+    pub onboarding_day1_hours: String,
+    pub onboarding_day3_hours: String,
     pub panel_url: String,
     pub panel_url_display: String,
     pub admin_ui_url_display: String,
@@ -654,6 +665,10 @@ pub struct SaveSettingsForm {
     pub guide_url_linux: Option<String>,
     pub guide_url_tv: Option<String>,
     pub guide_url_router: Option<String>,
+    pub guide_url_app: Option<String>,
+    pub guide_url_plans: Option<String>,
+    pub guide_url_devices: Option<String>,
+    pub guide_url_faq: Option<String>,
     pub app_download_url_android: Option<String>,
     pub app_download_url_ios: Option<String>,
     pub app_download_url_windows: Option<String>,
@@ -669,6 +684,11 @@ pub struct SaveSettingsForm {
     pub welcome_gift_plan_id: Option<String>,
     pub welcome_gift_days: Option<String>,
     pub welcome_gift_until: Option<String>,
+    // `<select>` true/false, а не чекбокс: на /settings/save ходят и другие
+    // формы, и отсутствие поля не должно читаться как «выключить».
+    pub onboarding_enabled: Option<String>,
+    pub onboarding_day1_hours: Option<String>,
+    pub onboarding_day3_hours: Option<String>,
     pub panel_url: Option<String>,
     pub bot_username: Option<String>,
     pub brand_name: Option<String>,
@@ -801,6 +821,28 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
     let guide_url_linux = state.settings.get_or_default("guide_url_linux", "").await;
     let guide_url_tv = state.settings.get_or_default("guide_url_tv", "").await;
     let guide_url_router = state.settings.get_or_default("guide_url_router", "").await;
+    let guide_url_app = state.settings.get_or_default("guide_url_app", "").await;
+    let guide_url_plans = state.settings.get_or_default("guide_url_plans", "").await;
+    let guide_url_devices = state.settings.get_or_default("guide_url_devices", "").await;
+    let guide_url_faq = state.settings.get_or_default("guide_url_faq", "").await;
+    let onboarding_enabled = state
+        .settings
+        .get_bool_or_default(onboarding::SETTING_ENABLED, true)
+        .await;
+    let onboarding_day1_hours = state
+        .settings
+        .get_or_default(
+            onboarding::SETTING_DAY1_HOURS,
+            &onboarding::DEFAULT_DAY1_HOURS.to_string(),
+        )
+        .await;
+    let onboarding_day3_hours = state
+        .settings
+        .get_or_default(
+            onboarding::SETTING_DAY3_HOURS,
+            &onboarding::DEFAULT_DAY3_HOURS.to_string(),
+        )
+        .await;
     let app_download_url_android = state
         .settings
         .get_or_default("app_download_url_android", "")
@@ -1425,6 +1467,10 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         guide_url_linux,
         guide_url_tv,
         guide_url_router,
+        guide_url_app,
+        guide_url_plans,
+        guide_url_devices,
+        guide_url_faq,
         app_download_url_android,
         app_download_url_ios,
         app_download_url_windows,
@@ -1435,6 +1481,9 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         welcome_gift_days,
         welcome_gift_until,
         welcome_gift_plans,
+        onboarding_enabled,
+        onboarding_day1_hours,
+        onboarding_day3_hours,
         panel_url,
         panel_url_display,
         admin_ui_url_display,
@@ -1805,6 +1854,53 @@ pub async fn save_settings(
     }
     if let Some(v) = form.guide_url_router {
         settings.insert("guide_url_router".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.guide_url_app {
+        settings.insert("guide_url_app".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.guide_url_plans {
+        settings.insert("guide_url_plans".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.guide_url_devices {
+        settings.insert("guide_url_devices".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.guide_url_faq {
+        settings.insert("guide_url_faq".to_string(), v.trim().to_string());
+    }
+    if let Some(v) = form.onboarding_enabled {
+        settings.insert(
+            onboarding::SETTING_ENABLED.to_string(),
+            if is_checkbox_enabled(Some(&v)) {
+                "true"
+            } else {
+                "false"
+            }
+            .to_string(),
+        );
+    }
+    // Часы: мусор и ноль не сохраняются как есть, а заменяются дефолтом,
+    // иначе «вы ещё не подключились» ушло бы в ту же минуту, что и приветствие.
+    for (field, key, default) in [
+        (
+            form.onboarding_day1_hours,
+            onboarding::SETTING_DAY1_HOURS,
+            onboarding::DEFAULT_DAY1_HOURS,
+        ),
+        (
+            form.onboarding_day3_hours,
+            onboarding::SETTING_DAY3_HOURS,
+            onboarding::DEFAULT_DAY3_HOURS,
+        ),
+    ] {
+        if let Some(v) = field {
+            let hours = v
+                .trim()
+                .parse::<i64>()
+                .ok()
+                .filter(|h| *h >= 1)
+                .unwrap_or(default);
+            settings.insert(key.to_string(), hours.to_string());
+        }
     }
     if let Some(v) = form.app_download_url_android {
         settings.insert("app_download_url_android".to_string(), v.trim().to_string());

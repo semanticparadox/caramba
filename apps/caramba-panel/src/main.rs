@@ -833,6 +833,13 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
         handlers::admin::run_expiry_reminder_loop(expiry_state).await;
     });
 
+    // Онбординг новичков: day1/day3 по расписанию из настроек (day0 уходит из
+    // ветки accept_terms бота, цикл его только страхует).
+    let onboarding_state = state.clone();
+    tokio::spawn(services::onboarding_service::run_onboarding_loop(
+        onboarding_state,
+    ));
+
     // CSM/1: локаторы подписок без строки в csm_subscriptions выписываются
     // на старте, чтобы полный проход по подпискам не стоял на пути чужого
     // запроса к /sub/m1 (ленивый путь остаётся для подписок, созданных позже).

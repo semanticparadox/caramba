@@ -53,6 +53,9 @@ fn menu_action(text: &str) -> Option<MenuAction> {
         // Команда нужна тем, кто пришёл по подсказке из мини-аппа или из
         // подписи в чате, где кнопки меню не видно.
         "/apk" => return Some(Apk),
+        // `/guide` то же, что кнопка «📖 Инструкция»: команду можно назвать в
+        // тексте онбординга, кнопку нет.
+        "/guide" | "/guides" => return Some(Guides),
         _ => {}
     }
 
@@ -72,6 +75,8 @@ fn menu_action(text: &str) -> Option<MenuAction> {
         {
             return Some(Login);
         }
+        // Прежняя подпись `menu.guides` до переименования в «📖 Инструкция».
+        "📖 Как подключить" | "📖 How to connect" => return Some(Guides),
         _ => {}
     }
 
@@ -1819,6 +1824,28 @@ fn connect_link_failed_text(lang: Lang) -> &'static str {
             "Couldn't prepare the app link. Try again in a minute; if it keeps failing, \
              contact support."
         }
+    }
+}
+
+#[cfg(test)]
+mod menu_action_tests {
+    use super::*;
+
+    /// «📖 Инструкция» открывается командой, актуальной подписью на обоих
+    /// языках и старой подписью с уже отрисованных клавиатур.
+    #[test]
+    fn guides_are_reachable_by_command_and_by_every_label() {
+        for text in [
+            "/guide",
+            "/guides",
+            t(Lang::Ru, "menu.guides"),
+            t(Lang::En, "menu.guides"),
+            "📖 Как подключить",
+            "📖 How to connect",
+        ] {
+            assert_eq!(menu_action(text), Some(MenuAction::Guides), "{text}");
+        }
+        assert_eq!(menu_action("/guidebook"), None);
     }
 }
 

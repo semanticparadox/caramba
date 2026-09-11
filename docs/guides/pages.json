@@ -1,0 +1,104 @@
+{
+  "author_name": "Caramba Connect",
+  "author_url": "https://t.me/exa_robot",
+  "pages": [
+    {
+      "id": "index",
+      "file": "ru/index.md",
+      "setting": "guide_url_index",
+      "path": "Caramba-Connect--Vashi-sleduyushchie-shagi-09-11",
+      "url": "https://telegra.ph/Caramba-Connect--Vashi-sleduyushchie-shagi-09-11"
+    },
+    {
+      "id": "platforms",
+      "file": "ru/platforms.md",
+      "setting": null,
+      "path": "EXA--Kak-podklyuchit-09-02",
+      "url": "https://telegra.ph/EXA--Kak-podklyuchit-09-02"
+    },
+    {
+      "id": "app",
+      "file": "ru/app.md",
+      "setting": "guide_url_app",
+      "path": "Caramba-Connect--CHto-umeet-prilozhenie-09-11",
+      "url": "https://telegra.ph/Caramba-Connect--CHto-umeet-prilozhenie-09-11"
+    },
+    {
+      "id": "link",
+      "file": "ru/link.md",
+      "setting": null,
+      "path": "Caramba-Connect--Podklyuchenie-po-ssylke-09-11",
+      "url": "https://telegra.ph/Caramba-Connect--Podklyuchenie-po-ssylke-09-11"
+    },
+    {
+      "id": "plans",
+      "file": "ru/plans.md",
+      "setting": "guide_url_plans",
+      "path": "Caramba-Connect--Tarify-i-podarok-09-11",
+      "url": "https://telegra.ph/Caramba-Connect--Tarify-i-podarok-09-11"
+    },
+    {
+      "id": "devices",
+      "file": "ru/devices.md",
+      "setting": "guide_url_devices",
+      "path": "Caramba-Connect--Ustrojstva-09-11",
+      "url": "https://telegra.ph/Caramba-Connect--Ustrojstva-09-11"
+    },
+    {
+      "id": "faq",
+      "file": "ru/faq.md",
+      "setting": "guide_url_faq",
+      "path": "Caramba-Connect--Esli-ne-podklyuchaetsya-09-11",
+      "url": "https://telegra.ph/Caramba-Connect--Esli-ne-podklyuchaetsya-09-11"
+    },
+    {
+      "id": "ios",
+      "file": "ru/ios.md",
+      "setting": "guide_url_ios",
+      "path": "EXA--Podklyuchenie-na-iPhone-i-iPad-09-02",
+      "url": "https://telegra.ph/EXA--Podklyuchenie-na-iPhone-i-iPad-09-02"
+    },
+    {
+      "id": "android",
+      "file": "ru/android.md",
+      "setting": "guide_url_android",
+      "path": "EXA--Podklyuchenie-na-Android-09-02",
+      "url": "https://telegra.ph/EXA--Podklyuchenie-na-Android-09-02"
+    },
+    {
+      "id": "windows",
+      "file": "ru/windows.md",
+      "setting": "guide_url_windows",
+      "path": "EXA--Podklyuchenie-na-Windows-09-02",
+      "url": "https://telegra.ph/EXA--Podklyuchenie-na-Windows-09-02"
+    },
+    {
+      "id": "macos",
+      "file": "ru/macos.md",
+      "setting": "guide_url_macos",
+      "path": "EXA--Podklyuchenie-na-Mac-09-02",
+      "url": "https://telegra.ph/EXA--Podklyuchenie-na-Mac-09-02"
+    },
+    {
+      "id": "linux",
+      "file": "ru/linux.md",
+      "setting": "guide_url_linux",
+      "path": "EXA--Podklyuchenie-na-Linux-09-02",
+      "url": "https://telegra.ph/EXA--Podklyuchenie-na-Linux-09-02"
+    },
+    {
+      "id": "tv",
+      "file": "ru/tv.md",
+      "setting": "guide_url_tv",
+      "path": "EXA--Podklyuchenie-na-Android-TV-09-02",
+      "url": "https://telegra.ph/EXA--Podklyuchenie-na-Android-TV-09-02"
+    },
+    {
+      "id": "router",
+      "file": "ru/router.md",
+      "setting": "guide_url_router",
+      "path": "EXA--Router-i-ruchnaya-nastrojka-09-02",
+      "url": "https://telegra.ph/EXA--Router-i-ruchnaya-nastrojka-09-02"
+    }
+  ]
+}

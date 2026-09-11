@@ -23,13 +23,19 @@ pub fn main_menu(lang: Lang, app_mode: bool, always_support: bool) -> KeyboardMa
         // Каждая кнопка своей строкой: владелец не нашёл, где скопировать ссылку,
         // когда она пряталась под «Войти в приложение», поэтому «Подключить»
         // и «Скачать» стоят первыми и на всю ширину, поддержка последней.
+        //
+        // Третьей строкой «📖 Инструкция» рядом с поддержкой: инструкции
+        // существовали и раньше, но в этом режиме до них нельзя было дойти
+        // ничем, кроме сообщения онбординга.
         let mut rows = vec![
             vec![KeyboardButton::new(t(lang, "menu.open_app"))],
             vec![KeyboardButton::new(t(lang, "menu.download_app"))],
         ];
+        let mut third = vec![KeyboardButton::new(t(lang, "menu.guides"))];
         if always_support {
-            rows.push(vec![KeyboardButton::new(t(lang, "menu.support"))]);
+            third.push(KeyboardButton::new(t(lang, "menu.support")));
         }
+        rows.push(third);
         return KeyboardMarkup::new(rows).resize_keyboard();
     }
 
@@ -59,26 +65,60 @@ pub const GUIDE_PLATFORMS: [&str; 7] = [
     "ios", "android", "windows", "macos", "linux", "tv", "router",
 ];
 
+/// Страницы базы знаний после платформ; ключ настройки — `guide_url_{id}`,
+/// подпись — `guides.{id}`. Корневая `index` идёт отдельно первой строкой.
+pub const GUIDE_PAGES: [&str; 4] = ["app", "plans", "devices", "faq"];
+
+/// Все ключи настроек `guide_url_*`, которые читает бот: корневая, платформы,
+/// страницы базы знаний. Вне тестов не используется, как и `translations::KEYS`:
+/// на нём держится проверка, что у каждого ключа есть подпись и что список
+/// совпадает с полями админки и `docs/guides/pages.json`.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn guide_setting_keys() -> Vec<String> {
+    std::iter::once("index")
+        .chain(GUIDE_PLATFORMS)
+        .chain(GUIDE_PAGES)
+        .map(|id| format!("guide_url_{id}"))
+        .collect()
+}
+
+/// Кнопка-ссылка на страницу инструкции `id`, если её адрес задан.
+async fn guide_button(
+    settings: &crate::settings::SettingsService,
+    lang: Lang,
+    id: &str,
+) -> Option<InlineKeyboardButton> {
+    let url = settings
+        .get_or_default(&format!("guide_url_{id}"), "")
+        .await;
+    let parsed = url.trim().parse::<reqwest::Url>().ok()?;
+    Some(InlineKeyboardButton::url(
+        t(lang, &format!("guides.{id}")),
+        parsed,
+    ))
+}
+
 /// Инлайн-кнопки со ссылками на инструкции (Telegraph). Адреса лежат в
 /// настройках панели, чтобы менять их без релиза; пустые пропускаются.
 /// `None` — если не опубликована ни одна страница.
+///
+/// ПОРЯДОК: первой и на всю ширину «📖 Ваши следующие шаги» (корневая
+/// страница, с неё начинают), затем платформы по две (роутер отдельно), затем
+/// страницы базы знаний по две.
 pub async fn guides_keyboard(
     settings: &crate::settings::SettingsService,
     lang: Lang,
 ) -> Option<InlineKeyboardMarkup> {
     let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+    if let Some(index) = guide_button(settings, lang, "index").await {
+        rows.push(vec![index]);
+    }
     let mut row: Vec<InlineKeyboardButton> = Vec::new();
     for id in GUIDE_PLATFORMS {
-        let url = settings
-            .get_or_default(&format!("guide_url_{id}"), "")
-            .await;
-        let Ok(parsed) = url.trim().parse::<reqwest::Url>() else {
+        let Some(button) = guide_button(settings, lang, id).await else {
             continue;
         };
-        row.push(InlineKeyboardButton::url(
-            t(lang, &format!("guides.{id}")),
-            parsed,
-        ));
+        row.push(button);
         // Роутер — отдельной строкой, остальные по две.
         if row.len() == 2 || id == "router" {
             rows.push(std::mem::take(&mut row));
@@ -87,6 +127,13 @@ pub async fn guides_keyboard(
     if !row.is_empty() {
         rows.push(row);
     }
+    let mut pages = Vec::new();
+    for id in GUIDE_PAGES {
+        if let Some(button) = guide_button(settings, lang, id).await {
+            pages.push(button);
+        }
+    }
+    rows.extend(two_per_row(pages));
     if rows.is_empty() {
         None
     } else {
@@ -309,6 +356,61 @@ pub fn terms_keyboard(lang: Lang) -> InlineKeyboardMarkup {
 mod tests {
     use super::*;
     use teloxide::types::InlineKeyboardButtonKind;
+
+    /// Меню app_only: подключить, скачать, третьей строкой инструкция и
+    /// поддержка. Без поддержки третья строка остаётся с одной инструкцией.
+    #[test]
+    fn app_only_menu_keeps_the_guide_reachable() {
+        let kb = main_menu(Lang::Ru, true, true);
+        let rows: Vec<Vec<String>> = kb
+            .keyboard
+            .iter()
+            .map(|r| r.iter().map(|b| b.text.clone()).collect())
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                vec![t(Lang::Ru, "menu.open_app").to_string()],
+                vec![t(Lang::Ru, "menu.download_app").to_string()],
+                vec![
+                    t(Lang::Ru, "menu.guides").to_string(),
+                    t(Lang::Ru, "menu.support").to_string()
+                ],
+            ]
+        );
+        let kb = main_menu(Lang::En, true, false);
+        assert_eq!(kb.keyboard.len(), 3);
+        assert_eq!(kb.keyboard[2].len(), 1);
+        assert_eq!(kb.keyboard[2][0].text, t(Lang::En, "menu.guides"));
+    }
+
+    /// У каждого ключа настройки есть подпись на обоих языках, и все
+    /// двенадцать ключей уникальны: по этому списку сверяются админка и
+    /// скрипт публикации.
+    #[test]
+    fn every_guide_key_has_a_label_and_is_unique() {
+        use crate::bot::translations::MISSING_FOR_TESTS;
+        let keys = guide_setting_keys();
+        assert_eq!(keys.len(), 1 + GUIDE_PLATFORMS.len() + GUIDE_PAGES.len());
+        let mut sorted = keys.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), keys.len(), "дубль ключа guide_url_*");
+        for id in std::iter::once("index")
+            .chain(GUIDE_PLATFORMS)
+            .chain(GUIDE_PAGES)
+        {
+            for lang in [Lang::Ru, Lang::En] {
+                assert_ne!(
+                    t(lang, &format!("guides.{id}")),
+                    MISSING_FOR_TESTS,
+                    "нет подписи guides.{id} ({lang:?})"
+                );
+            }
+        }
+        assert_eq!(keys[0], "guide_url_index");
+        assert_eq!(keys.last().map(String::as_str), Some("guide_url_faq"));
+    }
 
     /// Первой строкой обязана идти именно кнопка копирования со ССЫЛКОЙ внутри:
     /// это единственный путь для человека, у которого `caramba://` не

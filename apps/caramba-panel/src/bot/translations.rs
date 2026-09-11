@@ -162,10 +162,19 @@ translations! {
     "menu.profile" => { ru: "👤 Профиль", en: "👤 My Profile" },
     "menu.referral" => { ru: "🎁 Бонусы и рефералы", en: "🎁 Bonuses / Referral" },
     "menu.support" => { ru: "❓ Поддержка", en: "❓ Support" },
-    "menu.guides" => { ru: "📖 Как подключить", en: "📖 How to connect" },
-    "guides.prompt" => { ru: "Выберите устройство — инструкция займёт две минуты. Одна подписка работает на всех устройствах в пределах лимита тарифа.", en: "Pick your device — the guide takes two minutes. One subscription works on all your devices within the plan limit." },
-    "guides.missing" => { ru: "Инструкции ещё не опубликованы. Напишите в поддержку — поможем подключиться.", en: "Guides are not published yet. Contact support and we will help you connect." },
+    // Подпись менялась: старые «📖 Как подключить» / «📖 How to connect» живут
+    // на уже отрисованных клавиатурах и распознаются в command.rs как алиасы.
+    "menu.guides" => { ru: "📖 Инструкция", en: "📖 Guide" },
+    "guides.prompt" => { ru: "Начните с «Ваши следующие шаги», затем выберите своё устройство. Одна подписка работает на всех устройствах в пределах лимита тарифа.", en: "Start with «Your next steps», then pick your device. One subscription works on all your devices within the plan limit." },
+    "guides.missing" => { ru: "Инструкции ещё не опубликованы. Напишите в поддержку, поможем подключиться.", en: "Guides are not published yet. Contact support and we will help you connect." },
     "guides.index_btn" => { ru: "📖 Пошаговая инструкция", en: "📖 Step-by-step guide" },
+    // Первая кнопка в «📖 Инструкция»: корневая страница «Ваши следующие шаги»
+    // (`guide_url_index`); за ней платформы, затем страницы базы знаний.
+    "guides.index" => { ru: "📖 Ваши следующие шаги", en: "📖 Your next steps" },
+    "guides.app" => { ru: "Что умеет приложение", en: "What the app can do" },
+    "guides.plans" => { ru: "Тарифы и подарок", en: "Plans and the gift" },
+    "guides.devices" => { ru: "Устройства", en: "Devices" },
+    "guides.faq" => { ru: "Если не подключается", en: "If it does not connect" },
     "guides.ios" => { ru: "iPhone и iPad", en: "iPhone and iPad" },
     "guides.android" => { ru: "Android", en: "Android" },
     "guides.windows" => { ru: "Windows", en: "Windows" },
@@ -274,15 +283,18 @@ translations! {
         en: "Hi {0}!\n\nPick a plan in Subscription, connect a device in Devices, and you're online. If anything's off, open a support ticket — we reply fast."
     },
 
+    // Кнопки названы так, как они подписаны в меню app_only (`menu.open_app`,
+    // `menu.download_app`, `menu.guides`): «🔑 Войти в приложение» из меню
+    // давно ушла, а текст всё ещё звал нажать её.
     "welcome.after_terms" => {
         ru: "🎉 <b>Добро пожаловать в EXA ROBOT!</b>\n\n\
-             Самый короткий путь: нажмите «🔑 Войти в приложение», установите Caramba Connect \
-             и откройте ссылку — приложение само подберёт рабочий сервер и маршрут.\n\n\
-             Что ещё умеет сервис — /start. Вопросы — «❓ Поддержка».",
+             Самый короткий путь: «📥 Скачать приложение», затем «🔗 Подключить Caramba Connect» \
+             и вставьте ссылку в приложение. Оно само подберёт рабочий сервер и маршрут.\n\n\
+             Пошаговая инструкция: «📖 Инструкция» или /guide. Вопросы: «❓ Поддержка».",
         en: "🎉 <b>Welcome to EXA ROBOT!</b>\n\n\
-             The shortest path: tap «🔑 Sign in to the app», install Caramba Connect and open the link — \
-             the app finds a working server and route on its own.\n\n\
-             Everything else the service can do — /start. Questions — «❓ Support»."
+             The shortest path: «📥 Download the app», then «🔗 Connect Caramba Connect» \
+             and paste the link into the app. It finds a working server and route on its own.\n\n\
+             Step-by-step guide: «📖 Guide» or /guide. Questions: «❓ Support»."
     },
 
     // Подарок при регистрации (акция, см. `services::welcome_gift`). Уходит
@@ -907,6 +919,77 @@ translations! {
     "notify.expiry3_body" => { ru: "Продлите сейчас, чтобы не остаться без VPN.", en: "Renew now to avoid interruption." },
 
     // Ротация SNI. {0} = старый домен, {1} = новый домен, {2} = id ротации
+    // =========================================================================
+    // Онбординг: три касания после регистрации (services::onboarding_service,
+    // события `onboarding.*` в notification_templates::REGISTRY; редактируются
+    // в админке «Уведомления»). Без подстановок. `_title`/`_body` — карточка
+    // во входящих мини-аппа, без разметки. Кнопки (страница Telegraph и
+    // скачивание) вешает реестр, поэтому в тексте только команды.
+    // =========================================================================
+    "onboarding.day0" => {
+        ru: "📖 <b>Ваши следующие шаги</b>\n\n\
+             1. Скачайте Caramba Connect: кнопка «📥 Скачать приложение» или команда /apk.\n\
+             2. Получите ссылку подключения: «🔗 Подключить Caramba Connect» или /link, \
+             затем «📋 Скопировать ссылку».\n\
+             3. В приложении нажмите «Добавить подключение» и «Вставить».\n\
+             4. Нажмите «Подключить». Готово.\n\n\
+             Подробная инструкция по кнопке ниже. Все инструкции: /guide.",
+        en: "📖 <b>Your next steps</b>\n\n\
+             1. Download Caramba Connect: the «📥 Download the app» button or /apk.\n\
+             2. Get your connection link: «🔗 Connect Caramba Connect» or /link, \
+             then «📋 Copy link».\n\
+             3. In the app tap «Add connection» and «Paste».\n\
+             4. Tap «Connect». Done.\n\n\
+             The detailed guide is one tap below. All guides: /guide."
+    },
+    "onboarding.day0_title" => { ru: "Ваши следующие шаги", en: "Your next steps" },
+    "onboarding.day0_body" => {
+        ru: "Скачайте Caramba Connect, получите ссылку командой /link в боте и вставьте её в приложение.",
+        en: "Download Caramba Connect, get your link with /link in the bot and paste it into the app."
+    },
+    "onboarding.day1" => {
+        ru: "👋 <b>Вы ещё не подключились</b>\n\n\
+             Вы зарегистрировались вчера, но ни одно устройство пока не подключено. \
+             Обычно это занимает две минуты:\n\n\
+             1. Скачайте приложение: «📥 Скачать приложение» или /apk.\n\
+             2. Получите ссылку: «🔗 Подключить Caramba Connect» или /link.\n\
+             3. Вставьте её в приложение и нажмите «Подключить».\n\n\
+             Если что-то не получается, напишите в «❓ Поддержка». Поможем.",
+        en: "👋 <b>You have not connected yet</b>\n\n\
+             You signed up yesterday, but no device is connected so far. \
+             It usually takes two minutes:\n\n\
+             1. Download the app: «📥 Download the app» or /apk.\n\
+             2. Get your link: «🔗 Connect Caramba Connect» or /link.\n\
+             3. Paste it into the app and tap «Connect».\n\n\
+             If something does not work, write to «❓ Support». We will help."
+    },
+    "onboarding.day1_title" => { ru: "Вы ещё не подключились", en: "You have not connected yet" },
+    "onboarding.day1_body" => {
+        ru: "Ни одно устройство пока не подключено. Скачайте Caramba Connect и вставьте ссылку из /link.",
+        en: "No device is connected yet. Download Caramba Connect and paste the link from /link."
+    },
+    "onboarding.day3" => {
+        ru: "🚀 <b>Что ещё умеет Caramba Connect</b>\n\n\
+             • Правила трафика: какие сайты и приложения идут через VPN, а какие напрямую.\n\
+             • Выбор протокола и автоподбор: приложение само находит рабочий сервер и маршрут.\n\
+             • Устройства: одна подписка на всех ваших устройствах в пределах лимита тарифа.\n\
+             • Тарифы и подарок: смотрите в боте, /plans.\n\n\
+             Ещё не подключились? Команда /link выдаст ссылку, приложение сделает остальное. \
+             Все инструкции: /guide.",
+        en: "🚀 <b>What else Caramba Connect can do</b>\n\n\
+             • Traffic rules: which sites and apps go through the VPN and which go direct.\n\
+             • Protocol choice and autotune: the app finds a working server and route on its own.\n\
+             • Devices: one subscription on all your devices within the plan limit.\n\
+             • Plans and the gift: see them in the bot, /plans.\n\n\
+             Not connected yet? /link gives you the link, the app does the rest. \
+             All guides: /guide."
+    },
+    "onboarding.day3_title" => { ru: "Что ещё умеет Caramba Connect", en: "What else Caramba Connect can do" },
+    "onboarding.day3_body" => {
+        ru: "Правила трафика, выбор протокола, устройства и тарифы. Ещё не подключились? Команда /link в боте.",
+        en: "Traffic rules, protocol choice, devices and plans. Not connected yet? Send /link to the bot."
+    },
+
     "notify.sni_rotation" => {
         ru: "⚠️ <b>Нужно переподключиться</b>\n\n\
              Мы автоматически обновили настройки вашего VPN, чтобы соединение было стабильнее.\n\n\
@@ -1085,6 +1168,40 @@ mod tests {
                 "key `{key}` has identical RU and EN text — untranslated?"
             );
         }
+    }
+
+    // ----- онбординг ---------------------------------------------------------
+
+    /// Тексты онбординга ведут человека командами, потому что кнопки у них
+    /// только две (страница и скачивание): без `/link` и `/guide` в тексте
+    /// «подключить» и «инструкции» пришлось бы искать по меню.
+    #[test]
+    fn onboarding_texts_name_the_commands_and_avoid_long_dashes() {
+        for step in ["day0", "day1", "day3"] {
+            for lang in [Lang::Ru, Lang::En] {
+                let text = t(lang, &format!("onboarding.{step}"));
+                assert!(
+                    text.contains("/link"),
+                    "onboarding.{step} ({lang:?}) без /link"
+                );
+                assert!(
+                    text.contains("Caramba Connect"),
+                    "onboarding.{step} ({lang:?}) без имени приложения"
+                );
+            }
+            let ru = t(Lang::Ru, &format!("onboarding.{step}"));
+            assert!(
+                !ru.contains('\u{2014}'),
+                "onboarding.{step}: длинное тире в русском тексте"
+            );
+            let body = t(Lang::Ru, &format!("onboarding.{step}_body"));
+            assert!(
+                !body.contains('<'),
+                "карточка onboarding.{step}_body без разметки"
+            );
+        }
+        assert!(t(Lang::Ru, "onboarding.day0").contains("/guide"));
+        assert!(t(Lang::Ru, "onboarding.day3").contains("/guide"));
     }
 
     // ----- содержание приветствия -------------------------------------------

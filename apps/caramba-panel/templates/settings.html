@@ -140,6 +140,30 @@
                                 placeholder="https://telegra.ph/..." class="input-field">
                         </div>
                         </div>
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-6 mb-1 ml-1">Knowledge base pages</p>
+                        <p class="text-xs text-slate-500 mb-4 ml-1">Published from docs/guides by scripts/telegraph-publish.py. «Index» above is the root page «Your next steps»: the onboarding day 0/1 messages link to it, day 3 links to «What the app can do».</p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">What the app can do</label>
+                            <input type="url" form="main-settings-form" name="guide_url_app" value="{{ guide_url_app }}"
+                                placeholder="https://telegra.ph/..." class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Plans and the gift</label>
+                            <input type="url" form="main-settings-form" name="guide_url_plans" value="{{ guide_url_plans }}"
+                                placeholder="https://telegra.ph/..." class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Devices</label>
+                            <input type="url" form="main-settings-form" name="guide_url_devices" value="{{ guide_url_devices }}"
+                                placeholder="https://telegra.ph/..." class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">If it does not connect (FAQ)</label>
+                            <input type="url" form="main-settings-form" name="guide_url_faq" value="{{ guide_url_faq }}"
+                                placeholder="https://telegra.ph/..." class="input-field">
+                        </div>
+                        </div>
                     </div>
 
                     <div class="pt-6 border-t border-border-default">
@@ -229,6 +253,30 @@
                             <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Runs until (UTC)</label>
                             <input type="date" form="main-settings-form" name="welcome_gift_until" value="{{ welcome_gift_until }}"
                                 class="input-field">
+                        </div>
+                        </div>
+                    </div>
+
+                    <div class="pt-6 border-t border-border-default">
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-1 ml-1">Onboarding (new users)</p>
+                        <p class="text-xs text-slate-500 mb-4 ml-1">Three messages after sign-up: «Your next steps» right away, «You have not connected yet» after the first delay (only if the user has no devices), «What else Caramba Connect can do» after the second. Each step is sent once; texts and buttons are edited on the Notifications page (onboarding.*). The background loop runs every 30 minutes.</p>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Onboarding</label>
+                            <select form="main-settings-form" name="onboarding_enabled" class="input-field">
+                                <option value="true" {% if onboarding_enabled %}selected{% endif %}>On</option>
+                                <option value="false" {% if !onboarding_enabled %}selected{% endif %}>Off</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">«Not connected yet» after, hours</label>
+                            <input type="number" min="1" max="720" form="main-settings-form" name="onboarding_day1_hours" value="{{ onboarding_day1_hours }}"
+                                placeholder="24" class="input-field">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">«What else the app can do» after, hours</label>
+                            <input type="number" min="1" max="720" form="main-settings-form" name="onboarding_day3_hours" value="{{ onboarding_day3_hours }}"
+                                placeholder="72" class="input-field">
                         </div>
                         </div>
                     </div>

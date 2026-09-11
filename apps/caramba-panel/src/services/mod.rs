@@ -13,6 +13,7 @@ pub mod node_activity_service; // Онлайн/ёмкость/трафик уз�
 pub mod notification_service;
 pub mod notification_templates; // Editable per-event notification templates
 pub mod notifications_service;
+pub mod onboarding_service; // Три касания после регистрации: day0/day1/day3
 pub mod orchestration_service;
 pub mod pay_service;
 pub mod profile_service; // NEW: config-profile / DNS-policy resolver
