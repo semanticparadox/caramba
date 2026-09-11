@@ -274,11 +274,15 @@ pub fn build_set_request(
     Ok(out)
 }
 
-/// Один обмен с UAPI: пишем запрос, читаем ответ до конца.
+/// Один обмен с UAPI: пишем запрос, читаем ответ до пустой строки.
 ///
-/// amneziawg-go закрывает соединение после одной операции, поэтому читаем до
-/// EOF. Таймаут обязателен: зависший сокет не должен останавливать цикл агента,
-/// на котором держится вся управляемость узла.
+/// amneziawg-go НЕ закрывает соединение после ответа (проверено на Canada,
+/// v3.1.20260828: `get=1` отвечает и держит сокет открытым). Чтение «до EOF»
+/// здесь упиралось в таймаут на каждом обмене, хотя `set=1` уже применился —
+/// узел считал конфигурацию непринятой, не поднимал адрес и маршруты и бесконечно
+/// повторял попытки. Конец ответа по протоколу — пустая строка после `errno=N`,
+/// её и ждём. Таймаут остаётся: зависший сокет не должен останавливать цикл
+/// агента, на котором держится вся управляемость узла.
 async fn roundtrip(socket: &Path, request: &str) -> anyhow::Result<String> {
     let io = async {
         let mut stream = tokio::net::UnixStream::connect(socket).await?;
@@ -286,9 +290,19 @@ async fn roundtrip(socket: &Path, request: &str) -> anyhow::Result<String> {
         // Пустая строка — конец запроса в UAPI.
         stream.write_all(b"\n").await?;
         stream.flush().await?;
-        let mut body = String::new();
-        stream.read_to_string(&mut body).await?;
-        Ok::<String, std::io::Error>(body)
+        let mut raw = Vec::with_capacity(4096);
+        let mut chunk = [0u8; 4096];
+        loop {
+            let n = stream.read(&mut chunk).await?;
+            if n == 0 {
+                break;
+            }
+            raw.extend_from_slice(&chunk[..n]);
+            if response_complete(&raw) {
+                break;
+            }
+        }
+        Ok::<String, std::io::Error>(String::from_utf8_lossy(&raw).into_owned())
     };
 
     match tokio::time::timeout(Duration::from_secs(5), io).await {
@@ -299,6 +313,15 @@ async fn roundtrip(socket: &Path, request: &str) -> anyhow::Result<String> {
             socket.display()
         )),
     }
+}
+
+/// Ответ UAPI закончен, когда пришла пустая строка-терминатор.
+///
+/// Пустой ответ (`\n\n` без единого ключа) тоже считается законченным:
+/// amneziawg-go так отвечает на `set=1`, если ему нечего сообщить кроме errno,
+/// а errno у него всегда есть — но полагаться на это не будем.
+fn response_complete(raw: &[u8]) -> bool {
+    raw.ends_with(b"\n\n")
 }
 
 /// Текущее состояние устройства.
@@ -496,6 +519,77 @@ errno=0\n\n";
         desired.private_key = PEER_B64.to_string();
         let req = build_set_request(Some(&current), &desired).unwrap();
         assert!(req.contains(&format!("private_key={PEER_HEX}\n")));
+    }
+
+    /// Короткий путь: у unix-сокета лимит ~104 байта, а $TMPDIR на macOS длинный.
+    fn scratch_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("cawg-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Сервер, который отвечает и НЕ закрывает соединение — ровно так ведёт
+    /// себя amneziawg-go. До правки roundtrip ждал EOF и всегда упирался в
+    /// таймаут; теперь обмен обязан закончиться по пустой строке за доли секунды.
+    async fn serve_without_closing(
+        dir: &Path,
+        reply: &'static str,
+    ) -> (PathBuf, tokio::task::JoinHandle<Vec<u8>>) {
+        let socket = dir.join("awg-test.sock");
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        let handle = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut seen = Vec::new();
+            let mut chunk = [0u8; 1024];
+            loop {
+                let n = stream.read(&mut chunk).await.unwrap();
+                seen.extend_from_slice(&chunk[..n]);
+                if n == 0 || seen.ends_with(b"\n\n") {
+                    break;
+                }
+            }
+            stream.write_all(reply.as_bytes()).await.unwrap();
+            stream.flush().await.unwrap();
+            // Держим соединение открытым дольше таймаута клиента: если клиент
+            // всё ещё ждёт EOF, тест упадёт по таймауту, а не пройдёт случайно.
+            tokio::time::sleep(Duration::from_secs(7)).await;
+            seen
+        });
+        (socket, handle)
+    }
+
+    #[tokio::test]
+    async fn get_completes_without_eof_from_the_server() {
+        let dir = scratch_dir("get");
+        let (socket, server) =
+            serve_without_closing(&dir, "private_key=00\nlisten_port=17400\nerrno=0\n\n").await;
+        let started = std::time::Instant::now();
+        let body = roundtrip(&socket, "get=1\n").await.unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(4),
+            "ответ ждали до EOF"
+        );
+        assert!(body.ends_with("errno=0\n\n"));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn set_is_confirmed_by_errno_without_eof() {
+        let dir = scratch_dir("set");
+        let (socket, server) = serve_without_closing(&dir, "errno=0\n\n").await;
+        set_device(&socket, "set=1\nlisten_port=17400\n")
+            .await
+            .unwrap();
+        server.abort();
+    }
+
+    #[test]
+    fn a_response_is_complete_only_at_the_blank_line() {
+        assert!(!response_complete(b"errno=0\n"));
+        assert!(!response_complete(b"private_key=00\n"));
+        assert!(response_complete(b"errno=0\n\n"));
+        assert!(response_complete(b"\n\n"));
     }
 
     /// Сокет ищем перебором каталогов — путь у разных сборок разный.
