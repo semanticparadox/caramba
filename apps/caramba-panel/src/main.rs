@@ -971,6 +971,12 @@ async fn run_server(pool: sqlx::PgPool, ssh_public_key: String) -> Result<()> {
             "/nodes/{id}/manage",
             axum::routing::get(handlers::admin::get_node_manage),
         ) // NEW Unified UI
+        // Список «кто на узле» за числом в строке Servers:
+        // ?kind=now|online|configured.
+        .route(
+            "/nodes/{id}/online",
+            axum::routing::get(handlers::admin::nodes::get_node_user_list),
+        )
         .route(
             "/nodes/install",
             axum::routing::post(handlers::admin::install_node),

@@ -24,9 +24,16 @@
                     <h3 class="text-2xl font-bold text-white font-mono mt-0.5">{{ total_traffic_30d }}</h3>
                 </div>
             </div>
-            <div class="text-[10px] text-slate-500 font-bold uppercase tracking-widest flex items-center gap-2">
+            <div class="text-[10px] text-slate-500 font-bold uppercase tracking-widest flex items-center gap-2"
+                title="Сумма up+down из app_traffic_daily за последние 30 дней.">
                 <span class="w-1.5 h-1.5 rounded-full bg-brand animate-pulse"></span>
-                LIVE 30D VOLUME
+                Трафик за 30 дней
+            </div>
+            {# Алл-тайм отдельной строкой: он считается по другим счётчикам и
+               смешивать его с окном нельзя. #}
+            <div class="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1"
+                title="Накопительные счётчики узлов за всё время их жизни.">
+                За всё время: {{ total_traffic_all_time }}
             </div>
         </article>
 
@@ -103,8 +110,8 @@
                     </div>
                     <div>
                         <h3 class="text-xl font-bold text-white font-premium">Traffic Volumetrics</h3>
-                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1">Cumulative data
-                            egress (30D)</p>
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1">
+                            Подневный расход за 30 дней, источник app_traffic_daily</p>
                     </div>
                 </div>
             </header>
@@ -121,8 +128,8 @@
                     </div>
                     <div>
                         <h3 class="text-xl font-bold text-white font-premium">Geographic Spread</h3>
-                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1">Load distribution
-                            by node</p>
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1">
+                            Трафик по узлам за 30 дней, по снапшотам счётчиков</p>
                     </div>
                 </div>
             </header>

@@ -308,6 +308,61 @@
 
     <!-- Right Column: Subscriptions & Orders -->
     <div class="xl:col-span-2 space-y-6">
+        <!-- Присутствие и трафик: где пользователь сейчас и сколько качал -->
+        <article class="card overflow-hidden">
+            <header class="p-8 border-b border-border-default flex flex-wrap justify-between items-center gap-4 bg-black/20">
+                <div class="flex items-center gap-4">
+                    <div
+                        class="w-12 h-12 rounded-2xl bg-brand/10 flex items-center justify-center text-brand border border-brand/20">
+                        <i data-lucide="radar" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-slate-900 dark:text-white">Присутствие и трафик</h3>
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">
+                            Heartbeat узлов и подневный расход за 30 дней
+                        </p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3" title="{{ presence_tip }}">
+                    {% if let Some(p) = presence.as_ref() %}
+                    {% if p.online %}
+                    <span class="badge badge-online flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                        Онлайн
+                    </span>
+                    {% else %}
+                    <span class="badge badge-offline flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+                        {{ p.last_seen_rel }}
+                    </span>
+                    {% endif %}
+                    <span class="text-xs text-slate-300 flex items-center gap-1.5">
+                        {% if let Some(flag) = p.node_flag.as_ref() %}<span>{{ flag }}</span>{% endif %}
+                        {{ p.node_name }}
+                    </span>
+                    {% else %}
+                    {# Ни один узел не видел этого пользователя в окне свежести. #}
+                    <span class="badge badge-offline">Ни на одном узле</span>
+                    {% endif %}
+                </div>
+            </header>
+
+            <div class="p-8 space-y-4">
+                <div class="flex items-baseline gap-3">
+                    <span class="text-2xl font-bold text-slate-900 dark:text-white font-mono">{{ traffic_total_30d }}</span>
+                    <span class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">за 30 дней (app_traffic_daily)</span>
+                </div>
+                {% if traffic_history_empty %}
+                {# Пустой график и «трафика не было» неразличимы, поэтому подпись. #}
+                <p class="text-[11px] text-slate-500 uppercase tracking-widest font-bold">
+                    Записей о трафике за 30 дней нет
+                </p>
+                {% else %}
+                <div id="userTrafficChart" class="w-full min-h-[260px]"></div>
+                {% endif %}
+            </div>
+        </article>
+
         <!-- Active Subscriptions -->
         <article class="card overflow-hidden">
             <header class="p-8 border-b border-border-default flex justify-between items-center bg-black/20">
@@ -862,5 +917,31 @@
     }
 
     notifyBindComposer('user-notify-form', 'user-notify-message', 'user-notify-counter', 'notify-preview', 'user-notify-autopreview');
+
+    // Подневный трафик пользователя за 30 дней. Источник тот же, что у графика
+    // в приложении, поэтому цифры у админа и у пользователя совпадают.
+    {% if !traffic_history_empty %}
+    (() => {
+        const target = document.querySelector('#userTrafficChart');
+        if (!target || typeof ApexCharts === 'undefined') return;
+        new ApexCharts(target, {
+            series: [{ name: 'Трафик (ГБ)', data: {{ traffic_data_json|safe }} }],
+            chart: { type: 'bar', height: 260, toolbar: { show: false }, background: 'transparent', fontFamily: 'Inter, sans-serif' },
+            plotOptions: { bar: { borderRadius: 3, columnWidth: '60%' } },
+            dataLabels: { enabled: false },
+            colors: ['#FF6B35'],
+            xaxis: {
+                categories: {{ traffic_labels_json|safe }},
+                labels: { style: { colors: '#64748b', fontSize: '10px' }, rotate: -45, hideOverlappingLabels: true },
+                axisBorder: { show: false },
+                axisTicks: { show: false }
+            },
+            yaxis: { labels: { style: { colors: '#64748b', fontSize: '11px' }, formatter: (val) => val.toFixed(2) } },
+            grid: { borderColor: 'rgba(255,255,255,0.04)', strokeDashArray: 4 },
+            theme: { mode: 'dark' },
+            tooltip: { theme: 'dark', y: { formatter: (val) => val.toFixed(2) + ' GB' } }
+        }).render();
+    })();
+    {% endif %}
 </script>
 {% endblock %}

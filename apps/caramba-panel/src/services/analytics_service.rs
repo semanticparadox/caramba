@@ -52,13 +52,27 @@ impl AnalyticsService {
                 .await
                 .unwrap_or(0);
 
+        // Честное 30-дневное окно. Раньше сюда подставлялся тот же алл-тайм
+        // счётчик узлов с комментарием «Placeholder», и подпись «30d» в
+        // админке врала тем сильнее, чем дольше жили узлы.
+        let total_traffic_30d_bytes = sqlx::query_scalar::<_, Option<i64>>(
+            "SELECT SUM(up_bytes + down_bytes)::bigint
+             FROM app_traffic_daily
+             WHERE day >= CURRENT_DATE - 29",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+
         Ok(SystemStats {
             active_nodes,
             total_users,
             active_subs,
             total_revenue,
             total_traffic_bytes,
-            total_traffic_30d_bytes: total_traffic_bytes, // Placeholder
+            total_traffic_30d_bytes,
         })
     }
 
@@ -130,7 +144,13 @@ impl AnalyticsService {
         Ok(())
     }
 
-    /// Update daily traffic usage
+    /// Инкремент `daily_stats.traffic_used`.
+    ///
+    /// ВНИМАНИЕ: вызовов у этого метода нет ни одного, и поэтому колонка на
+    /// проде пустая. Графики трафика читают `app_traffic_daily`
+    /// (`get_traffic_history`) — не возвращайте `daily_stats` в источники,
+    /// не включив сначала эту запись. Остальные счётчики `daily_stats`
+    /// (new_users/active_users/orders) живые, поэтому таблица остаётся.
     pub async fn track_traffic(pool: &PgPool, bytes: i64) -> Result<()> {
         let today = Utc::now().format("%Y-%m-%d").to_string();
         sqlx::query(
@@ -165,16 +185,37 @@ impl AnalyticsService {
         Ok(users)
     }
 
-    /// Get traffic distribution by node
+    /// Трафик по узлам за 30 дней — из снапшотов `node_traffic_snapshots`.
+    ///
+    /// Раньше здесь суммировался накопительный `subscriptions.used_traffic` по
+    /// `subscriptions.node_id`. Этот столбец бывает NULL и указывает максимум
+    /// на один узел из нескольких, обслуживающих план, — для мультинодовых
+    /// планов разбивка была структурно неверной, а числа росли вечно, потому
+    /// что счётчик накопительный.
+    ///
+    /// Суммируются только ПОЛОЖИТЕЛЬНЫЕ шаги между соседними замерами:
+    /// переустановка узла обнуляет счётчики, и «последний минус первый» после
+    /// рестарта показал бы минус.
     pub async fn get_node_traffic_stats(&self) -> Result<Vec<NodeTraffic>> {
         let nodes = sqlx::query_as::<_, NodeTraffic>(
-            "SELECT 
-                n.name, 
-                COALESCE(SUM(s.used_traffic), 0) as total_traffic
+            "SELECT n.name,
+                    COALESCE(t.total_traffic, 0)::bigint AS total_traffic
              FROM nodes n
-             LEFT JOIN subscriptions s ON n.id = s.node_id
+             LEFT JOIN (
+                 SELECT node_id, SUM(step)::bigint AS total_traffic
+                 FROM (
+                     SELECT node_id,
+                            GREATEST(total_ingress - LAG(total_ingress)
+                                OVER (PARTITION BY node_id ORDER BY ts), 0)
+                            + GREATEST(total_egress - LAG(total_egress)
+                                OVER (PARTITION BY node_id ORDER BY ts), 0) AS step
+                     FROM node_traffic_snapshots
+                     WHERE ts > NOW() - INTERVAL '30 days'
+                 ) steps
+                 WHERE step IS NOT NULL
+                 GROUP BY node_id
+             ) t ON t.node_id = n.id
              WHERE n.status = 'active'
-             GROUP BY n.id
              ORDER BY total_traffic DESC",
         )
         .fetch_all(&self.pool)
@@ -182,16 +223,48 @@ impl AnalyticsService {
         Ok(nodes)
     }
 
-    /// Get daily traffic history for last 30 days
+    /// Подневный трафик за 30 дней — из `app_traffic_daily`.
+    ///
+    /// Источником был `daily_stats.traffic_used`, но инкремента этой колонки в
+    /// коде нет ни одного (`track_traffic` ниже не вызывается ниоткуда), и на
+    /// проде таблица пустая — график Traffic History был мёртв с рождения.
+    /// `app_traffic_daily` наполняется каждым heartbeat узла и уже питает
+    /// график в приложении.
+    ///
+    /// Порядок DESC сохранён: вызывающие в dashboard/analytics разворачивают
+    /// массив у себя.
     pub async fn get_traffic_history(&self) -> Result<Vec<DailyTraffic>> {
         let history = sqlx::query_as::<_, DailyTraffic>(
-            "SELECT 
-                date, 
-                traffic_used 
-             FROM daily_stats 
-             ORDER BY date DESC 
-             LIMIT 30",
+            "SELECT TO_CHAR(day, 'YYYY-MM-DD') AS date,
+                    SUM(up_bytes + down_bytes)::bigint AS traffic_used
+             FROM app_traffic_daily
+             WHERE day >= CURRENT_DATE - 29
+             GROUP BY day
+             ORDER BY day DESC",
         )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(history)
+    }
+
+    /// Подневный трафик ОДНОГО пользователя — для карточки user_details.
+    /// Тот же источник, что и график в приложении, чтобы админ и пользователь
+    /// видели одни и те же цифры.
+    pub async fn get_user_traffic_history(
+        &self,
+        user_id: i64,
+        days: i32,
+    ) -> Result<Vec<DailyTraffic>> {
+        let days = days.clamp(1, 365);
+        let history = sqlx::query_as::<_, DailyTraffic>(
+            "SELECT TO_CHAR(day, 'YYYY-MM-DD') AS date,
+                    (up_bytes + down_bytes)::bigint AS traffic_used
+             FROM app_traffic_daily
+             WHERE user_id = $1 AND day >= CURRENT_DATE - ($2::int - 1)
+             ORDER BY day DESC",
+        )
+        .bind(user_id)
+        .bind(days)
         .fetch_all(&self.pool)
         .await?;
         Ok(history)

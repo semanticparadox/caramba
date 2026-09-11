@@ -166,10 +166,16 @@ class SubPlan {
 
 /// Устройство-лиза (`AppDevice` из `app_account.rs`, `GET /api/v2/app/devices`):
 /// ```json
-/// { "id":1, "subscription_id":7, "name":"iPhone", "last_ip":"203.0.113.*",
-///   "user_agent":"...", "first_seen_at":"RFC3339", "last_seen_at":"RFC3339",
-///   "online":true }
+/// { "id":1, "display_name":"MacBook", "platform":"macos",
+///   "client_device_id":"uuid", "last_seen_at":"RFC3339", "is_current":true,
+///   "subscription_id":7, "last_ip":"203.0.113.*", "user_agent":"...",
+///   "first_seen_at":"RFC3339", "online":true }
 /// ```
+///
+/// Первые шесть полей — действующий контракт (устройство принадлежит АККАУНТУ,
+/// а не подписке). Остальные панель отдаёт по-прежнему, и парсер их принимает:
+/// приложение обновляется не одновременно с панелью, и список устройств не
+/// имеет права опустеть из-за того, что у оператора ещё старая сборка.
 class Device {
   final int id;
   final int subscriptionId;
@@ -180,6 +186,19 @@ class Device {
   final DateTime? lastSeenAt;
   final bool online;
 
+  /// Платформа лизы: `android`, `ios`, `macos`, `windows`, `linux`, `web`.
+  /// Пусто у сторонних клиентов (Clash, v2rayNG), которые заголовок не шлют.
+  final String platform;
+
+  /// Стабильный идентификатор приложения. Пусто — лиза заведена по отпечатку
+  /// User-Agent (сторонний клиент либо старая сборка нашего).
+  final String clientDeviceId;
+
+  /// Панель узнала в этой лизе то устройство, с которого пришёл запрос.
+  /// Клиент дополнительно сверяет [clientDeviceId] со своим: со старой панелью
+  /// поля нет вовсе, а показать «это устройство» надо всё равно.
+  final bool isCurrent;
+
   const Device({
     required this.id,
     this.subscriptionId = 0,
@@ -189,6 +208,9 @@ class Device {
     this.userAgent,
     this.lastSeenAt,
     this.online = false,
+    this.platform = '',
+    this.clientDeviceId = '',
+    this.isCurrent = false,
   });
 
   /// Человекочитаемая метка последней активности (плоский текст, без em-dash).
@@ -203,18 +225,49 @@ class Device {
     return 'Давно';
   }
 
+  /// Человеческое имя платформы для подписи строки. Пусто, если платформа
+  /// неизвестна: строка «Неизвестно» ничего не сообщает, а место занимает.
+  String get platformLabel {
+    switch (platform) {
+      case 'android':
+        return 'Android';
+      case 'ios':
+        return 'iPhone или iPad';
+      case 'macos':
+        return 'Mac';
+      case 'windows':
+        return 'Windows';
+      case 'linux':
+        return 'Linux';
+      case 'web':
+        return 'Браузер';
+      default:
+        return '';
+    }
+  }
+
+  /// Подпись под именем: платформа и время последней активности.
+  String get metaLabel {
+    final p = platformLabel;
+    return p.isEmpty ? lastSeenLabel : '$p · $lastSeenLabel';
+  }
+
   factory Device.fromJson(Map<String, dynamic> json) {
     final ua = (json['user_agent'] as String?)?.toLowerCase() ?? '';
+    // display_name первым: это поле, которое правит человек. `name` остаётся
+    // ради панели, которая ещё не обновилась.
     final name =
-        (json['name'] as String?) ??
-        (json['display_name'] as String?) ??
-        'Устройство';
+        _text(json['display_name']) ?? _text(json['name']) ?? 'Устройство';
+    final platform = (_text(json['platform']) ?? '').toLowerCase();
     final isPhone =
-        ua.contains('iphone') ||
-        ua.contains('android') ||
-        ua.contains('mobile') ||
-        name.toLowerCase().contains('iphone') ||
-        name.toLowerCase().contains('android');
+        platform == 'android' ||
+        platform == 'ios' ||
+        (platform.isEmpty &&
+            (ua.contains('iphone') ||
+                ua.contains('android') ||
+                ua.contains('mobile') ||
+                name.toLowerCase().contains('iphone') ||
+                name.toLowerCase().contains('android')));
     return Device(
       id: (json['id'] as num?)?.toInt() ?? 0,
       subscriptionId: (json['subscription_id'] as num?)?.toInt() ?? 0,
@@ -224,7 +277,18 @@ class Device {
       userAgent: json['user_agent'] as String?,
       lastSeenAt: SubPlan._parseDate(json['last_seen_at']),
       online: (json['online'] as bool?) ?? false,
+      platform: platform,
+      clientDeviceId: _text(json['client_device_id']) ?? '',
+      isCurrent: (json['is_current'] as bool?) ?? false,
     );
+  }
+
+  /// Непустая строка поля или `null`: панель отдаёт и `null`, и пустую строку,
+  /// и обе означают «значения нет».
+  static String? _text(Object? v) {
+    if (v is! String) return null;
+    final t = v.trim();
+    return t.isEmpty ? null : t;
   }
 }
 
@@ -326,8 +390,7 @@ class ReferralInfo {
     this.referrals = const [],
   });
 
-  String get inviteLink =>
-      shareLink.isNotEmpty ? shareLink : code;
+  String get inviteLink => shareLink.isNotEmpty ? shareLink : code;
 
   /// Текущий баланс в денежных единицах (минорные / 100).
   double get balance => balanceCents / 100;

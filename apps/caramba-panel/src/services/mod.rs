@@ -9,6 +9,7 @@ pub mod export_service; // NEW: Database and settings export/backup
 pub mod infrastructure_service;
 pub mod logging_service; // NEW
 pub mod monitoring;
+pub mod node_activity_service; // Онлайн/ёмкость/трафик узлов для админки
 pub mod notification_service;
 pub mod notification_templates; // Editable per-event notification templates
 pub mod notifications_service;

@@ -290,6 +290,39 @@ pub fn routes(state: AppState) -> Router<AppState> {
                 auth_middleware,
             )),
         )
+        // Устройства аккаунта. Подписки в пути нет намеренно: устройство
+        // принадлежит человеку, а не строке подписки, и при смене тарифа не
+        // должно исчезать из кабинета. Старые маршруты
+        // /subscription/{id}/devices оставлены живыми, пока не обновятся все
+        // клиенты.
+        .route(
+            "/devices",
+            get(get_user_devices).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/devices/{device_id}",
+            delete(kick_user_device).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/devices/{device_id}/name",
+            put(rename_user_device).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
+        .route(
+            "/devices/kill-all",
+            post(kill_all_user_devices).layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            )),
+        )
         .route(
             "/subscription/{id}/devices",
             get(get_subscription_devices).layer(middleware::from_fn_with_state(
@@ -986,6 +1019,16 @@ async fn get_user_subscriptions(
     }
 
     let mut result: Vec<serde_json::Value> = Vec::with_capacity(subs.len());
+    // Устройств у АККАУНТА, а не у строки подписки, и в том же окне свежести,
+    // что у экрана «Устройства». Пока здесь считались адреса за 15 минут,
+    // главный экран показывал «1 из 3», а экран устройств — три штуки: цифры
+    // расходились у одного и того же человека в одном и том же приложении.
+    let account_devices = state
+        .subscription_service
+        .list_user_devices(user_id)
+        .await
+        .map(|devices| devices.len() as i64)
+        .unwrap_or(0);
     let singbox_variants = state.subscription_service.get_singbox_connection_variants();
     for s in &subs {
         let all_links = match state
@@ -1012,12 +1055,7 @@ async fn get_user_subscriptions(
         let sub_url = format!("{}/sub/{}", base_url, s.sub.subscription_uuid);
         let days_left = (s.sub.expires_at - chrono::Utc::now()).num_days().max(0);
         let duration_days = (s.sub.expires_at - s.sub.created_at).num_days();
-        let active_devices = state
-            .subscription_service
-            .get_active_ips(s.sub.id)
-            .await
-            .map(|ips| ips.len() as i64)
-            .unwrap_or(0);
+        let active_devices = account_devices;
         let device_limit = device_limits_by_plan
             .get(&s.sub.plan_id)
             .copied()
@@ -3021,6 +3059,205 @@ fn mask_ip(ip: &str) -> String {
     } else {
         ip.to_string()
     }
+}
+
+use crate::services::subscription_service::DeviceIdentity;
+
+/// Устройство в кабинете. Поля повторяют контракт приложения (B3), чтобы
+/// мини-апп и приложение показывали один и тот же список одинаково.
+#[derive(Serialize)]
+struct UserDeviceInfo {
+    id: i64,
+    /// Имя, которое видит человек (заданное им либо авто из User-Agent).
+    display_name: String,
+    /// То же значение под старым именем поля — пока не обновились клиенты.
+    device_name: String,
+    platform: Option<String>,
+    client_device_id: Option<String>,
+    last_ip: String,
+    last_seen_at: String,
+    first_seen_at: String,
+    online: bool,
+    is_current: bool,
+}
+
+/// Разрешает Telegram id из токена в users.id. Все устройства считаются по
+/// аккаунту, а не по подписке.
+async fn user_id_by_claims(state: &AppState, claims: &Claims) -> Option<i64> {
+    let tg_id: i64 = claims.sub.parse().ok()?;
+    sqlx::query_scalar::<_, i64>("SELECT id FROM users WHERE tg_id = $1")
+        .bind(tg_id)
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten()
+}
+
+/// GET /api/client/devices — устройства аккаунта.
+async fn get_user_devices(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::Extension(claims): axum::Extension<Claims>,
+) -> impl IntoResponse {
+    let Some(user_id) = user_id_by_claims(&state, &claims).await else {
+        return (StatusCode::FORBIDDEN, "Unknown account").into_response();
+    };
+
+    let caller = DeviceIdentity::from_headers(&headers);
+    // Мини-апп открыт в Telegram и своего идентификатора установки не имеет:
+    // для него «это устройство» остаётся догадкой по адресу. Приложение,
+    // которое идентификатор шлёт, до этой ветки не доходит.
+    let caller_ip = crate::subscription::extract_client_ip(&headers);
+    let leases = state
+        .subscription_service
+        .list_user_devices(user_id)
+        .await
+        .unwrap_or_default();
+
+    let devices: Vec<UserDeviceInfo> = leases
+        .into_iter()
+        .map(|l| {
+            let label = l.label();
+            // Совпадение по идентификатору приложения, а не по адресу: за общим
+            // NAT «это устройство» получали все телефоны в квартире.
+            let is_current = match (
+                caller.client_device_id.as_deref(),
+                l.client_device_id.as_deref(),
+            ) {
+                (Some(mine), Some(theirs)) => mine == theirs,
+                (Some(_), None) => false,
+                _ => !caller_ip.is_empty() && caller_ip == l.last_ip,
+            };
+            UserDeviceInfo {
+                id: l.id,
+                display_name: label.clone(),
+                device_name: label,
+                platform: l.platform,
+                client_device_id: l.client_device_id,
+                last_ip: mask_ip(&l.last_ip),
+                last_seen_at: l.last_seen_at.to_rfc3339(),
+                first_seen_at: l.first_seen_at.to_rfc3339(),
+                online: l.online,
+                is_current,
+            }
+        })
+        .collect();
+
+    Json(devices).into_response()
+}
+
+/// DELETE /api/client/devices/{device_id} — отвязка устройства.
+async fn kick_user_device(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path(device_id): Path<i64>,
+) -> impl IntoResponse {
+    let Some(user_id) = user_id_by_claims(&state, &claims).await else {
+        return (StatusCode::FORBIDDEN, "Unknown account").into_response();
+    };
+
+    let sub_id = match state
+        .subscription_service
+        .revoke_user_device(user_id, device_id)
+        .await
+    {
+        Ok(Some(sub_id)) => sub_id,
+        Ok(None) => return (StatusCode::NOT_FOUND, "Device not found").into_response(),
+        Err(e) => {
+            tracing::error!(err = %e, "client: revoke device failed");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    // Рвём соединения подписки, чтобы отвязанное устройство отвалилось сразу.
+    let conn_service = state.connection_service.clone();
+    tokio::spawn(async move {
+        if let Err(e) = conn_service.kill_subscription_connections(sub_id).await {
+            tracing::warn!(sub_id, error = %e, "kill_subscription_connections after kick failed");
+        }
+    });
+
+    let _ = crate::services::activity_service::ActivityService::log(
+        &state.pool,
+        "Device:Kicked",
+        &format!("User {} kicked device {}", user_id, device_id),
+    )
+    .await;
+
+    Json(serde_json::json!({ "ok": true, "message": "Device disconnected" })).into_response()
+}
+
+/// PUT /api/client/devices/{device_id}/name — имя устройства.
+async fn rename_user_device(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+    Path(device_id): Path<i64>,
+    Json(payload): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let Some(user_id) = user_id_by_claims(&state, &claims).await else {
+        return (StatusCode::FORBIDDEN, "Unknown account").into_response();
+    };
+
+    let Some(raw_name) = payload.get("name").and_then(|v| v.as_str()) else {
+        return (StatusCode::BAD_REQUEST, "Missing 'name' field").into_response();
+    };
+
+    if raw_name.chars().filter(|c| !c.is_control()).count() > 64 {
+        return (StatusCode::BAD_REQUEST, "Name too long").into_response();
+    }
+
+    match state
+        .subscription_service
+        .rename_user_device(user_id, device_id, Some(raw_name))
+        .await
+    {
+        Ok(true) => Json(serde_json::json!({ "ok": true })).into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, "Device not found").into_response(),
+        Err(e) => {
+            tracing::error!(err = %e, "client: rename device failed");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// POST /api/client/devices/kill-all — отвязать все устройства аккаунта.
+async fn kill_all_user_devices(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<Claims>,
+) -> impl IntoResponse {
+    let Some(user_id) = user_id_by_claims(&state, &claims).await else {
+        return (StatusCode::FORBIDDEN, "Unknown account").into_response();
+    };
+
+    let (deleted, subs) = match state
+        .subscription_service
+        .revoke_all_user_devices(user_id)
+        .await
+    {
+        Ok(result) => result,
+        Err(e) => {
+            tracing::error!(err = %e, "client: revoke all devices failed");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    let conn_service = state.connection_service.clone();
+    tokio::spawn(async move {
+        for sub_id in subs {
+            if let Err(e) = conn_service.kill_subscription_connections(sub_id).await {
+                tracing::warn!(sub_id, error = %e, "kill connections after kill-all failed");
+            }
+        }
+    });
+
+    let _ = crate::services::activity_service::ActivityService::log(
+        &state.pool,
+        "Device:KilledAll",
+        &format!("User {} killed all {} devices", user_id, deleted),
+    )
+    .await;
+
+    Json(serde_json::json!({ "ok": true, "disconnected": deleted })).into_response()
 }
 
 async fn get_subscription_devices(

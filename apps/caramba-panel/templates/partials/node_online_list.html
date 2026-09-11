@@ -1,0 +1,77 @@
+{# Список за числом в строке узла: «Сейчас», «Онлайн 15 мин» или «Настроено». #}
+<header class="modal-header">
+    <h3 class="modal-title flex items-center gap-2">
+        <i data-lucide="users" class="w-4 h-4 text-brand"></i>
+        {{ title }}: {{ node_name }}
+    </h3>
+    <button type="button" onclick="document.getElementById('node-users-modal').close()" class="btn-icon">
+        <i data-lucide="x"></i>
+    </button>
+</header>
+
+<div class="modal-body space-y-4">
+    <p class="text-[11px] text-slate-500 leading-relaxed">{{ note }}</p>
+
+    {% if let Some(message) = error.as_ref() %}
+    {# Отказ показывается текстом: пустой список и упавший запрос выглядят
+       одинаково, а решают по ним противоположное. #}
+    <div class="rounded-xl border border-rose-500/20 bg-rose-500/5 p-3 text-xs text-rose-300">
+        {{ message }}
+    </div>
+    {% elif rows.is_empty() %}
+    <div class="p-8 text-center text-[11px] text-slate-500 uppercase tracking-widest font-bold">
+        Пусто
+    </div>
+    {% else %}
+    <div class="overflow-x-auto">
+        <table class="table-base">
+            <thead>
+                <tr>
+                    <th class="px-4 py-3">Пользователь</th>
+                    <th class="px-4 py-3">Устройство</th>
+                    <th class="px-4 py-3">Последний раз</th>
+                    <th class="px-4 py-3 text-right">Трафик (вход / выход)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr class="hover:bg-white/5 transition-colors">
+                    <td class="px-4 py-3">
+                        <div class="flex items-center gap-2">
+                            {% if row.online %}
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Онлайн"></span>
+                            {% else %}
+                            <span class="w-1.5 h-1.5 rounded-full bg-slate-600" title="Не онлайн"></span>
+                            {% endif %}
+                            {% if let Some(uid) = row.user_id %}
+                            <a href="{{ admin_path }}/users/{{ uid }}" class="text-sm text-white hover:text-brand transition-colors">{{ row.display }}</a>
+                            {% else %}
+                            {# Тег не резолвится в пользователя: подписка удалена или тег чужой. #}
+                            <span class="text-sm text-slate-400 font-mono">{{ row.display }}</span>
+                            {% endif %}
+                        </div>
+                        {% if let Some(tg) = row.tg_id %}
+                        <div class="text-[10px] font-mono text-slate-500 mt-0.5">tg: {{ tg }}</div>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-xs text-slate-400">
+                        {% if let Some(device) = row.device.as_ref() %}{{ device }}{% else %}<span class="text-slate-600">неизвестно</span>{% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-xs text-slate-400">
+                        {% if row.last_seen_rel.is_empty() %}<span class="text-slate-600">—</span>{% else %}{{ row.last_seen_rel }}{% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-right text-[11px] font-mono text-slate-400">
+                        {% if let Some(traffic) = row.traffic_label.as_ref() %}{{ traffic }}{% else %}<span class="text-slate-600">—</span>{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if truncated %}
+    <p class="text-[10px] text-amber-400 uppercase tracking-widest font-bold">
+        Показаны первые {{ limit }} строк, список обрезан
+    </p>
+    {% endif %}
+    {% endif %}
+</div>

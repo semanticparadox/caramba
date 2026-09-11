@@ -765,8 +765,8 @@
       "killAll": "Disconnect all",
       "killAllConfirm": "Disconnect all devices? They will need to open the subscription link again.",
       "freeSlot": "Free slot. Open the subscription link on a new device.",
-      "empty": "No active devices",
-      "note": "Devices active in the last 15 minutes are shown.",
+      "empty": "No linked devices",
+      "note": "A device stays linked until you disconnect it or leave it unused for a month. A disconnected device has to open the subscription link again.",
       "unknown": "Device",
       "now": "now",
       "minutesAgo_one": "{{count}} minute ago",
@@ -775,7 +775,8 @@
       "hoursAgo_other": "{{count}} hours ago",
       "daysAgo_one": "{{count}} day ago",
       "daysAgo_other": "{{count}} days ago",
-      "disconnectConfirm": "Disconnect this device? It will need to open the subscription link again."
+      "disconnectConfirm": "Disconnect this device? It will need to open the subscription link again.",
+      "online": "online now"
     },
     "pay": {
       "plan": "Plan",

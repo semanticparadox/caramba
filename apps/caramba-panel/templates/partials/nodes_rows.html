@@ -1,64 +1,64 @@
-{% for node in nodes %}
-<tr id="node-row-{{ node.id }}" class="hover:bg-white/5 transition-colors group">
+{% for row in rows %}
+<tr id="node-row-{{ row.node.id }}" class="hover:bg-white/5 transition-colors group">
     <td class="px-4 py-3">
         <div class="flex items-center gap-4">
             <div
                 class="w-12 h-12 rounded-2xl bg-brand/10 flex items-center justify-center text-brand border border-brand/20 group-hover:scale-110 transition-transform shadow-lg shadow-brand/5">
-                {% if let Some(flag) = node.flag.as_ref() %}
+                {% if let Some(flag) = row.node.flag.as_ref() %}
                 <span class="text-xl leading-none">{{ flag }}</span>
                 {% else %}
                 <i data-lucide="server" class="w-5 h-5"></i>
                 {% endif %}
             </div>
             <div>
-                <div class="font-bold text-white text-lg leading-tight uppercase tracking-tight">{{ node.name }}</div>
-                <div class="text-[10px] text-slate-500 font-mono mt-0.5 uppercase tracking-widest">ID: {{ node.id }}
+                <div class="font-bold text-white text-lg leading-tight uppercase tracking-tight">{{ row.node.name }}</div>
+                <div class="text-[10px] text-slate-500 font-mono mt-0.5 uppercase tracking-widest">ID: {{ row.node.id }}
                 </div>
             </div>
         </div>
     </td>
     <td class="px-4 py-3">
         <span class="font-mono text-xs text-brand bg-brand/5 px-2.5 py-1 rounded-lg border border-brand/15 select-all">
-            {{ node.ip }}
+            {{ row.node.ip }}
         </span>
     </td>
     <td class="px-4 py-3">
-        {% if node.status == "new" %}
+        {% if row.node.status == "new" %}
         {# Нода создана, агент ещё не отправил первый heartbeat — auto-provision ждёт подключения #}
         <span class="badge badge-pending flex items-center gap-1.5" title="Waiting for agent first heartbeat">
             <span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"></span>
             Waiting for agent...
         </span>
-        {% elif node.status == "provisioning" %}
+        {% elif row.node.status == "provisioning" %}
         {# Агент подключился, идёт авто-конфигурация sing-box (Task 3) #}
         <span class="badge flex items-center gap-1.5" style="background:rgba(234,179,8,0.12);color:#eab308;border-color:rgba(234,179,8,0.2)" title="Agent connected, auto-configuring sing-box">
             <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
             Auto-configuring...
         </span>
-        {% elif node.status == "active" %}
+        {% elif row.node.status == "active" %}
         <span class="badge badge-online flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
             Online
         </span>
-        {% elif node.status == "offline" %}
-        <span class="badge badge-offline flex items-center gap-1.5" title="{% if let Some(ls) = node.last_seen %}Last seen: {{ ls.format("%Y-%m-%d %H:%M") }} UTC{% else %}Never connected{% endif %}">
+        {% elif row.node.status == "offline" %}
+        <span class="badge badge-offline flex items-center gap-1.5" title="{% if let Some(ls) = row.node.last_seen %}Last seen: {{ ls.format("%Y-%m-%d %H:%M") }} UTC{% else %}Never connected{% endif %}">
             <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
             Offline
         </span>
-        {% elif node.status == "disabled" %}
+        {% elif row.node.status == "disabled" %}
         <span class="badge flex items-center gap-1.5" style="color:#64748b;background:rgba(100,116,139,0.1);border-color:rgba(100,116,139,0.2)">
             <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
             Disabled
         </span>
         {% else %}
-        <span class="badge badge-offline">{{ node.status|uppercase }}</span>
+        <span class="badge badge-offline">{{ row.node.status|uppercase }}</span>
         {% endif %}
     </td>
     <td class="px-4 py-3">
         <div class="flex flex-col gap-1">
             <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Last Pulse</div>
             <div class="font-mono text-[10px] text-slate-400">
-                {% if let Some(last_seen) = node.last_seen %}
+                {% if let Some(last_seen) = row.node.last_seen %}
                 {{ last_seen.format("%H:%M:%S") }} — <span class="text-slate-600">{{ last_seen.format("%Y-%m-%d")
                     }}</span>
                 {% else %}
@@ -68,51 +68,89 @@
         </div>
     </td>
     <td class="px-4 py-3">
-        <div class="flex flex-col gap-1.5">
-            <div class="flex items-center gap-2">
+        <div class="flex flex-col gap-1.5 min-w-[15rem]">
+            {# Три числа значат РАЗНОЕ: трафик в моменте, уникальные за 15 минут и план в конфиге. Клик открывает список. #}
+            <button type="button" title="{{ tip_now }}"
+                hx-get="{{ admin_path }}/nodes/{{ row.node.id }}/online?kind=now"
+                hx-target="#node-users-body" hx-swap="innerHTML"
+                onclick="openNodeUsersModal()"
+                class="flex items-center gap-2 text-left hover:text-brand transition-colors">
                 <i data-lucide="users" class="w-3 h-3 text-brand"></i>
-                <span class="text-xs font-bold text-white">{{ node.active_connections.unwrap_or(0) }} <span
-                        class="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">PEERS</span></span>
-            </div>
+                <span class="text-xs font-bold text-white">{{ row.now }} <span
+                        class="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">Сейчас</span></span>
+            </button>
+            <button type="button" title="{{ tip_online }}"
+                hx-get="{{ admin_path }}/nodes/{{ row.node.id }}/online?kind=online"
+                hx-target="#node-users-body" hx-swap="innerHTML"
+                onclick="openNodeUsersModal()"
+                class="flex items-center gap-2 text-left hover:text-brand transition-colors">
+                <i data-lucide="activity" class="w-3 h-3 text-emerald-400"></i>
+                <span class="text-xs font-bold text-white">{{ row.online_15m }} <span
+                        class="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">Онлайн 15 мин</span></span>
+            </button>
+            <button type="button" title="{{ tip_configured }}"
+                hx-get="{{ admin_path }}/nodes/{{ row.node.id }}/online?kind=configured"
+                hx-target="#node-users-body" hx-swap="innerHTML"
+                onclick="openNodeUsersModal()"
+                class="flex items-center gap-2 text-left hover:text-brand transition-colors">
+                <i data-lucide="credit-card" class="w-3 h-3 text-sky-400"></i>
+                <span class="text-xs font-bold text-white">{{ row.configured }} <span
+                        class="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">Настроено</span></span>
+            </button>
             <div class="flex items-center gap-2">
                 <i data-lucide="zap" class="w-3 h-3 text-amber-400"></i>
-                <span class="text-xs font-bold text-white">{{ node.current_speed_mbps }} <span
+                <span class="text-xs font-bold text-white">{{ row.node.current_speed_mbps }} <span
                         class="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">MBPS</span></span>
             </div>
-            <div class="flex items-center gap-2">
-                <i data-lucide="credit-card" class="w-3 h-3 text-sky-400"></i>
-                <span class="text-xs font-bold text-white">{{ subs_map.get(&node.id).copied().unwrap_or(0) }} <span
-                        class="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">SUBS</span></span>
+
+            {# Шкала заполнения: «Сейчас» относительно потолка узла. #}
+            <div class="pt-1" title="{{ tip_capacity }}">
+                <div class="flex items-center justify-between gap-2 mb-1">
+                    <span class="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">
+                        Ёмкость{% if row.limit_manual %} (ручной){% endif %}
+                    </span>
+                    <span class="text-[10px] font-mono text-slate-400">{{ row.capacity_label() }}</span>
+                </div>
+                <div class="h-1.5 w-full rounded-full bg-white/5 overflow-hidden">
+                    <div class="h-full rounded-full {{ row.bar_class }}" style="width: {{ row.bar_percent }}%"></div>
+                </div>
+                {% if row.level == "unknown" %}
+                <p class="text-[9px] text-slate-500 mt-1">Потолок не задан: впишите его в карточке узла.</p>
+                {% elif row.needs_new_node %}
+                <p class="text-[9px] font-bold text-rose-400 mt-1 uppercase tracking-tighter">
+                    {{ row.percent }} %, нужна новая нода
+                </p>
+                {% endif %}
             </div>
-            <div class="flex items-center gap-2">
-                <i data-lucide="activity" class="w-3 h-3 text-emerald-400"></i>
-                <span class="text-xs font-bold text-white">{{ online_map.get(&node.id).copied().unwrap_or(0) }} <span
-                        class="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">ONLINE</span></span>
+
+            <div class="flex items-center gap-2 pt-1" title="Трафик узла по снапшотам накопительных счётчиков: за 24 часа и за 30 дней.">
+                <i data-lucide="gauge" class="w-3 h-3 text-slate-500"></i>
+                <span class="text-[10px] font-mono text-slate-400">{{ row.traffic_24h }} / 24ч · {{ row.traffic_30d }} / 30д</span>
             </div>
         </div>
     </td>
     <td class="px-4 py-3 text-right">
         <div class="flex items-center justify-end gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-            <button type="button" data-node-id="{{ node.id }}" data-node-name="{{ node.name }}"
+            <button type="button" data-node-id="{{ row.node.id }}" data-node-name="{{ row.node.name }}"
                 onclick="showNodeInstallCommand(this.dataset.nodeId, this.dataset.nodeName)"
                 class="btn-icon w-9 h-9 bg-brand/5 text-brand border-brand/10 hover:bg-brand/20"
                 title="Installation Script">
                 <i data-lucide="terminal" class="w-4 h-4"></i>
             </button>
-            <a href="{{ admin_path }}/nodes/{{ node.id }}/manage" class="btn-icon w-9 h-9" title="Node Details">
+            <a href="{{ admin_path }}/nodes/{{ row.node.id }}/manage" class="btn-icon w-9 h-9" title="Node Details">
                 <i data-lucide="sliders" class="w-4 h-4"></i>
             </a>
-            <a href="{{ admin_path }}/nodes/{{ node.id }}/inbounds" class="btn-icon w-9 h-9" title="Traffic Inbounds">
+            <a href="{{ admin_path }}/nodes/{{ row.node.id }}/inbounds" class="btn-icon w-9 h-9" title="Traffic Inbounds">
                 <i data-lucide="box" class="w-4 h-4"></i>
             </a>
             {# Sync Config и Scan SNI доступны только на странице деталей ноды (admin override) #}
-            <button hx-post="{{ admin_path }}/nodes/{{ node.id }}/toggle" hx-swap="none"
-                class="btn-icon w-9 h-9 {% if node.is_enabled %}text-emerald-400 bg-emerald-400/5 border-emerald-400/10{% else %}text-amber-400 bg-amber-500/5 border-amber-500/10{% endif %}"
-                title="{% if node.is_enabled %}Deactivate{% else %}Activate{% endif %}">
-                <i data-lucide="{% if node.is_enabled %}power{% else %}power-off{% endif %}" class="w-4 h-4"></i>
+            <button hx-post="{{ admin_path }}/nodes/{{ row.node.id }}/toggle" hx-swap="none"
+                class="btn-icon w-9 h-9 {% if row.node.is_enabled %}text-emerald-400 bg-emerald-400/5 border-emerald-400/10{% else %}text-amber-400 bg-amber-500/5 border-amber-500/10{% endif %}"
+                title="{% if row.node.is_enabled %}Deactivate{% else %}Activate{% endif %}">
+                <i data-lucide="{% if row.node.is_enabled %}power{% else %}power-off{% endif %}" class="w-4 h-4"></i>
             </button>
-            <button hx-delete="{{ admin_path }}/nodes/{{ node.id }}/delete"
-                hx-confirm="Decommission node '{{ node.name }}'?" hx-target="#node-row-{{ node.id }}"
+            <button hx-delete="{{ admin_path }}/nodes/{{ row.node.id }}/delete"
+                hx-confirm="Decommission node '{{ row.node.name }}'?" hx-target="#node-row-{{ row.node.id }}"
                 hx-swap="outerHTML"
                 class="btn-icon w-9 h-9 text-rose-500 bg-rose-500/5 border-rose-500/10 hover:bg-rose-500/20"
                 title="Scrap Node">
@@ -122,7 +160,7 @@
     </td>
 </tr>
 {% endfor %}
-{% if nodes.is_empty() %}
+{% if rows.is_empty() %}
 <tr>
     <td colspan="6" class="px-6 py-20 text-center">
         <div class="flex flex-col items-center gap-4 grayscale opacity-20">

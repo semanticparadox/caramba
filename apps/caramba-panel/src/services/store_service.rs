@@ -1,7 +1,7 @@
 use crate::services::activity_service::ActivityService;
 use crate::services::referral_service::ReferralService;
 use anyhow::{Context, Result};
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -9,7 +9,9 @@ use caramba_db::models::store::{CartItem, GiftCode, PlanDuration, Subscription, 
 
 use caramba_db::repositories::api_key_repo::ApiKeyRepository;
 use caramba_db::repositories::node_repo::NodeRepository;
-use caramba_db::repositories::subscription_repo::SubscriptionRepository;
+use caramba_db::repositories::subscription_repo::{
+    ACTIVE_SUBSCRIPTIONS_FOR_UPDATE_SQL, STATUS_SUPERSEDED, SubscriptionRepository,
+};
 use caramba_db::repositories::user_repo::UserRepository;
 
 /// Результат покупки тарифа: подписка создана активной, либо создан подарочный код.
@@ -17,6 +19,246 @@ use caramba_db::repositories::user_repo::UserRepository;
 pub enum PurchaseResult {
     Subscription(Subscription),
     GiftCode(String),
+}
+
+/// Какую дату истечения получит подписка.
+#[derive(Debug, Clone, Copy)]
+pub enum SubscriptionExpiry {
+    /// Точная дата — подарок админа, промо-код, gift-код: срок отсчитывается от
+    /// момента выдачи и не зависит от того, что было раньше.
+    Exactly(DateTime<Utc>),
+    /// Продление на N дней: от текущей даты истечения, если она в будущем,
+    /// иначе от «сейчас». Оплаченные дни не сгорают, но и не начисляются задним
+    /// числом за месяцы простоя.
+    AddDays(i64),
+}
+
+impl SubscriptionExpiry {
+    fn resolve(self, current: Option<DateTime<Utc>>, now: DateTime<Utc>) -> DateTime<Utc> {
+        match self {
+            SubscriptionExpiry::Exactly(dt) => dt,
+            SubscriptionExpiry::AddDays(days) => {
+                let base = match current {
+                    Some(current) if current > now => current,
+                    _ => now,
+                };
+                base + Duration::days(days)
+            }
+        }
+    }
+}
+
+/// Выдача подписки: всё, что нужно знать общему методу активации.
+#[derive(Debug, Clone)]
+pub struct SubscriptionGrant<'a> {
+    pub user_id: i64,
+    pub plan_id: i64,
+    pub expiry: SubscriptionExpiry,
+    /// `'active'` или `'pending'` (инстанс с ручным одобрением, см.
+    /// `license::initial_subscription_status`). Ничего третьего сюда не
+    /// передают: «выдать подписку» означает либо дать доступ, либо поставить в
+    /// очередь на одобрение.
+    pub status: &'a str,
+    pub note: Option<&'a str>,
+    pub is_trial: bool,
+    /// Нода, если путь выдачи её выбирает (подарок админа). `None` — подписку
+    /// раскатит оркестрация по всем нодам плана.
+    pub node_id: Option<i64>,
+}
+
+/// ЕДИНСТВЕННЫЙ путь, которым подписка становится активной.
+///
+/// Инвариант, который он держит: у пользователя ровно одна строка
+/// `status = 'active'`. До этого каждый путь выдачи вставлял новую строку и не
+/// трогал старую («Never touches existing subs» — так и было написано в
+/// промо-сервисе), из-за чего у оплатившего человека рядом с купленным планом
+/// оставалась вечная бесплатная подписка, и разные части системы обслуживали
+/// разные строки одного аккаунта.
+///
+/// Правила:
+///   * тот же план уже активен — продлеваем ЕГО (новая строка означала бы
+///     потерю vless_uuid, а значит и всех выданных ссылок);
+///   * другой план — старые активные строки переводим в `'superseded'`, лизы
+///     устройств переносим на новую (иначе смена тарифа молча отвязывала бы все
+///     устройства: их отпечаток завязан на subscription_id);
+///   * статус `'pending'` (ждёт одобрения админа) ничего не вытесняет — доступ
+///     ещё не выдан; вытеснение произойдёт в момент одобрения.
+///
+/// Транзакция — вызывающей стороны: списание баланса и выдача подписки обязаны
+/// быть атомарны.
+pub async fn activate_or_replace_subscription_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    grant: SubscriptionGrant<'_>,
+) -> Result<Subscription> {
+    let now = Utc::now();
+
+    let active = sqlx::query_as::<_, Subscription>(ACTIVE_SUBSCRIPTIONS_FOR_UPDATE_SQL)
+        .bind(grant.user_id)
+        .fetch_all(&mut **tx)
+        .await
+        .context("Failed to lock active subscriptions")?;
+
+    let same_plan = active.iter().find(|s| s.plan_id == grant.plan_id).cloned();
+    let expires_at = grant
+        .expiry
+        .resolve(same_plan.as_ref().map(|s| s.expires_at), now);
+
+    // Подписка, которая ещё не активна, никого не вытесняет.
+    if grant.status != "active" {
+        return insert_subscription_tx(tx, &grant, expires_at).await;
+    }
+
+    let sub = match same_plan {
+        Some(existing) => {
+            // used_traffic = 0: продление открывает новый расчётный период,
+            // иначе упёршийся в квоту пользователь сразу снова блокируется.
+            // vless_uuid лечится здесь же: строка без него существует в базе,
+            // видна в кабинете и не попадает ни в один конфиг ноды.
+            sqlx::query_as::<_, Subscription>(
+                "UPDATE subscriptions \
+                 SET expires_at = $1, status = 'active', used_traffic = 0, \
+                     activated_at = COALESCE(activated_at, CURRENT_TIMESTAMP), \
+                     note = COALESCE($2, note), \
+                     node_id = COALESCE($3, node_id), \
+                     vless_uuid = COALESCE(NULLIF(vless_uuid, ''), gen_random_uuid()::TEXT) \
+                 WHERE id = $4 \
+                 RETURNING *",
+            )
+            .bind(expires_at)
+            .bind(grant.note)
+            .bind(grant.node_id)
+            .bind(existing.id)
+            .fetch_one(&mut **tx)
+            .await
+            .context("Failed to extend the active subscription")?
+        }
+        None => insert_subscription_tx(tx, &grant, expires_at).await?,
+    };
+
+    let losers: Vec<i64> = active
+        .iter()
+        .map(|s| s.id)
+        .filter(|id| *id != sub.id)
+        .collect();
+    supersede_subscriptions_tx(tx, &losers, sub.id).await?;
+
+    Ok(sub)
+}
+
+/// Версия на собственной транзакции — для путей, которым нечего разделять с
+/// вызывающим кодом.
+pub async fn activate_or_replace_subscription(
+    pool: &PgPool,
+    grant: SubscriptionGrant<'_>,
+) -> Result<Subscription> {
+    let mut tx = pool.begin().await?;
+    let sub = activate_or_replace_subscription_tx(&mut tx, grant).await?;
+    tx.commit().await?;
+    Ok(sub)
+}
+
+/// Вставка новой строки подписки — один INSERT на всю панель.
+///
+/// ИНВАРИАНТ: `vless_uuid` и `subscription_uuid` обязательны. Генерация
+/// конфигов нод выбирает `s.vless_uuid` и молча пропускает строки с NULL, а
+/// вылечить их потом нечему.
+async fn insert_subscription_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    grant: &SubscriptionGrant<'_>,
+    expires_at: DateTime<Utc>,
+) -> Result<Subscription> {
+    sqlx::query_as::<_, Subscription>(
+        "INSERT INTO subscriptions \
+         (user_id, plan_id, node_id, vless_uuid, subscription_uuid, status, expires_at, \
+          note, is_trial, used_traffic, created_at, activated_at) \
+         VALUES ($1, $2, $3, gen_random_uuid()::TEXT, gen_random_uuid()::TEXT, $4, $5, \
+                 $6, $7, 0, CURRENT_TIMESTAMP, \
+                 CASE WHEN $4 = 'active' THEN CURRENT_TIMESTAMP ELSE NULL END) \
+         RETURNING *",
+    )
+    .bind(grant.user_id)
+    .bind(grant.plan_id)
+    .bind(grant.node_id)
+    .bind(grant.status)
+    .bind(expires_at)
+    .bind(grant.note)
+    .bind(grant.is_trial)
+    .fetch_one(&mut **tx)
+    .await
+    .context("Failed to create subscription")
+}
+
+/// Переводит перечисленные подписки в `'superseded'` и переносит их лизы
+/// устройств на оставшуюся.
+///
+/// Перенос лиз — половина смысла этой операции: отпечаток устройства считается
+/// от `subscription_id`, поэтому без переноса смена тарифа обнуляла бы все
+/// привязки, а пользователь снова упирался бы в лимит устройств на своих же
+/// телефонах. Лизы, для которых на оставшейся подписке уже есть такой же
+/// отпечаток, переехать не могут (UNIQUE) и удаляются как точные дубли.
+///
+/// Лимит устройств нового плана здесь намеренно не применяется: лимит — это
+/// гейт подключения, а не повод молча отвязать уже привязанное устройство.
+///
+/// Идемпотентно: строки, которые уже вытеснил триггер
+/// `trg_subscriptions_single_active`, просто не попадают под условие статуса.
+async fn supersede_subscriptions_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    loser_ids: &[i64],
+    keeper_id: i64,
+) -> Result<()> {
+    if loser_ids.is_empty() {
+        return Ok(());
+    }
+
+    // DISTINCT ON: на оставшуюся подписку обязана приехать ровно одна лиза на
+    // отпечаток (UNIQUE(subscription_id, device_fingerprint)) — берём самую
+    // свежую. Одного NOT EXISTS мало: он не видит строк, которые этот же UPDATE
+    // переносит прямо сейчас, и две вытесняемые подписки с общим отпечатком
+    // роняли бы всю выдачу подписки об уникальный индекс.
+    sqlx::query(
+        "UPDATE subscription_device_leases AS l \
+         SET subscription_id = $1 \
+         WHERE l.id IN ( \
+             SELECT DISTINCT ON (l2.device_fingerprint) l2.id \
+             FROM subscription_device_leases l2 \
+             WHERE l2.subscription_id = ANY($2) \
+               AND NOT EXISTS ( \
+                   SELECT 1 FROM subscription_device_leases t \
+                   WHERE t.subscription_id = $1 \
+                     AND t.device_fingerprint = l2.device_fingerprint) \
+             ORDER BY l2.device_fingerprint, l2.last_seen_at DESC, l2.id DESC)",
+    )
+    .bind(keeper_id)
+    .bind(loser_ids)
+    .execute(&mut **tx)
+    .await
+    .context("Failed to move device leases to the surviving subscription")?;
+
+    sqlx::query("DELETE FROM subscription_device_leases WHERE subscription_id = ANY($1)")
+        .bind(loser_ids)
+        .execute(&mut **tx)
+        .await
+        .context("Failed to drop duplicate device leases")?;
+
+    let superseded = sqlx::query(
+        "UPDATE subscriptions SET status = $1 WHERE id = ANY($2) AND status = 'active'",
+    )
+    .bind(STATUS_SUPERSEDED)
+    .bind(loser_ids)
+    .execute(&mut **tx)
+    .await
+    .context("Failed to supersede the previous subscriptions")?
+    .rows_affected();
+
+    if superseded > 0 {
+        tracing::info!(
+            keeper_id,
+            superseded,
+            "подписка заменена: прежние активные строки вытеснены"
+        );
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -709,15 +951,34 @@ impl StoreService {
             return Ok(None);
         }
 
-        // Была, но истекла — поднимаем ту же строку. Заодно лечим vless_uuid:
-        // строки, созданные до того, как этот путь начал его выставлять, лежат с
-        // NULL и невидимы для генерации конфигов нод — «восстановленная»
-        // подписка без него осталась бы неподключаемой навсегда.
+        // Активные строки снимаем ДО выдачи: их вытеснит либо общий метод, либо
+        // триггер trg_subscriptions_single_active, но лизы устройств перенести
+        // некому, а список после выдачи будет уже пуст. Платных строк здесь по
+        // построению нет — выше стоит ранний выход по has_paid.
+        let previous_active: Vec<i64> =
+            sqlx::query_as::<_, Subscription>(ACTIVE_SUBSCRIPTIONS_FOR_UPDATE_SQL)
+                .bind(user_id)
+                .fetch_all(&mut **tx)
+                .await?
+                .into_iter()
+                .map(|s| s.id)
+                .collect();
+
+        // Была, но истекла (или её вытеснила платная) — поднимаем ту же строку.
+        // 'superseded' здесь наравне с 'expired': именно так бесплатная подписка
+        // теперь выглядит, пока человек платит, и именно её нужно вернуть, когда
+        // платная закончилась. Заодно лечим vless_uuid: строки, созданные до
+        // того, как этот путь начал его выставлять, лежат с NULL и невидимы для
+        // генерации конфигов нод — «восстановленная» подписка без него осталась
+        // бы неподключаемой навсегда.
         let reactivated: Option<i64> = sqlx::query_scalar(
             "UPDATE subscriptions \
              SET status = 'active', expires_at = '9999-12-31 23:59:59+00', \
                  vless_uuid = COALESCE(NULLIF(vless_uuid, ''), gen_random_uuid()::TEXT) \
-             WHERE user_id = $1 AND plan_id = $2 AND status = 'expired' \
+             WHERE id = ( \
+                 SELECT id FROM subscriptions \
+                 WHERE user_id = $1 AND plan_id = $2 AND status IN ('expired', 'superseded') \
+                 ORDER BY id DESC LIMIT 1) \
              RETURNING id",
         )
         .bind(user_id)
@@ -725,6 +986,12 @@ impl StoreService {
         .fetch_optional(&mut **tx)
         .await?;
         if let Some(sub_id) = reactivated {
+            let losers: Vec<i64> = previous_active
+                .iter()
+                .copied()
+                .filter(|id| *id != sub_id)
+                .collect();
+            supersede_subscriptions_tx(tx, &losers, sub_id).await?;
             tracing::info!(
                 user_id,
                 plan_id,
@@ -734,10 +1001,10 @@ impl StoreService {
             return Ok(Some(plan_id));
         }
 
-        // Совсем нет — создаём. Конкурентная гонка двух свипов даст в худшем
-        // случае вторую строку на том же плане; последующие вызовы её увидят
-        // как 'active' и остановятся, а сама вторая строка безвредна (квота
-        // считается по плану + бонусу пользователя, а не по числу строк).
+        // Совсем нет — создаём. Конкурентная гонка двух свипов больше не может
+        // оставить вторую активную строку: частичный уникальный индекс
+        // uq_subscriptions_single_active не даст её зафиксировать, проигравшая
+        // транзакция откатится и следующий вызов увидит уже готовую подписку.
         //
         // ИНВАРИАНТ: vless_uuid обязателен. Генерация конфигов нод
         // (orchestration_service) выбирает s.vless_uuid и МОЛЧА пропускает
@@ -753,6 +1020,7 @@ impl StoreService {
         .bind(plan_id)
         .fetch_one(&mut **tx)
         .await?;
+        supersede_subscriptions_tx(tx, &previous_active, sub_id).await?;
         tracing::info!(
             user_id,
             plan_id,
@@ -807,9 +1075,10 @@ impl StoreService {
 
         if let Some(psub) = parent_sub {
             for child in children {
-                // Читаем дочернюю подписку внутри транзакции для согласованности
+                // Читаем дочернюю подписку внутри транзакции для согласованности,
+                // тем же единым правилом выбора активной, что и везде.
                 let child_sub = sqlx::query_as::<_, Subscription>(
-                    "SELECT * FROM subscriptions WHERE user_id = $1 AND status = 'active' ORDER BY expires_at DESC LIMIT 1"
+                    caramba_db::repositories::subscription_repo::ACTIVE_SUBSCRIPTION_BY_USER_SQL,
                 )
                 .bind(child.id)
                 .fetch_optional(&mut *tx)
@@ -829,21 +1098,20 @@ impl StoreService {
                         .await?;
                     }
                 } else {
-                    let vless_uuid = Uuid::new_v4().to_string();
-                    let sub_uuid = Uuid::new_v4().to_string();
-                    // Создаём семейную подписку в рамках транзакции
-                    sqlx::query(
-                        r#"INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, expires_at, status, note, created_at, is_trial)
-                           VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, FALSE)"#
+                    // У ребёнка активной подписки нет — выдаём семейную общим
+                    // методом, чтобы и здесь действовал один инвариант.
+                    activate_or_replace_subscription_tx(
+                        &mut tx,
+                        SubscriptionGrant {
+                            user_id: child.id,
+                            plan_id: psub.plan_id,
+                            expiry: SubscriptionExpiry::Exactly(psub.expires_at),
+                            status: "active",
+                            note: Some("Family"),
+                            is_trial: false,
+                            node_id: psub.node_id,
+                        },
                     )
-                    .bind(child.id)
-                    .bind(psub.plan_id)
-                    .bind(&vless_uuid)
-                    .bind(&sub_uuid)
-                    .bind(psub.expires_at)
-                    .bind("active")
-                    .bind("Family")
-                    .execute(&mut *tx)
                     .await?;
                 }
             }
@@ -1010,58 +1278,9 @@ impl StoreService {
             .execute(&mut *tx)
             .await?;
 
-        let expires_at = Utc::now() + Duration::days(duration.duration_days as i64);
-        let vless_uuid = Uuid::new_v4().to_string();
-        let sub_uuid = Uuid::new_v4().to_string();
-
-        // as_gift=true → подписка pending (будет конвертирована в код),
-        // as_gift=false → подписка для конечного пользователя.
-        //
-        // License gate (P4, contract E): for a real end-user purchase (as_gift=false)
-        // on a Free instance (manual_approval), the new sub stays 'pending' until an
-        // admin approves; Pro -> auto-'active'. Reuses the existing pending/active
-        // lifecycle and never touches existing subs. Gift purchases stay 'pending'
-        // regardless (they are converted into a code, not handed to the buyer).
-        let limits = crate::license::effective_limits_from_pool(&self.pool).await;
-        let purchase_status = crate::license::initial_subscription_status(&limits);
-
-        let sub = if as_gift {
-            sqlx::query_as::<_, Subscription>(
-                r#"
-                INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, expires_at, status, is_trial)
-                VALUES ($1, $2, $3, $4, $5, 'pending', $6)
-                RETURNING *
-                "#
-            )
-            .bind(user_id)
-            .bind(duration.plan_id)
-            .bind(&vless_uuid)
-            .bind(&sub_uuid)
-            .bind(expires_at)
-            .bind(plan_is_trial.unwrap_or(false))
-            .fetch_one(&mut *tx)
-            .await?
-        } else {
-            sqlx::query_as::<_, Subscription>(
-                r#"
-                INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, expires_at, status, is_trial, activated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-                RETURNING *
-                "#
-            )
-            .bind(user_id)
-            .bind(duration.plan_id)
-            .bind(&vless_uuid)
-            .bind(&sub_uuid)
-            .bind(expires_at)
-            .bind(purchase_status)
-            .bind(plan_is_trial.unwrap_or(false))
-            .fetch_one(&mut *tx)
-            .await?
-        };
-
-        // Фиксируем использование пробного периода сразу после создания подписки,
-        // ещё внутри транзакции — чтобы при откате флаг не остался установленным.
+        // Фиксируем использование пробного периода внутри транзакции — чтобы при
+        // откате флаг не остался установленным. Порядок с выдачей подписки здесь
+        // не важен, важна только атомарность.
         if plan_is_trial.unwrap_or(false) {
             sqlx::query("UPDATE users SET trial_used = TRUE, trial_used_at = NOW() WHERE id = $1")
                 .bind(user_id)
@@ -1069,14 +1288,12 @@ impl StoreService {
                 .await?;
         }
 
-        // Если покупка как подарок — сразу конвертируем pending-подписку в gift code внутри той же транзакции.
-        // Подписка удаляется, создаётся запись в gift_codes, транзакция фиксируется с кодом.
+        // Покупка подарка НЕ создаёт подписку покупателю. Раньше здесь
+        // вставлялась pending-строка, которая тут же в этой же транзакции
+        // удалялась ради gift-кода; с инвариантом «одна активная подписка» такой
+        // промежуточный шаг стал бы прямо вредным — покупка подарка другу
+        // вытесняла бы собственную подписку покупателя.
         if as_gift {
-            sqlx::query("DELETE FROM subscriptions WHERE id = $1")
-                .bind(sub.id)
-                .execute(&mut *tx)
-                .await?;
-
             let gift_code = format!(
                 "CARAMBA-GIFT-{}",
                 Uuid::new_v4()
@@ -1091,7 +1308,7 @@ impl StoreService {
                 "INSERT INTO gift_codes (code, plan_id, duration_days, created_by_user_id) VALUES ($1, $2, $3, $4)"
             )
             .bind(&gift_code)
-            .bind(sub.plan_id)
+            .bind(duration.plan_id)
             .bind(duration.duration_days)
             .bind(user_id)
             .execute(&mut *tx)
@@ -1112,6 +1329,30 @@ impl StoreService {
             .await;
             return Ok(PurchaseResult::GiftCode(gift_code));
         }
+
+        // License gate (P4, contract E): на инстансе с ручным одобрением новая
+        // подписка ждёт админа в 'pending' и никого не вытесняет; на Pro сразу
+        // 'active'.
+        let limits = crate::license::effective_limits_from_pool(&self.pool).await;
+        let purchase_status = crate::license::initial_subscription_status(&limits);
+
+        // Покупка того же тарифа — продление уже активной строки, а не вторая
+        // подписка: иначе у человека появлялась вторая активная строка со своим
+        // vless_uuid, и ранее выданные ссылки переставали соответствовать той
+        // подписке, которую обслуживает система.
+        let sub = activate_or_replace_subscription_tx(
+            &mut tx,
+            SubscriptionGrant {
+                user_id,
+                plan_id: duration.plan_id,
+                expiry: SubscriptionExpiry::AddDays(duration.duration_days as i64),
+                status: purchase_status,
+                note: None,
+                is_trial: plan_is_trial.unwrap_or(false),
+                node_id: None,
+            },
+        )
+        .await?;
 
         tx.commit().await?;
         let _ = crate::services::analytics_service::AnalyticsService::track_order(&self.pool).await;
@@ -1199,6 +1440,21 @@ impl StoreService {
         let duration = sub.expires_at - sub.created_at;
         let new_expires_at = Utc::now() + duration;
 
+        // Момент, когда pending-подписка получает доступ, — это и есть момент
+        // вытеснения прежней активной: до одобрения она ничего не заменяла.
+        // Список снимаем ДО апдейта, потому что триггер
+        // trg_subscriptions_single_active успеет перевести эти строки в
+        // 'superseded' сам, а лизы устройств он не переносит.
+        let previous_active: Vec<i64> =
+            sqlx::query_as::<_, Subscription>(ACTIVE_SUBSCRIPTIONS_FOR_UPDATE_SQL)
+                .bind(user_id)
+                .fetch_all(&mut *tx)
+                .await?
+                .into_iter()
+                .map(|s| s.id)
+                .filter(|id| *id != sub_id)
+                .collect();
+
         // Обновляем статус и дату истечения внутри той же транзакции
         sqlx::query(
             "UPDATE subscriptions SET status = $1, expires_at = $2, used_traffic = 0 WHERE id = $3",
@@ -1208,6 +1464,8 @@ impl StoreService {
         .bind(sub_id)
         .execute(&mut *tx)
         .await?;
+
+        supersede_subscriptions_tx(&mut tx, &previous_active, sub_id).await?;
 
         // Перечитываем обновлённую запись внутри транзакции до коммита
         let updated_sub =
@@ -1336,23 +1594,18 @@ impl StoreService {
             .plan_id
             .ok_or_else(|| anyhow::anyhow!("Gift code invalid (no plan)"))?;
 
-        let expires_at = Utc::now() + Duration::days(days as i64);
-        let vless_uuid = Uuid::new_v4().to_string();
-        let subscription_uuid = Uuid::new_v4().to_string();
-
-        let sub = sqlx::query_as::<_, Subscription>(
-            r#"
-            INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, expires_at, status)
-            VALUES ($1, $2, $3, $4, $5, 'pending')
-            RETURNING *
-            "#
+        let sub = activate_or_replace_subscription_tx(
+            &mut tx,
+            SubscriptionGrant {
+                user_id,
+                plan_id,
+                expiry: SubscriptionExpiry::Exactly(Utc::now() + Duration::days(days as i64)),
+                status: "pending",
+                note: None,
+                is_trial: false,
+                node_id: None,
+            },
         )
-        .bind(user_id)
-        .bind(plan_id)
-        .bind(vless_uuid)
-        .bind(subscription_uuid)
-        .bind(expires_at)
-        .fetch_one(&mut *tx)
         .await?;
 
         sqlx::query("UPDATE gift_codes SET redeemed_by_user_id = $1, redeemed_at = CURRENT_TIMESTAMP WHERE id = $2")
@@ -1510,19 +1763,23 @@ impl StoreService {
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("No active nodes available"))?;
 
-        let vless_uuid = Uuid::new_v4().to_string();
-        let sub_uuid = Uuid::new_v4().to_string();
-        let expires_at = Utc::now() + Duration::days(duration_days as i64);
-
-        let sub = sqlx::query_as::<_, Subscription>(
-            r#"
-            INSERT INTO subscriptions (user_id, plan_id, node_id, vless_uuid, expires_at, status, subscription_uuid, note, created_at)
-            VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, CURRENT_TIMESTAMP)
-            RETURNING *
-            "#
+        // Подарок админа — точный срок от момента выдачи, а не продление: так
+        // это и читается в админке («выдать N дней»). Общий метод при этом сам
+        // погасит прежнюю активную подписку и перенесёт устройства.
+        let sub = activate_or_replace_subscription_tx(
+            &mut tx,
+            SubscriptionGrant {
+                user_id,
+                plan_id,
+                expiry: SubscriptionExpiry::Exactly(
+                    Utc::now() + Duration::days(duration_days as i64),
+                ),
+                status: "active",
+                note,
+                is_trial: false,
+                node_id: Some(node_id),
+            },
         )
-        .bind(user_id).bind(plan_id).bind(node_id).bind(vless_uuid).bind(expires_at).bind(sub_uuid).bind(note)
-        .fetch_one(&mut *tx)
         .await?;
 
         tx.commit().await?;
@@ -1594,73 +1851,23 @@ impl StoreService {
         duration: &caramba_db::models::store::PlanDuration,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> Result<Subscription> {
-        // Все операции с подписками выполняются через tx-aware варианты репозитория,
-        // чтобы списание баланса и изменение подписки были атомарны.
-        let existing_sub = self.sub_repo.get_active_by_user_tx(tx, user_id).await?;
-
-        let sub = if let Some(active_sub) = existing_sub {
-            if active_sub.plan_id != duration.plan_id {
-                let expires_at = Utc::now() + Duration::days(duration.duration_days as i64);
-                let vless_uuid = Uuid::new_v4().to_string();
-                let sub_uuid = Uuid::new_v4().to_string();
-                let id = self
-                    .sub_repo
-                    .create_tx(
-                        tx,
-                        user_id,
-                        duration.plan_id,
-                        &vless_uuid,
-                        &sub_uuid,
-                        expires_at,
-                        "active",
-                        None,
-                    )
-                    .await?;
-                self.sub_repo
-                    .get_by_id_tx(tx, id)
-                    .await?
-                    .ok_or_else(|| anyhow::anyhow!("Subscription {} not found after insert", id))?
-            } else {
-                let new_expires_at = if active_sub.expires_at > Utc::now() {
-                    active_sub.expires_at + Duration::days(duration.duration_days as i64)
-                } else {
-                    Utc::now() + Duration::days(duration.duration_days as i64)
-                };
-                self.sub_repo
-                    .update_expiry_tx(tx, active_sub.id, new_expires_at)
-                    .await?;
-                self.sub_repo
-                    .get_by_id_tx(tx, active_sub.id)
-                    .await?
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "Subscription {} not found after expiry update",
-                            active_sub.id
-                        )
-                    })?
-            }
-        } else {
-            let expires_at = Utc::now() + Duration::days(duration.duration_days as i64);
-            let vless_uuid = Uuid::new_v4().to_string();
-            let sub_uuid = Uuid::new_v4().to_string();
-            let id = self
-                .sub_repo
-                .create_tx(
-                    tx,
-                    user_id,
-                    duration.plan_id,
-                    &vless_uuid,
-                    &sub_uuid,
-                    expires_at,
-                    "active",
-                    None,
-                )
-                .await?;
-            self.sub_repo
-                .get_by_id_tx(tx, id)
-                .await?
-                .ok_or_else(|| anyhow::anyhow!("Subscription {} not found after insert", id))?
-        };
+        // Раньше здесь жила собственная развилка «тот же план / другой план», и
+        // ветка «другой план» вставляла вторую строку, оставляя старую активной
+        // навсегда. Теперь решение принимает общий метод — вместе с переносом
+        // лиз устройств, которых эта развилка не знала.
+        let sub = activate_or_replace_subscription_tx(
+            tx,
+            SubscriptionGrant {
+                user_id,
+                plan_id: duration.plan_id,
+                expiry: SubscriptionExpiry::AddDays(duration.duration_days as i64),
+                status: "active",
+                note: None,
+                is_trial: false,
+                node_id: None,
+            },
+        )
+        .await?;
 
         let _ = self.sync_family_subscriptions(user_id).await;
         Ok(sub)
@@ -2039,5 +2246,185 @@ impl StoreService {
             .await?
             .context("Referrer not found")?;
         self.user_repo.set_referrer_id(user_id, referrer.id).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    fn now() -> DateTime<Utc> {
+        DateTime::from_timestamp(1_800_000_000, 0).unwrap()
+    }
+
+    // ---- срок подписки ------------------------------------------------------
+
+    /// Подарок и промокод дают ровно тот срок, который выписан — прошлая
+    /// подписка на этот срок не влияет.
+    #[test]
+    fn an_exact_expiry_ignores_whatever_was_there_before() {
+        let target = now() + Duration::days(30);
+        assert_eq!(
+            SubscriptionExpiry::Exactly(target).resolve(None, now()),
+            target
+        );
+        assert_eq!(
+            SubscriptionExpiry::Exactly(target).resolve(Some(now() + Duration::days(300)), now()),
+            target
+        );
+    }
+
+    /// Продление живой подписки прибавляется к её дате: оплаченные дни не
+    /// сгорают. Именно этого не делала ветка «другой план» — она вместо
+    /// продления заводила вторую строку.
+    #[test]
+    fn extending_a_live_subscription_adds_to_its_own_expiry() {
+        let current = now() + Duration::days(10);
+        assert_eq!(
+            SubscriptionExpiry::AddDays(30).resolve(Some(current), now()),
+            current + Duration::days(30)
+        );
+    }
+
+    /// Продление давно истёкшей считается от «сейчас»: иначе подписка стала бы
+    /// активной с датой в прошлом, и ближайшая проверка сроков снова погасила
+    /// бы её — флап статуса и лишние перегенерации конфигов.
+    #[test]
+    fn extending_a_long_dead_subscription_starts_from_now() {
+        let long_gone = now() - Duration::days(400);
+        assert_eq!(
+            SubscriptionExpiry::AddDays(30).resolve(Some(long_gone), now()),
+            now() + Duration::days(30)
+        );
+        assert_eq!(
+            SubscriptionExpiry::AddDays(30).resolve(None, now()),
+            now() + Duration::days(30)
+        );
+    }
+
+    // ---- инвариант виден в исходниках --------------------------------------
+    //
+    // Живой базы у тестов этого крейта нет (CI гоняет cargo test без Postgres),
+    // поэтому «единственный путь выдачи» проверяется по тексту — в том же
+    // стиле, что tests/free_plan_grant_guard.rs. Каждый обход общего метода
+    // ломается молча: подписка создаётся, показывается в кабинете, а устройства
+    // человека тихо отвязываются.
+
+    /// Исходник без собственного тестового модуля: сами тесты цитируют SQL, и
+    /// без отсечения счётчик запросов считал бы эти цитаты.
+    fn panel_src(relative: &str) -> String {
+        let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join(relative);
+        let text = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+        text.split("#[cfg(test)]").next().unwrap().to_string()
+    }
+
+    fn migration(name: &str) -> String {
+        let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../libs/caramba-db/migrations")
+            .join(name);
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+    }
+
+    /// Пути выдачи подписок обязаны идти через общий метод. Свой INSERT в этих
+    /// файлах — это ровно тот дубль активной подписки, который мы убрали.
+    #[test]
+    fn subscription_grants_do_not_write_their_own_insert() {
+        for file in [
+            "services/promo_service.rs",
+            "handlers/api/bot.rs",
+            "services/welcome_gift.rs",
+        ] {
+            let src = panel_src(file);
+            let inserts = src.matches("INSERT INTO subscriptions").count();
+            let expected = if file == "handlers/api/bot.rs" {
+                // create_free_subscription — вторая, намеренно оставленная
+                // реализация выдачи бесплатного плана: ей нужен другой контракт
+                // ответа ({subscription_id, already_had_free}).
+                1
+            } else {
+                0
+            };
+            assert_eq!(
+                inserts, expected,
+                "{file}: выдача подписки в обход activate_or_replace_subscription"
+            );
+        }
+    }
+
+    /// В самом store_service INSERT'ов подписки ровно два: общий
+    /// insert_subscription_tx и выдача бесплатного плана (у неё свой контракт —
+    /// вечный срок и реактивация старой строки).
+    #[test]
+    fn the_store_service_keeps_exactly_two_subscription_inserts() {
+        let src = panel_src("services/store_service.rs");
+        assert_eq!(
+            src.matches("INSERT INTO subscriptions").count(),
+            2,
+            "в store_service появился новый путь создания подписки"
+        );
+    }
+
+    /// Замена подписки без переноса лиз молча отвязывает все устройства
+    /// пользователя: их отпечаток считается от subscription_id.
+    #[test]
+    fn superseding_carries_the_device_leases_over() {
+        let src = panel_src("services/store_service.rs");
+        let body = src
+            .split("async fn supersede_subscriptions_tx")
+            .nth(1)
+            .expect("supersede_subscriptions_tx исчез — обновите тест");
+        assert!(
+            body.contains("UPDATE subscription_device_leases"),
+            "вытеснение перестало переносить привязки устройств"
+        );
+        assert!(
+            body.contains("STATUS_SUPERSEDED"),
+            "вытесненная подписка обязана получать отдельный статус, а не 'expired'"
+        );
+    }
+
+    /// Инвариант обязан держаться и на уровне БД: код — не единственный
+    /// писатель (есть ручные правки и пути вне этой волны).
+    #[test]
+    fn the_migration_pins_the_invariant_in_the_database() {
+        let sql = migration("20260911140000_single_active_subscription.sql");
+        assert!(
+            sql.contains("CREATE UNIQUE INDEX IF NOT EXISTS uq_subscriptions_single_active"),
+            "из миграции пропал уникальный индекс одной активной подписки"
+        );
+        assert!(
+            sql.contains("WHERE status = 'active'"),
+            "индекс перестал быть частичным — он запретил бы и историю подписок"
+        );
+        assert!(
+            sql.contains("trg_subscriptions_single_active")
+                && sql.contains("trg_subscriptions_carry_leases"),
+            "исчезла страховка-триггер: пути активации вне общего метода начнут падать на индексе"
+        );
+    }
+
+    /// Бесплатный план возвращается после платной только если реактивация
+    /// видит статус 'superseded' — именно в него теперь уходит бесплатная
+    /// строка, когда человек платит.
+    #[test]
+    fn the_free_plan_comes_back_from_superseded_too() {
+        let src = panel_src("services/store_service.rs");
+        let grant = src
+            .split("pub async fn ensure_free_plan_subscription_tx")
+            .nth(1)
+            .expect("ensure_free_plan_subscription_tx исчез — обновите тест");
+        let reactivation = grant
+            .split("pub async fn ensure_free_plan_subscription(")
+            .next()
+            .unwrap();
+        assert!(
+            reactivation.contains("status IN ('expired', 'superseded')"),
+            "реактивация бесплатного плана не видит вытесненную строку: человек останется без доступа"
+        );
     }
 }

@@ -17,6 +17,7 @@ import 'package:caramba_client/data/models/subscription.dart';
 import 'package:caramba_client/data/models/traffic_point.dart';
 import 'package:caramba_client/data/models/user.dart';
 import 'package:caramba_client/data/token_store.dart';
+import 'package:caramba_client/state/device_identity.dart';
 
 /// Базовый URL панели для СБОРКИ, а не для приложения.
 ///
@@ -69,6 +70,13 @@ class ApiClient {
   final Dio _dio;
   final TokenStore _tokens;
 
+  /// Идентичность устройства для заголовков `X-Caramba-Device-*`.
+  ///
+  /// Отдельная зависимость, а не глобальный вызов внутри интерсептора: тест
+  /// обязан уметь подставить своё устройство, не трогая связку ключей машины,
+  /// на которой он бежит.
+  final DeviceIdentityStore _deviceIdentity;
+
   /// Колбэк, вызываемый когда refresh окончательно провалился — auth-слой
   /// подписывается на него, чтобы перевести сессию в `unauthenticated`.
   void Function()? onSessionExpired;
@@ -96,22 +104,27 @@ class ApiClient {
 
   static const String _apiSuffix = '/api/v2/app';
 
-  ApiClient({required TokenStore tokens, Dio? dio, String? baseUrl})
-    : _tokens = tokens,
-      _dio =
-          dio ??
-          Dio(
-            BaseOptions(
-              baseUrl: (baseUrl ?? kApiBaseUrl).trim().isEmpty
-                  ? ''
-                  : '${(baseUrl ?? kApiBaseUrl).trim()}$_apiSuffix',
-              connectTimeout: const Duration(seconds: 15),
-              receiveTimeout: const Duration(seconds: 20),
-              contentType: Headers.jsonContentType,
-              // Сами решаем по статус-коду — не бросаем на не-2xx автоматически.
-              validateStatus: (s) => s != null && s < 500,
-            ),
-          ) {
+  ApiClient({
+    required TokenStore tokens,
+    Dio? dio,
+    String? baseUrl,
+    DeviceIdentityStore? deviceIdentity,
+  }) : _tokens = tokens,
+       _deviceIdentity = deviceIdentity ?? DeviceIdentityStore.instance,
+       _dio =
+           dio ??
+           Dio(
+             BaseOptions(
+               baseUrl: (baseUrl ?? kApiBaseUrl).trim().isEmpty
+                   ? ''
+                   : '${(baseUrl ?? kApiBaseUrl).trim()}$_apiSuffix',
+               connectTimeout: const Duration(seconds: 15),
+               receiveTimeout: const Duration(seconds: 20),
+               contentType: Headers.jsonContentType,
+               // Сами решаем по статус-коду — не бросаем на не-2xx автоматически.
+               validateStatus: (s) => s != null && s < 500,
+             ),
+           ) {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
@@ -136,6 +149,15 @@ class ApiClient {
             if (access != null && access.isNotEmpty) {
               options.headers['Authorization'] = 'Bearer $access';
             }
+            // Устройство называет себя ТОЛЬКО на авторизованных вызовах.
+            //
+            // Панель заводит лизу устройства по этой паре заголовков, и лиза
+            // принадлежит аккаунту: на публичных `/branding` и `/enroll/{code}`
+            // аккаунта ещё нет, а стабильный идентификатор, отданный панели,
+            // которую человек только рассматривает, это лишний след без единой
+            // причины его оставлять.
+            final identity = await _deviceIdentity.ensure();
+            options.headers.addAll(identity.headers);
           }
           handler.next(options);
         },
@@ -320,8 +342,12 @@ class ApiClient {
   // Account: devices / subscriptions / referrals / family / relays
   // ------------------------------------------------------------------
 
-  /// GET /devices — все устройства (lease) по подпискам пользователя.
-  /// Контракт: `app_account.rs::list_devices` (AppDevice[]).
+  /// GET /devices — устройства АККАУНТА (не подписки).
+  ///
+  /// Контракт: `app_account.rs::list_devices` (AppDevice[]) —
+  /// `{id, display_name, platform, client_device_id, last_seen_at,
+  /// is_current}`. Своё устройство панель узнаёт по заголовку
+  /// [kDeviceIdHeader], который клиент шлёт на каждом авторизованном вызове.
   Future<List<Device>> getDevices() async {
     final res = await _dio.get<dynamic>('/devices');
     return _list(res, Device.fromJson, 'devices');
@@ -335,7 +361,7 @@ class ApiClient {
     return true;
   }
 
-  /// DELETE /devices/{id} — отзыв (kick) устройства.
+  /// DELETE /devices/{id} — отвязка устройства от аккаунта.
   Future<bool> removeDevice(int id) async {
     final res = await _dio.delete<dynamic>('/devices/$id');
     _ensureOk(res);

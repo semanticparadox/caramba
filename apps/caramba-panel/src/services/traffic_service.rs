@@ -1,4 +1,5 @@
 use crate::AppState;
+use crate::services::node_activity_service::NodeActivityService;
 use std::collections::HashSet;
 use tokio::time::{Duration, interval};
 use tracing::{error, info};
@@ -25,22 +26,23 @@ impl TrafficService {
     }
 
     async fn sync_traffic(&self) -> anyhow::Result<()> {
-        info!("Syncing traffic usage from all active nodes...");
+        // Трафик по пользователям приходит heartbeat'ом узла и разносится в
+        // api/v2/node.rs — здесь его считать нечего. Зато здесь единственное
+        // место с десятиминутным тиком, а снапшот накопительных счётчиков
+        // узла нужен именно с фиксированным шагом: из `nodes.total_ingress`
+        // без истории нельзя получить «сколько узел прокачал за сутки».
+        let snapshot = NodeActivityService::new(self.state.pool.clone());
+        match snapshot.take_traffic_snapshot().await {
+            Ok(rows) => info!("Снят снапшот трафика по {} узлам", rows),
+            Err(e) => error!("Не удалось снять снапшот трафика узлов: {:#}", e),
+        }
 
-        // Fetch only IDs to stay compatible across schema variants (INT4/INT8 column drift).
-        let active_node_ids: Vec<i64> =
-            sqlx::query_scalar("SELECT id FROM nodes WHERE status = 'active'")
-                .fetch_all(&self.state.pool)
-                .await?;
-
-        for node_id in active_node_ids {
-            // Note: Per-user traffic usage is now reported via node heartbeats
-            // and processed in api/v2/node.rs. Aggregate node stats could be
-            // fetched here in the future if needed.
-            info!(
-                "Node {} traffic sync handled via heartbeat reporting",
-                node_id
-            );
+        // Ретеншен. DELETE обычно не находит ничего и стоит один индексный
+        // проход, поэтому отдельного расписания не заводим.
+        match snapshot.purge_old_snapshots().await {
+            Ok(0) => {}
+            Ok(rows) => info!("Удалено {} устаревших снапшотов трафика узлов", rows),
+            Err(e) => error!("Не удалось почистить снапшоты трафика узлов: {:#}", e),
         }
 
         // After syncing, enforce quotas

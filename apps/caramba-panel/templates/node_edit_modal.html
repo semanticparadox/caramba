@@ -65,6 +65,18 @@
                     Kazakhstan</option>
             </select>
         </div>
+        <!-- Ручной потолок пользователей узла -->
+        <div>
+            <label class="block text-xs text-slate-400 uppercase mb-1">Потолок пользователей (вручную)</label>
+            <input type="number" name="max_users_override" min="1" step="1"
+                value="{{ max_users_override }}" placeholder="расчётный: {{ max_users_calculated }}"
+                class="input-field">
+            <p class="text-[10px] text-slate-500 mt-2">
+                По этому числу рисуется шкала заполнения узла на странице Servers. Пусто значит «считать
+                автоматически»: расчётное значение сейчас {{ max_users_calculated }} и перезаписывается
+                телеметрией при каждом heartbeat, поэтому своё число хранится отдельной колонкой.
+            </p>
+        </div>
         <!-- Config Profile Override -->
         <div>
             <label class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Config Profile

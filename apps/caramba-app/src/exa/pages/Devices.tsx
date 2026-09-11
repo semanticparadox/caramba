@@ -5,37 +5,61 @@ import { apiUrl } from '../../config'
 import { hapticError, hapticSuccess, hapticTap } from '../../lib/haptics'
 import { ExaIcon, deviceIconName } from '../icons'
 import { Button, IconButton, Pill, ScreenHeader } from '../ui'
-import { pickPrimary } from '../lib/subscription'
+import { accountDeviceLimit, pickPrimary } from '../lib/subscription'
 import { useToast } from '../lib/useToast'
 
+/** Устройство аккаунта. Ответ панели: /api/client/devices. */
 interface DeviceEntry {
     id: number
+    display_name: string
+    /** То же имя под старым ключом — пока панель отдаёт оба. */
     device_name: string
+    platform: string | null
+    client_device_id: string | null
     last_ip: string
     last_seen_at: string
     first_seen_at: string
+    online: boolean
     is_current: boolean
 }
 
-/** «Профиль › Устройства»: список аренд, переименование, отключение. */
+/** Подпись платформы: android → Android. Незнакомое значение показываем как есть. */
+const PLATFORM_LABELS: Record<string, string> = {
+    android: 'Android',
+    ios: 'iOS',
+    macos: 'macOS',
+    windows: 'Windows',
+    linux: 'Linux',
+}
+
+/** «Профиль › Устройства»: привязки аккаунта, переименование, отвязка.
+ *
+ *  Список читается по аккаунту, а не по подписке: устройство принадлежит
+ *  человеку и не должно исчезать при смене тарифа. Раньше здесь стоял
+ *  pickPrimary и запросы шли на /subscription/{id}/devices — устройства,
+ *  оставшиеся на прежней строке подписки, из кабинета были недоступны вообще,
+ *  включая отвязку. */
 export default function Devices() {
     const { t } = useTranslation()
     const toast = useToast()
     const { token, subscriptions, refreshData } = useAuth()
     const sub = useMemo(() => pickPrimary(subscriptions), [subscriptions])
+    const limit = useMemo(() => accountDeviceLimit(subscriptions), [subscriptions])
     const [devices, setDevices] = useState<DeviceEntry[]>([])
     const [loading, setLoading] = useState(true)
     const [editing, setEditing] = useState<number | null>(null)
     const [draft, setDraft] = useState('')
     const [busy, setBusy] = useState<number | 'all' | null>(null)
 
+    const nameOf = (d: DeviceEntry) => d.display_name || d.device_name || ''
+
     const load = useCallback(async () => {
-        if (!token || !sub) {
+        if (!token) {
             setLoading(false)
             return
         }
         try {
-            const res = await fetch(apiUrl(`/api/client/subscription/${sub.id}/devices`), {
+            const res = await fetch(apiUrl('/api/client/devices'), {
                 headers: { Authorization: `Bearer ${token}` },
             })
             if (res.ok) {
@@ -45,7 +69,7 @@ export default function Devices() {
         } finally {
             setLoading(false)
         }
-    }, [token, sub])
+    }, [token])
 
     useEffect(() => {
         void load()
@@ -60,19 +84,28 @@ export default function Devices() {
         return t('exa.devices.daysAgo', { count: Math.floor(hours / 24) })
     }
 
+    /** «Android · 5 минут назад» — платформа полезнее строки User-Agent. */
+    const meta = (d: DeviceEntry) => {
+        const platform = d.platform ? (PLATFORM_LABELS[d.platform] ?? d.platform) : null
+        const seen = d.online ? t('exa.devices.online') : relative(d.last_seen_at)
+        return platform ? `${platform} · ${seen}` : seen
+    }
+
     const rename = async (d: DeviceEntry) => {
-        if (!token || !sub) return
+        if (!token) return
         const name = draft.trim()
         setEditing(null)
-        if (!name || name === d.device_name) return
-        const res = await fetch(apiUrl(`/api/client/subscription/${sub.id}/devices/${d.id}/name`), {
+        if (!name || name === nameOf(d)) return
+        const res = await fetch(apiUrl(`/api/client/devices/${d.id}/name`), {
             method: 'PUT',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ name }),
         })
         if (res.ok) {
             hapticSuccess()
-            setDevices((list) => list.map((x) => (x.id === d.id ? { ...x, device_name: name } : x)))
+            setDevices((list) =>
+                list.map((x) => (x.id === d.id ? { ...x, display_name: name, device_name: name } : x)),
+            )
         } else {
             hapticError()
             toast(t('exa.common.error'))
@@ -80,11 +113,11 @@ export default function Devices() {
     }
 
     const kick = async (d: DeviceEntry) => {
-        if (!token || !sub || busy) return
+        if (!token || busy) return
         if (!window.confirm(t('exa.devices.disconnectConfirm'))) return
         hapticTap()
         setBusy(d.id)
-        const res = await fetch(apiUrl(`/api/client/subscription/${sub.id}/devices/${d.id}`), {
+        const res = await fetch(apiUrl(`/api/client/devices/${d.id}`), {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${token}` },
         })
@@ -100,10 +133,10 @@ export default function Devices() {
     }
 
     const kickAll = async () => {
-        if (!token || !sub || busy) return
+        if (!token || busy) return
         if (!window.confirm(t('exa.devices.killAllConfirm'))) return
         setBusy('all')
-        const res = await fetch(apiUrl(`/api/client/subscription/${sub.id}/devices/kill-all`), {
+        const res = await fetch(apiUrl('/api/client/devices/kill-all'), {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}` },
         })
@@ -118,7 +151,6 @@ export default function Devices() {
         }
     }
 
-    const limit = sub?.device_limit ?? 0
     const free = Math.max(0, limit - devices.length)
 
     return (
@@ -133,7 +165,7 @@ export default function Devices() {
                     {devices.map((d) => (
                         <div key={d.id} className="exa-row" style={{ minHeight: 68 }}>
                             <span className="exa-device-avatar">
-                                <ExaIcon name={deviceIconName(d.device_name)} size={22} />
+                                <ExaIcon name={deviceIconName(nameOf(d))} size={22} />
                             </span>
                             {editing === d.id ? (
                                 <input
@@ -151,17 +183,17 @@ export default function Devices() {
                             ) : (
                                 <div className="exa-row__body">
                                     <div className="exa-row__title">
-                                        <span>{d.device_name || t('exa.devices.unknown')}</span>
+                                        <span>{nameOf(d) || t('exa.devices.unknown')}</span>
                                         {d.is_current ? <Pill tone="accent">{t('exa.devices.thisDevice')}</Pill> : null}
                                     </div>
-                                    <div className="exa-row__meta">{relative(d.last_seen_at)}</div>
+                                    <div className="exa-row__meta">{meta(d)}</div>
                                 </div>
                             )}
                             <IconButton
                                 label={t('exa.devices.rename')}
                                 className="is-ghost is-sm"
                                 onClick={() => {
-                                    setDraft(d.device_name)
+                                    setDraft(nameOf(d))
                                     setEditing(d.id)
                                 }}
                             >

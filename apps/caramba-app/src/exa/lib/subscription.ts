@@ -17,6 +17,19 @@ export function pickPrimary(subs: UserSubscription[]): UserSubscription | null {
     return [...subs].sort((a, b) => Date.parse(b.expires_at) - Date.parse(a.expires_at))[0]
 }
 
+/** Лимит устройств АККАУНТА, а не строки подписки.
+ *
+ *  Устройства привязаны к человеку и переживают смену тарифа, поэтому список
+ *  устройств в кабинете больше не читается по одной подписке. Лимит при этом
+ *  берётся у главной активной: инвариант «одна активная подписка» гарантирует,
+ *  что она одна, а max по остальным — страховка на время, пока старые строки
+ *  ещё не вытеснены. */
+export function accountDeviceLimit(subs: UserSubscription[]): number {
+    const primary = pickPrimary(subs)
+    if (primary?.device_limit) return primary.device_limit
+    return subs.reduce((max, s) => Math.max(max, s.device_limit ?? 0), 0)
+}
+
 export function deriveState(sub: UserSubscription | null): ConnectState {
     if (!sub) return 'none'
     if (sub.status === 'pending') return 'pending'

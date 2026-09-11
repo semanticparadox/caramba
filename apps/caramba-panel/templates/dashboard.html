@@ -23,7 +23,13 @@
             </div>
             <div>
                 <h3 class="text-3xl font-bold text-slate-900 dark:text-white mb-1">{{ total_traffic_30d }}</h3>
-                <p class="text-[10px] text-slate-500 uppercase tracking-widest font-semibold italic">Total Traffic (30d)
+                <p class="text-[10px] text-slate-500 uppercase tracking-widest font-semibold italic"
+                    title="Сумма up+down из app_traffic_daily за последние 30 дней.">Трафик за 30 дней</p>
+                {# Алл-тайм показан отдельной строкой: раньше это же число стояло
+                   под подписью «30d» и врало тем сильнее, чем дольше жили узлы. #}
+                <p class="text-[10px] text-slate-600 uppercase tracking-widest font-semibold mt-1"
+                    title="Накопительные счётчики узлов за всё время их жизни.">
+                    За всё время: {{ total_traffic }}
                 </p>
             </div>
         </div>
@@ -133,8 +139,8 @@
             <div class="flex items-center justify-between mb-8">
                 <div>
                     <h3 class="text-xl font-bold text-slate-900 dark:text-white">Traffic Volume</h3>
-                    <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Data usage
-                        trends over last 30 days</p>
+                    <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">
+                        Подневный расход за 30 дней, источник app_traffic_daily</p>
                 </div>
                 <div class="flex items-center gap-2">
                     <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand/5 border border-brand/20">
@@ -150,8 +156,8 @@
         <div class="card p-8 flex flex-col">
             <div class="mb-8">
                 <h3 class="text-xl font-bold text-slate-900 dark:text-white">Node Topology</h3>
-                <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">Load distribution
-                    health</p>
+                <p class="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mt-0.5">
+                    Трафик по узлам за 30 дней, по снапшотам счётчиков</p>
             </div>
             <div id="nodeDistributionChart" class="w-full flex-1 flex items-center justify-center min-h-[300px]"></div>
         </div>

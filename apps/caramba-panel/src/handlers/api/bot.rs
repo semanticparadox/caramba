@@ -424,8 +424,26 @@ pub async fn create_free_subscription(
     // квота исчерпана) и 'pending' (ждёт одобрения) тоже считаются —
     // иначе затроттленный юзер повторным нажатием кнопки получал бы
     // свежую бесплатную подписку в обход суточного лимита.
+    //
+    // Вторым условием — ЛЮБАЯ активная подписка, в том числе платная. С
+    // инвариантом «одна активная строка» (миграция 20260911140000) вставка
+    // бесплатной строки со статусом 'active' вытеснила бы купленный тариф
+    // триггером trg_subscriptions_single_active. Кнопка живёт на принятии
+    // условий, и человек, купивший тариф в мини-аппе раньше, чем принял их в
+    // боте, потерял бы оплаченное молча. Канонический путь
+    // store_service::ensure_free_plan_subscription_tx такую проверку делает
+    // (ранний выход по has_paid) — здесь вторая реализация, и держать её
+    // приходится руками. 'pending' чужого плана не мешает: вытесняет только
+    // 'active'.
     let existing_id: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM subscriptions WHERE user_id = $1 AND plan_id = $2 AND status IN ('active', 'pending', 'throttled') LIMIT 1",
+        r#"
+        SELECT id FROM subscriptions
+        WHERE user_id = $1
+          AND ((plan_id = $2 AND status IN ('active', 'pending', 'throttled'))
+               OR status = 'active')
+        ORDER BY (plan_id = $2) DESC, id DESC
+        LIMIT 1
+        "#,
     )
     .bind(user_id)
     .bind(plan_id)
@@ -559,21 +577,35 @@ pub async fn admin_gift(
         None => return (StatusCode::NOT_FOUND, "No active plan found").into_response(),
     };
 
-    // Тот же инвариант, что и в create_free_subscription: подписка, созданная
-    // без vless_uuid, не попадёт в конфиги нод и после одобрения — одобрение
-    // меняет только status. Подарок молча не работал бы.
-    let sub_id: Result<i64, _> = sqlx::query_scalar(
-        "INSERT INTO subscriptions (user_id, plan_id, status, duration_days, expires_at, vless_uuid, subscription_uuid) \
-         VALUES ($1, $2, 'pending', $3, CURRENT_TIMESTAMP + ($3 || ' days')::INTERVAL, gen_random_uuid()::TEXT, gen_random_uuid()::TEXT) RETURNING id"
+    // Пятый независимый путь выдачи подписки жил здесь своим INSERT'ом и не
+    // смотрел на существующие подписки вообще. Теперь подарок идёт общим
+    // методом: одна активная подписка на пользователя, устройства переезжают,
+    // vless_uuid выставляется там же (без него подписка не попадает в конфиги
+    // нод даже после одобрения — одобрение меняет только статус).
+    //
+    // License gate: на инстансе с ручным одобрением подарок ждёт админа в
+    // 'pending' — как и раньше на этом эндпоинте; на Pro выдаётся сразу.
+    let limits = crate::license::effective_limits_from_pool(&state.pool).await;
+    let status = crate::license::initial_subscription_status(&limits);
+
+    let granted = crate::services::store_service::activate_or_replace_subscription(
+        &state.pool,
+        crate::services::store_service::SubscriptionGrant {
+            user_id,
+            plan_id,
+            expiry: crate::services::store_service::SubscriptionExpiry::Exactly(
+                chrono::Utc::now() + chrono::Duration::days(days),
+            ),
+            status,
+            note: Some("admin gift (bot)"),
+            is_trial: false,
+            node_id: None,
+        },
     )
-    .bind(user_id)
-    .bind(plan_id)
-    .bind(days)
-    .fetch_one(&state.pool)
     .await;
 
-    match sub_id {
-        Ok(id) => Json(serde_json::json!({ "subscription_id": id })).into_response(),
+    match granted {
+        Ok(sub) => Json(serde_json::json!({ "subscription_id": sub.id })).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }

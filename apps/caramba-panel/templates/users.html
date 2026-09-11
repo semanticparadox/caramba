@@ -38,6 +38,8 @@
                         <th class="px-6 py-4 w-20">ID</th>
                         <th class="px-6 py-4">User Details</th>
                         <th class="px-6 py-4">Telegram ID</th>
+                        <th class="px-6 py-4" title="{{ presence_tip }}">Онлайн</th>
+                        <th class="px-6 py-4" title="{{ presence_tip }}">Нода</th>
                         <th class="px-6 py-4">Balance</th>
                         <th class="px-6 py-4">Status</th>
                         <th class="px-6 py-4 text-right">Actions</th>
@@ -72,6 +74,34 @@
                         <td class="px-6 py-5">
                             <div class="font-mono text-xs text-slate-400 select-all">{{ user.tg_id }}</div>
                         </td>
+                        {# Онлайн и нода — из heartbeat узлов, одной выборкой на страницу. #}
+                        {% if let Some(p) = presence.get(&user.id) %}
+                        <td class="px-6 py-5">
+                            <div class="flex items-center gap-2" title="{{ p.last_seen_rel }}">
+                                {% if p.online %}
+                                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                                <span class="text-xs text-emerald-400 font-bold uppercase tracking-widest">Онлайн</span>
+                                {% else %}
+                                <span class="w-2 h-2 rounded-full bg-slate-600"></span>
+                                <span class="text-xs text-slate-500">{{ p.last_seen_rel }}</span>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td class="px-6 py-5">
+                            <div class="flex items-center gap-2 text-xs text-slate-300">
+                                {% if let Some(flag) = p.node_flag.as_ref() %}<span>{{ flag }}</span>{% endif %}
+                                <span>{{ p.node_name }}</span>
+                            </div>
+                        </td>
+                        {% else %}
+                        <td class="px-6 py-5">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-slate-700"></span>
+                                <span class="text-xs text-slate-600">нет данных</span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-5 text-xs text-slate-600">—</td>
+                        {% endif %}
                         <td class="px-6 py-5">
                             <div class="flex items-center gap-1.5">
                                 <span class="font-bold text-emerald-400 text-lg">${{ user.balance / 100 }}</span>
@@ -97,7 +127,7 @@
 
                     {% if users.is_empty() %}
                     <tr>
-                        <td colspan="6">
+                        <td colspan="8">
                             <div class="empty-state">
                                 <i data-lucide="search-x" class="empty-state-icon"></i>
                                 <p class="empty-state-title">No users found</p>

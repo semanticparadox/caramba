@@ -38,6 +38,138 @@ pub struct ExpiredQuotaSubscription {
     pub plan_id: i64,
 }
 
+/// Окно свежести привязки устройства — ЕДИНСТВЕННОЕ на всю панель.
+///
+/// Раньше их было два и они противоречили друг другу: гейт подключения считал
+/// устройства за 15 минут, а уборщик удалял лизы старше часа. Устройство,
+/// которым не пользовались полдня, исчезало из списка в кабинете, а вернувшись,
+/// заводилось заново и съедало слот лимита. По постановке владельца привязка
+/// живёт до ручной отвязки, поэтому окно длинное: месяц молчания это уже
+/// «устройством не пользуются», а не «человек отошёл от компьютера».
+pub const DEVICE_LEASE_TTL_DAYS: i64 = 30;
+
+/// Как устройство представилось панели.
+///
+/// Наше приложение присылает эти заголовки и на запрос подписки, и на
+/// `/api/v2/app/*`; сторонние клиенты (Hiddify, Clash, v2rayNG) прислать их не
+/// могут, у них всё поле пустое и устройство опознаётся по User-Agent.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DeviceIdentity {
+    /// Стабильный идентификатор установки приложения (`X-Caramba-Device-Id`).
+    /// Переживает и обновление приложения (меняется User-Agent), и переезд
+    /// между Wi-Fi и сотовой сетью (меняется адрес).
+    pub client_device_id: Option<String>,
+    /// Имя устройства по умолчанию (`X-Caramba-Device-Name`): модель телефона
+    /// или hostname. Это именно значение по умолчанию: если человек уже
+    /// переименовал устройство в кабинете, его имя не перетирается.
+    pub display_name: Option<String>,
+    /// Платформа (`X-Caramba-Device-Platform`): android/ios/macos/windows/linux.
+    pub platform: Option<String>,
+}
+
+impl DeviceIdentity {
+    pub const HEADER_ID: &'static str = "x-caramba-device-id";
+    pub const HEADER_NAME: &'static str = "x-caramba-device-name";
+    pub const HEADER_PLATFORM: &'static str = "x-caramba-device-platform";
+
+    /// Заголовки приходят из интернета, поэтому чистятся и обрезаются: они
+    /// попадают в имя устройства в кабинете и в ключ, по которому считается
+    /// лимит.
+    fn sanitize(value: Option<&str>, max_chars: usize) -> Option<String> {
+        let cleaned: String = value?
+            .chars()
+            .filter(|c| !c.is_control())
+            .collect::<String>()
+            .trim()
+            .chars()
+            .take(max_chars)
+            .collect();
+        if cleaned.is_empty() {
+            None
+        } else {
+            Some(cleaned)
+        }
+    }
+
+    pub fn from_headers(headers: &axum::http::HeaderMap) -> Self {
+        let get = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+        Self {
+            client_device_id: Self::sanitize(get(Self::HEADER_ID), 64),
+            display_name: Self::sanitize(get(Self::HEADER_NAME), 64),
+            platform: Self::sanitize(get(Self::HEADER_PLATFORM), 32)
+                .map(|p| p.to_ascii_lowercase()),
+        }
+    }
+
+    /// Ничего о себе не сообщили: обычный сторонний клиент.
+    pub fn is_anonymous(&self) -> bool {
+        self.client_device_id.is_none()
+    }
+}
+
+/// Решение гейта устройств по ОДНОМУ ключу: и «знаем ли мы это устройство», и
+/// «сколько их у аккаунта» считаются одинаково, по владельцу и отпечатку.
+/// Раньше внешний гейт сравнивал адреса, а внутренний отпечатки: несколько
+/// телефонов за одним NAT проходили лимит насквозь, а один телефон при смене
+/// сети в него упирался.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeviceAdmission {
+    /// Устройство уже привязано к аккаунту.
+    pub known: bool,
+    /// Сколько устройств привязано сейчас.
+    pub used: i64,
+    /// Лимит плана; 0 значит безлимит.
+    pub limit: i32,
+}
+
+impl DeviceAdmission {
+    pub fn allowed(&self) -> bool {
+        self.known || self.limit <= 0 || self.used < self.limit as i64
+    }
+}
+
+/// Одна привязка устройства так, как её видит кабинет.
+///
+/// Один тип и один запрос на оба кабинета (мини-апп через `api/client.rs` и
+/// приложение через `api/v2/app_account.rs`): раньше каждый строил свой SQL со
+/// своим набором колонок и своим сроком свежести, и списки устройств у одного
+/// человека в двух кабинетах не совпадали.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct UserDeviceLease {
+    pub id: i64,
+    pub subscription_id: i64,
+    /// Имя, заданное человеком.
+    pub display_name: Option<String>,
+    /// Авто-имя из User-Agent — запасной вариант.
+    pub device_name: Option<String>,
+    pub platform: Option<String>,
+    pub client_device_id: Option<String>,
+    pub user_agent: Option<String>,
+    pub last_ip: String,
+    pub first_seen_at: chrono::DateTime<chrono::Utc>,
+    pub last_seen_at: chrono::DateTime<chrono::Utc>,
+    /// Устройство выходило на связь в последние 15 минут.
+    pub online: bool,
+}
+
+impl UserDeviceLease {
+    /// Что показать человеку: его имя, иначе авто-имя, иначе честная заглушка.
+    pub fn label(&self) -> String {
+        self.display_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .or_else(|| {
+                self.device_name
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|n| !n.is_empty())
+            })
+            .unwrap_or("Unknown Device")
+            .to_string()
+    }
+}
+
 impl SubscriptionService {
     const INBOUND_SELECT_SQL: &'static str = r#"
         SELECT
@@ -176,13 +308,30 @@ impl SubscriptionService {
             .map(|ua| ua.to_string())
     }
 
-    fn device_fingerprint(
-        subscription_id: i64,
-        _normalized_ip: &str,
+    /// Отпечаток устройства — ключ, по которому панель узнаёт «это то же самое
+    /// устройство».
+    ///
+    /// Раньше в него подмешивался `subscription_id`, и это ломало саму
+    /// постановку: устройство привязывается к аккаунту, а строка подписки
+    /// меняется при каждой смене тарифа. После смены тарифа все телефоны
+    /// человека считались новыми и упирались в лимит на его же устройствах.
+    ///
+    /// Приложение со своим `client_device_id` опознаётся по нему одному: это
+    /// единственное, что переживает и обновление приложения (новый
+    /// User-Agent), и переезд между сетями (новый адрес). Сторонним клиентам
+    /// остаётся User-Agent, но уже в паре с владельцем.
+    ///
+    /// Адрес в отпечаток не входит намеренно: у мобильного клиента он меняется
+    /// по нескольку раз в день.
+    pub fn device_fingerprint_for(
+        user_id: i64,
+        client_device_id: Option<&str>,
         user_agent: Option<&str>,
     ) -> String {
-        let ua = user_agent.unwrap_or("unknown");
-        let material = format!("sub:{}|ua:{}", subscription_id, ua);
+        let material = match client_device_id {
+            Some(device_id) => format!("dev:{}", device_id),
+            None => format!("user:{}|ua:{}", user_id, user_agent.unwrap_or("unknown")),
+        };
         let mut hasher = Sha256::new();
         hasher.update(material.as_bytes());
         hex::encode(hasher.finalize())
@@ -204,25 +353,137 @@ impl SubscriptionService {
             })
     }
 
+    /// Владелец подписки. Лизы считаются по нему: аккаунт переживает смену
+    /// тарифа, строка подписки — нет.
+    async fn lease_user_id(&self, subscription_id: i64) -> Result<i64> {
+        sqlx::query_scalar("SELECT user_id FROM subscriptions WHERE id = $1")
+            .bind(subscription_id)
+            .fetch_one(&self.pool)
+            .await
+            .context("Failed to resolve the subscription owner for a device lease")
+    }
+
+    /// Ищет уже известную лизу этого устройства среди ВСЕХ лиз аккаунта.
+    async fn find_device_lease(
+        &self,
+        user_id: i64,
+        device: &DeviceIdentity,
+        fingerprint: &str,
+        user_agent: Option<&str>,
+    ) -> Result<Option<i64>> {
+        // Приложение узнаётся по своему идентификатору в первую очередь: его
+        // User-Agent меняется при каждом обновлении, а идентификатор нет.
+        if let Some(client_device_id) = device.client_device_id.as_deref() {
+            let found: Option<i64> = sqlx::query_scalar(
+                "SELECT id FROM subscription_device_leases \
+                 WHERE user_id = $1 AND client_device_id = $2 \
+                 ORDER BY last_seen_at DESC LIMIT 1",
+            )
+            .bind(user_id)
+            .bind(client_device_id)
+            .fetch_optional(&self.pool)
+            .await
+            .context("Failed to look up a device lease by client device id")?;
+
+            if found.is_some() {
+                return Ok(found);
+            }
+        }
+
+        // Второе условие подбирает лизы, заведённые ДО перехода на отпечаток от
+        // владельца: в их device_fingerprint зашит старый subscription_id, и по
+        // отпечатку их уже не найти, зато User-Agent тот же. Без этого каждое
+        // устройство один раз завелось бы заново и съело лишний слот лимита.
+        //
+        // Строки с непустым client_device_id из этой ветки исключены: там
+        // устройство уже опознано выше, и чужое приложение с тем же
+        // User-Agent не имеет права прицепиться к его лизе.
+        let legacy_ua = user_agent.unwrap_or("unknown");
+        sqlx::query_scalar(
+            "SELECT id FROM subscription_device_leases \
+             WHERE user_id = $1 \
+               AND (device_fingerprint = $2 \
+                    OR (client_device_id IS NULL \
+                        AND COALESCE(NULLIF(user_agent, \'\'), \'unknown\') = $3)) \
+             ORDER BY last_seen_at DESC LIMIT 1",
+        )
+        .bind(user_id)
+        .bind(fingerprint)
+        .bind(legacy_ua)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to look up a device lease by fingerprint")
+    }
+
+    /// Сколько устройств привязано к аккаунту в окне свежести.
+    async fn count_user_devices(&self, user_id: i64) -> Result<i64> {
+        let cutoff = Utc::now() - Duration::days(DEVICE_LEASE_TTL_DAYS);
+        sqlx::query_scalar(
+            "SELECT COUNT(*) FROM subscription_device_leases \
+             WHERE user_id = $1 AND last_seen_at > $2 AND last_ip <> \'0.0.0.0\'",
+        )
+        .bind(user_id)
+        .bind(cutoff)
+        .fetch_one(&self.pool)
+        .await
+        .context("Failed to count device leases for the account")
+    }
+
+    /// Гейт лимита устройств: один ответ на вопрос «пускать ли это устройство».
+    ///
+    /// Вызывается ДО выдачи конфига (`subscription_handler`) и повторяется
+    /// внутри `upsert_device_lease` как страховка от гонки. Оба считают по
+    /// одному ключу и одному окну — расхождения, из-за которого NAT пробивал
+    /// лимит, а смена сети в него упиралась, больше нет.
+    pub async fn check_device_admission(
+        &self,
+        subscription_id: i64,
+        device: &DeviceIdentity,
+        user_agent: Option<&str>,
+    ) -> Result<DeviceAdmission> {
+        let user_id = self.lease_user_id(subscription_id).await?;
+        let normalized_ua = Self::normalize_user_agent(user_agent);
+        let fingerprint = Self::device_fingerprint_for(
+            user_id,
+            device.client_device_id.as_deref(),
+            normalized_ua.as_deref(),
+        );
+        let known = self
+            .find_device_lease(user_id, device, &fingerprint, normalized_ua.as_deref())
+            .await?
+            .is_some();
+        let limit = self
+            .get_subscription_device_limit(subscription_id)
+            .await
+            .unwrap_or(0);
+        let used = self.count_user_devices(user_id).await.unwrap_or(0);
+
+        Ok(DeviceAdmission { known, used, limit })
+    }
+
     async fn upsert_device_lease(
         &self,
         subscription_id: i64,
         normalized_ip: &str,
         user_agent: Option<&str>,
         node_id: Option<i64>,
+        device: &DeviceIdentity,
     ) -> Result<()> {
+        let user_id = self.lease_user_id(subscription_id).await?;
         let normalized_ua = Self::normalize_user_agent(user_agent);
 
-        // Heartbeats from nodes often don't include UA. In that case, first try to refresh an
-        // existing lease for the same IP to avoid creating duplicate device records.
-        if normalized_ua.is_none() {
+        // Хартбит ноды приходит без User-Agent и без заголовков приложения: по
+        // нему нельзя завести устройство, можно только освежить уже известное
+        // по адресу. Ищем по аккаунту, а не по подписке: лиза могла переехать
+        // на другую строку при смене тарифа.
+        if normalized_ua.is_none() && device.is_anonymous() {
             let touched = sqlx::query(
                 "UPDATE subscription_device_leases
                  SET last_seen_at = CURRENT_TIMESTAMP,
                      last_node_id = COALESCE($3, last_node_id)
-                 WHERE subscription_id = $1 AND last_ip = $2",
+                 WHERE user_id = $1 AND last_ip = $2",
             )
-            .bind(subscription_id)
+            .bind(user_id)
             .bind(normalized_ip)
             .bind(node_id)
             .execute(&self.pool)
@@ -234,76 +495,111 @@ impl SubscriptionService {
             }
         }
 
-        let device_name = normalized_ua
+        let fingerprint = Self::device_fingerprint_for(
+            user_id,
+            device.client_device_id.as_deref(),
+            normalized_ua.as_deref(),
+        );
+
+        // Авто-имя считается только когда есть из чего: иначе хартбит без UA
+        // затёр бы «iPhone» на «Connection Client».
+        let auto_name = normalized_ua
             .as_deref()
             .map(|ua| self.parse_device_name(ua))
-            .unwrap_or_else(|| "Connection Client".to_string());
-        let fingerprint =
-            Self::device_fingerprint(subscription_id, normalized_ip, normalized_ua.as_deref());
+            .or_else(|| {
+                device
+                    .client_device_id
+                    .as_ref()
+                    .map(|_| "Caramba Connect".to_string())
+            });
 
-        // Проверяем лимит устройств только для новых fingerprint-ов.
-        // Обновление существующего устройства всегда разрешено.
-        let is_existing: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM subscription_device_leases WHERE subscription_id = $1 AND device_fingerprint = $2)"
-        )
-        .bind(subscription_id)
-        .bind(&fingerprint)
-        .fetch_one(&self.pool)
-        .await
-        .context("Failed to check existing device fingerprint")?;
+        if let Some(lease_id) = self
+            .find_device_lease(user_id, device, &fingerprint, normalized_ua.as_deref())
+            .await?
+        {
+            // Устройство уже известно — обновляем строку на месте. Лимит здесь
+            // не проверяется: он гейт подключения нового устройства, а не повод
+            // отвязать уже привязанное.
+            //
+            // display_name ставится только если пусто: имя от приложения это
+            // значение по умолчанию, а имя, которое человек задал в кабинете,
+            // перетирать нельзя.
+            sqlx::query(
+                "UPDATE subscription_device_leases SET
+                     subscription_id = $1,
+                     device_fingerprint = $2,
+                     device_name = COALESCE($3, device_name),
+                     display_name = COALESCE(display_name, $4),
+                     user_agent = COALESCE($5, user_agent),
+                     platform = COALESCE($6, platform),
+                     client_device_id = COALESCE($7, client_device_id),
+                     last_ip = $8,
+                     last_seen_at = CURRENT_TIMESTAMP,
+                     last_node_id = COALESCE($9, last_node_id)
+                 WHERE id = $10",
+            )
+            .bind(subscription_id)
+            .bind(&fingerprint)
+            .bind(auto_name.as_deref())
+            .bind(device.display_name.as_deref())
+            .bind(normalized_ua.as_deref())
+            .bind(device.platform.as_deref())
+            .bind(device.client_device_id.as_deref())
+            .bind(normalized_ip)
+            .bind(node_id)
+            .bind(lease_id)
+            .execute(&self.pool)
+            .await
+            .context("Failed to refresh the known device lease")?;
 
-        if !is_existing {
-            let device_limit = self
-                .get_subscription_device_limit(subscription_id)
-                .await
-                .unwrap_or(0);
+            return Ok(());
+        }
 
-            if device_limit > 0 {
-                // Race-condition backstop. The primary device-limit gate runs in
-                // subscription_handler BEFORE this point; this check exists only to
-                // catch concurrent inserts that race past the outer gate. Use the
-                // same 15-min active window the outer gate uses (`get_active_ips`)
-                // so stale/expired leases don't ghost-block legitimate new devices.
-                let lease_count: i64 = sqlx::query_scalar(
-                    r#"SELECT COUNT(*) FROM subscription_device_leases
-                       WHERE subscription_id = $1
-                         AND last_seen_at > NOW() - INTERVAL '15 minutes'
-                         AND last_ip <> '0.0.0.0'"#,
-                )
-                .bind(subscription_id)
-                .fetch_one(&self.pool)
-                .await
-                .context("Failed to count active device leases")?;
-
-                if lease_count >= device_limit as i64 {
-                    return Err(anyhow::anyhow!(
-                        "Device limit reached ({}/{})",
-                        lease_count,
-                        device_limit
-                    ));
-                }
+        // Новое устройство: страховка от гонки с внешним гейтом. Тот же ключ и
+        // то же окно, что и в check_device_admission.
+        let device_limit = self
+            .get_subscription_device_limit(subscription_id)
+            .await
+            .unwrap_or(0);
+        if device_limit > 0 {
+            let used = self.count_user_devices(user_id).await.unwrap_or(0);
+            if used >= device_limit as i64 {
+                return Err(anyhow::anyhow!(
+                    "Device limit reached ({}/{})",
+                    used,
+                    device_limit
+                ));
             }
         }
 
         sqlx::query(
             r#"
             INSERT INTO subscription_device_leases
-                (subscription_id, device_fingerprint, device_name, user_agent, last_ip, first_seen_at, last_seen_at, last_node_id)
+                (subscription_id, user_id, device_fingerprint, device_name, display_name,
+                 user_agent, platform, client_device_id, last_ip, first_seen_at, last_seen_at,
+                 last_node_id)
             VALUES
-                ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $6)
+                ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $10)
             ON CONFLICT (subscription_id, device_fingerprint)
             DO UPDATE SET
-                device_name = EXCLUDED.device_name,
+                device_name = COALESCE(EXCLUDED.device_name, subscription_device_leases.device_name),
+                display_name = COALESCE(subscription_device_leases.display_name, EXCLUDED.display_name),
                 user_agent = COALESCE(EXCLUDED.user_agent, subscription_device_leases.user_agent),
+                platform = COALESCE(EXCLUDED.platform, subscription_device_leases.platform),
+                client_device_id = COALESCE(EXCLUDED.client_device_id, subscription_device_leases.client_device_id),
                 last_ip = EXCLUDED.last_ip,
                 last_seen_at = CURRENT_TIMESTAMP,
                 last_node_id = COALESCE(EXCLUDED.last_node_id, subscription_device_leases.last_node_id)
             "#,
         )
         .bind(subscription_id)
-        .bind(fingerprint)
-        .bind(device_name)
-        .bind(normalized_ua)
+        .bind(user_id)
+        .bind(&fingerprint)
+        .bind(auto_name.as_deref())
+        .bind(device.display_name.as_deref())
+        .bind(normalized_ua.as_deref())
+        .bind(device.platform.as_deref())
+        .bind(device.client_device_id.as_deref())
         .bind(normalized_ip)
         .bind(node_id)
         .execute(&self.pool)
@@ -1209,13 +1505,18 @@ impl SubscriptionService {
     /// subscription из учёта трафика (`api/v2/node.rs::heartbeat`): sing-box
     /// тегирует соединения Telegram id, а не id подписки.
     pub async fn get_active_subscription_id_by_tg_id(&self, tg_id: i64) -> Result<Option<i64>> {
+        // Порядок выбора — общий для всей панели (subscription_repo::
+        // ACTIVE_SUBSCRIPTION_ORDER_SQL). Прежний `expires_at DESC` всегда
+        // выбирал бесплатную подписку с датой 9999 года, и весь учёт трафика с
+        // kill-switch по этому tg_id уезжал не на ту подписку.
         sqlx::query_scalar(
             r#"
             SELECT s.id
             FROM subscriptions s
             JOIN users u ON u.id = s.user_id
+            LEFT JOIN plans p ON p.id = s.plan_id
             WHERE u.tg_id = $1 AND s.status = 'active'
-            ORDER BY COALESCE(s.expires_at, s.created_at) DESC
+            ORDER BY COALESCE(p.is_free, FALSE) ASC, s.expires_at ASC, s.id ASC
             LIMIT 1
             "#,
         )
@@ -1283,6 +1584,132 @@ impl SubscriptionService {
         .await
         .context("Failed to check for other active subscriptions")?;
         Ok(exists.unwrap_or(false))
+    }
+
+    /// Все привязки аккаунта. Инфраструктурные адреса (наши же ноды и
+    /// фронтенды) отфильтрованы: они попадают в лизы, когда трафик идёт через
+    /// релей, и устройством не являются.
+    pub async fn list_user_devices(&self, user_id: i64) -> Result<Vec<UserDeviceLease>> {
+        let cutoff = Utc::now() - Duration::days(DEVICE_LEASE_TTL_DAYS);
+        sqlx::query_as::<_, UserDeviceLease>(
+            r#"
+            SELECT sdl.id,
+                   sdl.subscription_id,
+                   sdl.display_name,
+                   sdl.device_name,
+                   sdl.platform,
+                   sdl.client_device_id,
+                   sdl.user_agent,
+                   sdl.last_ip,
+                   sdl.first_seen_at,
+                   sdl.last_seen_at,
+                   (sdl.last_seen_at > NOW() - INTERVAL '15 minutes') AS online
+            FROM subscription_device_leases sdl
+            WHERE sdl.user_id = $1
+              AND sdl.last_seen_at > $2
+              AND sdl.last_ip <> '0.0.0.0'
+              AND sdl.last_ip NOT IN (SELECT ip FROM nodes WHERE ip IS NOT NULL)
+              AND sdl.last_ip NOT IN (
+                  SELECT ip_address FROM frontend_servers WHERE ip_address IS NOT NULL)
+            ORDER BY sdl.last_seen_at DESC
+            "#,
+        )
+        .bind(user_id)
+        .bind(cutoff)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to list device leases for the account")
+    }
+
+    /// Имя устройства, заданное человеком. Пустое имя сбрасывает на авто-имя.
+    /// Возвращает false, если такой лизы у этого аккаунта нет.
+    pub async fn rename_user_device(
+        &self,
+        user_id: i64,
+        lease_id: i64,
+        name: Option<&str>,
+    ) -> Result<bool> {
+        let cleaned: Option<String> = name.and_then(|raw| {
+            let value: String = raw
+                .chars()
+                .filter(|c| !c.is_control())
+                .collect::<String>()
+                .trim()
+                .chars()
+                .take(32)
+                .collect();
+            if value.is_empty() { None } else { Some(value) }
+        });
+
+        let updated = sqlx::query(
+            "UPDATE subscription_device_leases SET display_name = $1 \
+             WHERE id = $2 AND user_id = $3",
+        )
+        .bind(cleaned.as_deref())
+        .bind(lease_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .context("Failed to rename a device lease")?;
+
+        Ok(updated.rows_affected() > 0)
+    }
+
+    /// Отвязка устройства. Возвращает подписку, чьи соединения надо порвать,
+    /// чтобы отвязанное устройство отвалилось сразу, а не на следующем опросе.
+    pub async fn revoke_user_device(&self, user_id: i64, lease_id: i64) -> Result<Option<i64>> {
+        let row: Option<(i64, String)> = sqlx::query_as(
+            "DELETE FROM subscription_device_leases WHERE id = $1 AND user_id = $2 \
+             RETURNING subscription_id, last_ip",
+        )
+        .bind(lease_id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to revoke a device lease")?;
+
+        let Some((subscription_id, last_ip)) = row else {
+            return Ok(None);
+        };
+
+        // Легаси-трекинг адресов чистим следом: иначе устройство вернулось бы в
+        // списки оттуда (get_active_ips падает на него, когда лиз не осталось).
+        let _ = sqlx::query(
+            "DELETE FROM subscription_ip_tracking WHERE subscription_id = $1 AND client_ip = $2",
+        )
+        .bind(subscription_id)
+        .bind(&last_ip)
+        .execute(&self.pool)
+        .await;
+
+        Ok(Some(subscription_id))
+    }
+
+    /// Отвязать все устройства аккаунта. Возвращает сколько удалено и подписки,
+    /// чьи соединения надо порвать.
+    pub async fn revoke_all_user_devices(&self, user_id: i64) -> Result<(u64, Vec<i64>)> {
+        let rows: Vec<(i64,)> = sqlx::query_as(
+            "DELETE FROM subscription_device_leases WHERE user_id = $1 \
+             RETURNING subscription_id",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to revoke all device leases")?;
+
+        let mut subs: Vec<i64> = rows.into_iter().map(|(id,)| id).collect();
+        let deleted = subs.len() as u64;
+        subs.sort_unstable();
+        subs.dedup();
+
+        for sub_id in &subs {
+            let _ = sqlx::query("DELETE FROM subscription_ip_tracking WHERE subscription_id = $1")
+                .bind(sub_id)
+                .execute(&self.pool)
+                .await;
+        }
+
+        Ok((deleted, subs))
     }
 
     pub async fn get_subscription_device_limit(&self, subscription_id: i64) -> Result<i32> {
@@ -1492,8 +1919,10 @@ impl SubscriptionService {
             if !dedup.insert(ip.clone()) {
                 continue;
             }
+            // Хартбит ноды: ни User-Agent, ни заголовков приложения тут нет,
+            // поэтому устройство может быть только освежено по адресу.
             if let Err(e) = self
-                .upsert_device_lease(subscription_id, &ip, None, None)
+                .upsert_device_lease(subscription_id, &ip, None, None, &DeviceIdentity::default())
                 .await
             {
                 warn!(
@@ -1555,6 +1984,7 @@ impl SubscriptionService {
     }
 
     pub async fn cleanup_old_ip_tracking(&self) -> Result<u64> {
+        // Легаси-трекинг адресов живёт час: это журнал обращений, а не привязка.
         let cutoff = Utc::now() - Duration::hours(1);
         let result = sqlx::query("DELETE FROM subscription_ip_tracking WHERE last_seen_at < $1")
             .bind(cutoff)
@@ -1562,8 +1992,15 @@ impl SubscriptionService {
             .await?;
         let mut affected = result.rows_affected();
 
+        // А вот привязка устройства — не журнал: по постановке она держится до
+        // ручной отвязки. Прежний часовой срок означал, что телефон, которым не
+        // пользовались вечер, наутро заводился заново и съедал слот лимита;
+        // список устройств в кабинете при этом показывал пустоту. Окно здесь то
+        // же, по которому считается лимит (DEVICE_LEASE_TTL_DAYS), иначе гейт и
+        // уборщик снова разошлись бы.
+        let lease_cutoff = Utc::now() - Duration::days(DEVICE_LEASE_TTL_DAYS);
         match sqlx::query("DELETE FROM subscription_device_leases WHERE last_seen_at < $1")
-            .bind(cutoff)
+            .bind(lease_cutoff)
             .execute(&self.pool)
             .await
         {
@@ -1721,6 +2158,7 @@ impl SubscriptionService {
         sub_id: i64,
         ip: &str,
         user_agent: Option<&str>,
+        device: &DeviceIdentity,
     ) -> Result<()> {
         // Адрес годится для учёта устройств только если он вообще разобрался и не
         // принадлежит нашей же инфраструктуре. Инфраструктурный адрес означает, что
@@ -1777,7 +2215,7 @@ impl SubscriptionService {
         .await?;
 
         if let Err(e) = self
-            .upsert_device_lease(sub_id, &normalized_ip, user_agent, None)
+            .upsert_device_lease(sub_id, &normalized_ip, user_agent, None, device)
             .await
         {
             warn!(
@@ -2114,5 +2552,143 @@ impl SubscriptionService {
         key[31] |= 64;
 
         base64::Engine::encode(&base64::prelude::BASE64_STANDARD, key)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DeviceAdmission, DeviceIdentity, SubscriptionService};
+    use axum::http::HeaderMap;
+
+    fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (name, value) in pairs {
+            map.insert(
+                axum::http::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                axum::http::HeaderValue::from_str(value).unwrap(),
+            );
+        }
+        map
+    }
+
+    /// Тот самый баг: отпечаток считался от subscription_id, поэтому смена
+    /// тарифа делала все телефоны человека новыми устройствами и упирала его в
+    /// лимит на его же технике. Отпечаток обязан зависеть только от того, что
+    /// у устройства и аккаунта, а строка подписки в него входить не может.
+    #[test]
+    fn the_fingerprint_survives_a_plan_change() {
+        let before = SubscriptionService::device_fingerprint_for(
+            42,
+            Some("11111111-2222-3333-4444-555555555555"),
+            Some("CarambaConnect/1.0.0"),
+        );
+        // Приложение обновилось: User-Agent другой, устройство то же.
+        let after = SubscriptionService::device_fingerprint_for(
+            42,
+            Some("11111111-2222-3333-4444-555555555555"),
+            Some("CarambaConnect/1.1.0"),
+        );
+        assert_eq!(
+            before, after,
+            "идентификатор установки обязан перевешивать User-Agent"
+        );
+    }
+
+    #[test]
+    fn different_installations_are_different_devices() {
+        let first = SubscriptionService::device_fingerprint_for(42, Some("aaa"), None);
+        let second = SubscriptionService::device_fingerprint_for(42, Some("bbb"), None);
+        assert_ne!(first, second);
+    }
+
+    /// Сторонний клиент своего идентификатора прислать не может: для него
+    /// отпечаток считается от владельца и User-Agent. Ключевое здесь — владелец,
+    /// а не подписка.
+    #[test]
+    fn third_party_clients_fall_back_to_the_user_agent() {
+        let hiddify = SubscriptionService::device_fingerprint_for(42, None, Some("Hiddify/2.0"));
+        let clash = SubscriptionService::device_fingerprint_for(42, None, Some("clash-verge/1.5"));
+        assert_ne!(hiddify, clash);
+
+        // Один и тот же клиент у ДРУГОГО человека — другое устройство.
+        let other_user = SubscriptionService::device_fingerprint_for(43, None, Some("Hiddify/2.0"));
+        assert_ne!(hiddify, other_user);
+
+        // Клиент, не приславший вообще ничего, всё равно получает отпечаток:
+        // иначе хартбит без UA заводил бы каждый раз новую строку.
+        let nameless_a = SubscriptionService::device_fingerprint_for(42, None, None);
+        let nameless_b = SubscriptionService::device_fingerprint_for(42, None, None);
+        assert_eq!(nameless_a, nameless_b);
+    }
+
+    #[test]
+    fn device_headers_are_read_and_cleaned() {
+        let ident = DeviceIdentity::from_headers(&headers(&[
+            (DeviceIdentity::HEADER_ID, "  device-1  "),
+            (DeviceIdentity::HEADER_NAME, " Pixel 8 "),
+            (DeviceIdentity::HEADER_PLATFORM, "Android"),
+        ]));
+        assert_eq!(ident.client_device_id.as_deref(), Some("device-1"));
+        assert_eq!(ident.display_name.as_deref(), Some("Pixel 8"));
+        // Платформа приводится к нижнему регистру: она ключ, а не текст для
+        // человека.
+        assert_eq!(ident.platform.as_deref(), Some("android"));
+        assert!(!ident.is_anonymous());
+    }
+
+    /// Заголовки приходят из интернета и попадают в имя устройства в кабинете:
+    /// пустое значение не должно превращаться в пустое имя, а длинное — в
+    /// растянутую строку.
+    #[test]
+    fn empty_and_oversized_headers_are_refused() {
+        let ident = DeviceIdentity::from_headers(&headers(&[
+            (DeviceIdentity::HEADER_ID, "   "),
+            (DeviceIdentity::HEADER_NAME, &"x".repeat(200)),
+        ]));
+        assert_eq!(ident.client_device_id, None);
+        assert!(ident.is_anonymous());
+        assert_eq!(ident.display_name.as_deref().map(str::len), Some(64));
+    }
+
+    #[test]
+    fn a_client_without_headers_is_anonymous() {
+        let ident = DeviceIdentity::from_headers(&headers(&[]));
+        assert_eq!(ident, DeviceIdentity::default());
+        assert!(ident.is_anonymous());
+    }
+
+    /// Лимит гейтит ТОЛЬКО новое устройство. Уже привязанное проходит всегда:
+    /// иначе сужение тарифа молча отрубало бы человеку телефон, которым он
+    /// пользуется, вместо того чтобы не пустить следующий.
+    #[test]
+    fn the_limit_only_gates_new_devices() {
+        let known = DeviceAdmission {
+            known: true,
+            used: 9,
+            limit: 3,
+        };
+        assert!(known.allowed());
+
+        let fresh_within_limit = DeviceAdmission {
+            known: false,
+            used: 2,
+            limit: 3,
+        };
+        assert!(fresh_within_limit.allowed());
+
+        let fresh_at_limit = DeviceAdmission {
+            known: false,
+            used: 3,
+            limit: 3,
+        };
+        assert!(!fresh_at_limit.allowed());
+
+        // limit = 0 означает безлимит, а не «ноль устройств».
+        let unlimited = DeviceAdmission {
+            known: false,
+            used: 100,
+            limit: 0,
+        };
+        assert!(unlimited.allowed());
     }
 }

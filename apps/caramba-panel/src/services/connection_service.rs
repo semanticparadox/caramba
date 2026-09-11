@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
 use tokio::time;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::services::orchestration_service::OrchestrationService;
 use crate::services::store_service::StoreService;
@@ -60,13 +60,65 @@ struct NodeConnectionRef {
     secret: Option<String>,
 }
 
-/// Connection monitoring and device limit enforcement service
+/// Итоги одного цикла опроса — их копит [`Diag`], а в лог они уходят редко.
+#[derive(Debug, Default, Clone)]
+struct CycleStats {
+    fetched: u64,
+    resolved_by_tag: u64,
+    resolved_by_uuid: u64,
+    unresolved: u64,
+    node_errors: u64,
+    failing_nodes: std::collections::BTreeSet<String>,
+}
+
+impl CycleStats {
+    fn merge(&mut self, other: &CycleStats) {
+        self.fetched += other.fetched;
+        self.resolved_by_tag += other.resolved_by_tag;
+        self.resolved_by_uuid += other.resolved_by_uuid;
+        self.unresolved += other.unresolved;
+        self.node_errors += other.node_errors;
+        self.failing_nodes
+            .extend(other.failing_nodes.iter().cloned());
+    }
+}
+
+/// Накопитель между редкими отчётами в лог.
+#[derive(Default)]
+struct Diag {
+    cycles: u32,
+    window: CycleStats,
+    last_report: Option<std::time::Instant>,
+}
+
+/// Как часто сервис вообще подаёт голос. Узел с закрытым снаружи портом 9090
+/// (у одного из трёх так и есть — закрыто хостером) давал ERROR каждые пять
+/// минут, то есть ~300 строк в сутки об одном и том же известном факте, и
+/// топил настоящие ошибки. Один отчёт в час говорит ровно столько же.
+const DIAG_REPORT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// Аренды устройств best-effort по Clash API узлов.
+///
+/// Этот сервис БОЛЬШЕ НЕ источник «кто онлайн»: онлайн приходит heartbeat'ом
+/// узла (`node_user_activity`, см. `node_activity_service`). Причина не в
+/// стиле, а в том, что опрос `:9090` физически не работает как источник:
+/// у одного узла порт закрыт снаружи хостером (таймаут TCP, не 401), а у
+/// hysteria2 в `/connections` поля с пользователем нет вовсе — то есть даже
+/// успешный опрос даёт «никого», что неотличимо от честного нуля.
+///
+/// Что здесь осталось: подновление аренд устройств там, где опрос проходит, и
+/// принудительный разрыв соединений (`kill_subscription_connections`), который
+/// зовут квоты и kill-switch. Всё это best-effort: неудача не считается
+/// аварией и не должна шуметь в логе.
 pub struct ConnectionService {
     orchestration: Arc<OrchestrationService>,
     store: Arc<StoreService>,
     subscription: Arc<SubscriptionService>,
     // Единственный HTTP-клиент — переиспользуется для всех запросов к Clash API
     http_client: reqwest::Client,
+    // Счётчики резолва между отчётами. std-мьютекс: под ним нет ни одного
+    // await, а tokio-мьютекс потребовал бы async в путях логирования.
+    diag: std::sync::Mutex<Diag>,
 }
 
 impl ConnectionService {
@@ -84,31 +136,84 @@ impl ConnectionService {
             store,
             subscription,
             http_client,
+            diag: std::sync::Mutex::new(Diag::default()),
         }
+    }
+
+    /// Копит итоги цикла и раз в час пишет ОДНУ строку.
+    ///
+    /// Строка отвечает на вопрос, ради которого сервис вообще оставлен: на
+    /// каком шаге теряются соединения — узел не ответил, тег не разобрался или
+    /// подписка не нашлась. Без этих счётчиков резолв был чёрным ящиком.
+    fn note_cycle(&self, stats: CycleStats) {
+        let Ok(mut diag) = self.diag.lock() else {
+            return;
+        };
+        diag.cycles += 1;
+        let merged = stats;
+        diag.window.merge(&merged);
+
+        let due = diag
+            .last_report
+            .map(|t| t.elapsed() >= DIAG_REPORT_INTERVAL)
+            .unwrap_or(true);
+        if !due {
+            return;
+        }
+
+        diag.last_report = Some(std::time::Instant::now());
+        let cycles = std::mem::take(&mut diag.cycles);
+        let window = std::mem::take(&mut diag.window);
+        drop(diag);
+
+        let failing = if window.failing_nodes.is_empty() {
+            "нет".to_string()
+        } else {
+            window
+                .failing_nodes
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        info!(
+            "Аренды устройств (best-effort) за {} циклов: соединений {}, по тегу {}, по uuid {}, не разобрано {}, отказов опроса {} (узлы: {})",
+            cycles,
+            window.fetched,
+            window.resolved_by_tag,
+            window.resolved_by_uuid,
+            window.unresolved,
+            window.node_errors,
+            failing
+        );
     }
 
     /// Start the background monitoring loop
     pub async fn start_monitoring(&self) {
-        info!("Starting connection monitoring service for device limit enforcement...");
+        info!(
+            "Аренды устройств: фоновый опрос узлов раз в 5 минут, отчёт в лог раз в час (онлайн считается не здесь, а по heartbeat)"
+        );
         let mut interval = time::interval(time::Duration::from_secs(300)); // 5 minutes
 
         loop {
             interval.tick().await;
 
+            // Провал цикла — не авария: это best-effort путь, единственное
+            // его последствие — аренды устройств не обновились в этот раз.
             if let Err(e) = self.check_and_enforce_limits().await {
-                error!("Error in connection monitoring cycle: {:#}", e);
+                warn!("Цикл аренд устройств не прошёл: {:#}", e);
             }
 
             // Cleanup old IP tracking records (>1 hour old)
             if let Err(e) = self.subscription.cleanup_old_ip_tracking().await {
-                error!("Error cleaning up old IP tracking: {:#}", e);
+                warn!("Не удалось почистить старые записи IP: {:#}", e);
             }
         }
     }
 
     /// Main enforcement logic: check all nodes and enforce device limits
     async fn check_and_enforce_limits(&self) -> Result<()> {
-        info!("Running device limit enforcement cycle...");
+        let mut stats = CycleStats::default();
 
         // Get all active nodes
         let nodes: Vec<caramba_db::models::node::Node> =
@@ -143,7 +248,8 @@ impl ConnectionService {
                 .await
             {
                 Ok(connections) => {
-                    info!(
+                    stats.fetched += connections.len() as u64;
+                    debug!(
                         "Fetched {} connections from node {}",
                         connections.len(),
                         node.ip
@@ -184,6 +290,13 @@ impl ConnectionService {
                             };
                         }
 
+                        // Счётчики по шагам резолва: без них не видно, где
+                        // именно теряются соединения на живом узле.
+                        let resolved_by_tag = sub_id_opt.is_some();
+                        if resolved_by_tag {
+                            stats.resolved_by_tag += 1;
+                        }
+
                         // Strategy 2: Check chains for UUID if Strategy 1 failed
                         if sub_id_opt.is_none()
                             && let Some(uuid) = extract_uuid_from_chain(&conn)
@@ -199,6 +312,13 @@ impl ConnectionService {
                                     sub_id_opt = Some(sub.id);
                                 }
                             }
+                        }
+
+                        if !resolved_by_tag && sub_id_opt.is_some() {
+                            stats.resolved_by_uuid += 1;
+                        }
+                        if sub_id_opt.is_none() {
+                            stats.unresolved += 1;
                         }
 
                         if let Some(sub_id) = sub_id_opt {
@@ -227,13 +347,18 @@ impl ConnectionService {
                     }
                 }
                 Err(e) => {
-                    error!("Failed to fetch connections from node {}: {:#}", node.ip, e);
+                    // Одна и та же недоступность повторяется каждые пять
+                    // минут: подробность в debug, факт — в часовой отчёт.
+                    stats.node_errors += 1;
+                    stats.failing_nodes.insert(node.ip.clone());
+                    debug!("Узел {} не отдал соединения: {:#}", node.ip, e);
                     continue;
                 }
             }
         }
 
-        info!("Collected IPs for {} subscriptions", subscription_ips.len());
+        debug!("Collected IPs for {} subscriptions", subscription_ips.len());
+        self.note_cycle(stats);
 
         // Check each subscription's device limit
         for (sub_id, ips) in subscription_ips {
@@ -332,7 +457,7 @@ impl ConnectionService {
                     e
                 });
         } else if active_device_count > 0 {
-            info!(
+            debug!(
                 "Subscription {} within limit: {}/{} devices",
                 sub_id,
                 active_device_count,

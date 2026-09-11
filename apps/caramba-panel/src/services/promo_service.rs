@@ -105,29 +105,31 @@ impl PromoService {
         .execute(&mut *tx)
         .await?;
 
-        let expires_at = Utc::now() + chrono::Duration::days(duration as i64);
-        let vless_uuid = uuid::Uuid::new_v4().to_string();
-        let sub_uuid = uuid::Uuid::new_v4().to_string();
-
         // License gate (P4, contract E): this is the LIVE gift-code redemption path
         // (called via api/client.rs and bot/command.rs -> redeem_code). On a Free
         // instance (manual_approval) the new sub stays 'pending' until an admin
-        // approves; Pro -> auto-'active'. Never touches existing subs.
+        // approves; Pro -> auto-'active'.
         let limits = crate::license::effective_limits_from_pool(&self.pool).await;
         let initial_status = crate::license::initial_subscription_status(&limits);
 
-        sqlx::query(
-            "INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, status, activated_at, expires_at, created_at, is_trial) \
-             VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, $6, CURRENT_TIMESTAMP, $7)",
+        // Раньше здесь стоял собственный INSERT с комментарием «Never touches
+        // existing subs» — он и плодил вторую активную подписку. Теперь выдача
+        // идёт общим методом: тот же план продлевается, другой вытесняет старый
+        // вместе с переносом привязанных устройств.
+        crate::services::store_service::activate_or_replace_subscription_tx(
+            &mut tx,
+            crate::services::store_service::SubscriptionGrant {
+                user_id,
+                plan_id,
+                expiry: crate::services::store_service::SubscriptionExpiry::Exactly(
+                    Utc::now() + chrono::Duration::days(duration as i64),
+                ),
+                status: initial_status,
+                note: None,
+                is_trial: plan_is_trial.unwrap_or(false),
+                node_id: None,
+            },
         )
-        .bind(user_id)
-        .bind(plan_id)
-        .bind(vless_uuid)
-        .bind(sub_uuid)
-        .bind(initial_status)
-        .bind(expires_at)
-        .bind(plan_is_trial.unwrap_or(false))
-        .execute(&mut *tx)
         .await?;
 
         // Фиксируем использование триала атомарно внутри транзакции.
@@ -238,27 +240,28 @@ impl PromoService {
                     }
                 }
 
-                let expires_at = Utc::now() + chrono::Duration::days(duration as i64);
-                let vless_uuid = uuid::Uuid::new_v4().to_string();
-                let sub_uuid = uuid::Uuid::new_v4().to_string();
-
                 // License gate (P4, contract E): LIVE promo-code redemption path.
                 // Free (manual_approval) -> 'pending' until admin approval; Pro ->
-                // 'active'. Existing subs are never affected.
+                // 'active'.
                 let limits = crate::license::effective_limits_from_pool(&self.pool).await;
                 let initial_status = crate::license::initial_subscription_status(&limits);
 
-                sqlx::query(
-                    "INSERT INTO subscriptions (user_id, plan_id, vless_uuid, subscription_uuid, status, activated_at, expires_at, created_at, is_trial) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, $6, CURRENT_TIMESTAMP, $7)"
+                // Тот же общий метод, что и у покупки: промокод на тариф — такая
+                // же выдача подписки, а не «ещё одна подписка рядом».
+                crate::services::store_service::activate_or_replace_subscription_tx(
+                    &mut tx,
+                    crate::services::store_service::SubscriptionGrant {
+                        user_id,
+                        plan_id,
+                        expiry: crate::services::store_service::SubscriptionExpiry::Exactly(
+                            Utc::now() + chrono::Duration::days(duration as i64),
+                        ),
+                        status: initial_status,
+                        note: None,
+                        is_trial: plan_is_trial.unwrap_or(false),
+                        node_id: None,
+                    },
                 )
-                .bind(user_id)
-                .bind(plan_id)
-                .bind(vless_uuid)
-                .bind(sub_uuid)
-                .bind(initial_status)
-                .bind(expires_at)
-                .bind(plan_is_trial.unwrap_or(false))
-                .execute(&mut *tx)
                 .await?;
 
                 // Фиксируем факт использования триала внутри транзакции,

@@ -16,6 +16,11 @@ use std::collections::HashMap;
 
 use super::auth::get_auth_user;
 use crate::AppState;
+use crate::services::node_activity_service::{
+    CAPACITY_CRITICAL_PERCENT, CAPACITY_WARN_PERCENT, NOW_WINDOW_SECS, NodeActivityService,
+    NodeCapacity, NodeCounters, NodeTrafficWindows, NodeUserList, ONLINE_WINDOW_SECS,
+};
+use crate::utils::format_bytes_str;
 use caramba_db::models::config_profile::ConfigProfile;
 use caramba_db::models::node::Node;
 use chrono::Utc;
@@ -48,47 +53,160 @@ pub struct NodesTemplate {
 #[derive(Template, WebTemplate)]
 #[template(path = "partials/nodes_rows.html")]
 pub struct NodesRowsPartial {
-    pub nodes: Vec<Node>,
+    pub rows: Vec<NodeRowView>,
     pub admin_path: String,
     // Phase 67
     pub agent_latest_version: String,
     pub auto_update_agents: bool,
-    // Метрики: активные подписки и онлайн-устройства по узлам
-    pub subs_map: HashMap<i64, i64>,
-    pub online_map: HashMap<i64, i64>,
+    // Тексты тултипов собираются из констант сервиса, а не пишутся в шаблоне
+    // руками: три числа в строке узла означают РАЗНОЕ, и подпись обязана
+    // меняться вместе с окном, по которому число посчитано.
+    pub tip_now: String,
+    pub tip_online: String,
+    pub tip_configured: String,
+    pub tip_capacity: String,
 }
 
-/// Запрашивает счётчики активных подписок и онлайн-устройств (активность за 15 минут)
-/// для всех узлов. Возвращает (subs_map, online_map) node_id -> count.
-async fn fetch_node_metrics(pool: &sqlx::PgPool) -> (HashMap<i64, i64>, HashMap<i64, i64>) {
-    // Активные подписки на каждом узле
-    let subs_rows = sqlx::query_as::<_, (i64, i64)>(
-        "SELECT node_id, COUNT(*)::bigint AS count
-         FROM subscriptions
-         WHERE status = 'active' AND node_id IS NOT NULL
-         GROUP BY node_id",
+/// Строка таблицы Servers: узел плюс уже посчитанная активность.
+///
+/// Всё, что показывает цифру, посчитано здесь, а не в шаблоне: askama умеет
+/// только читать поля, и «посчитать в разметке» означало бы повторить формулу
+/// в каждом месте, где она встречается.
+pub struct NodeRowView {
+    pub node: Node,
+    /// Пользователи с трафиком в последнем heartbeat-интервале.
+    pub now: i64,
+    /// Уникальные пользователи за 15 минут.
+    pub online_15m: i64,
+    /// Подписки, привязанные к узлу (план, а не факт).
+    pub configured: i64,
+    /// Действующий потолок: ручной, иначе расчётный. 0 = не задан.
+    pub limit: i32,
+    /// Потолок задан руками — иначе его перезаписывает телеметрия.
+    pub limit_manual: bool,
+    pub percent: i64,
+    /// ok | warn | critical | unknown.
+    pub level: String,
+    /// Ширина шкалы в процентах. Отдельно от `percent`, потому что
+    /// переполненный узел даёт больше 100, а полоска шире контейнера не бывает.
+    pub bar_percent: i64,
+    pub bar_class: String,
+    pub needs_new_node: bool,
+    pub traffic_24h: String,
+    pub traffic_30d: String,
+}
+
+impl NodeRowView {
+    /// «12 / 40» либо «12 / потолок не задан».
+    pub fn capacity_label(&self) -> String {
+        if self.limit > 0 {
+            format!("{} / {}", self.now, self.limit)
+        } else {
+            format!("{} / потолок не задан", self.now)
+        }
+    }
+}
+
+/// Цвет шкалы заполнения по уровню. Строкой, потому что значение уходит прямо
+/// в класс шаблона.
+fn capacity_bar_class(level: &str) -> &'static str {
+    match level {
+        "critical" => "bg-rose-500",
+        "warn" => "bg-amber-400",
+        "ok" => "bg-emerald-400",
+        _ => "bg-slate-600",
+    }
+}
+
+/// Подписи к числам строки узла. Собраны из тех же констант, по которым числа
+/// и считаются: разъехаться тексту и формуле здесь нечем.
+fn counter_tooltips() -> (String, String, String, String) {
+    (
+        format!(
+            "Сейчас: у кого прошёл трафик в последнем heartbeat узла (окно {} с). Клик открывает список.",
+            NOW_WINDOW_SECS
+        ),
+        format!(
+            "Онлайн 15 мин: уникальные пользователи, которых узел видел за последние {} с. Клик открывает список.",
+            ONLINE_WINDOW_SECS
+        ),
+        "Настроено: подписки с этим узлом в node_id. Это план подключения, а не люди на проводе. Клик открывает список."
+            .to_string(),
+        format!(
+            "Заполнение узла: «Сейчас» относительно потолка. Жёлтый от {} %, красный от {} %. Потолок ручной (max_users_override), иначе расчётный.",
+            CAPACITY_WARN_PERCENT, CAPACITY_CRITICAL_PERCENT
+        ),
     )
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
+}
 
-    let subs_map: HashMap<i64, i64> = subs_rows.into_iter().collect();
+/// Активность, ёмкость и трафик по всем узлам сразу.
+///
+/// Онлайн берётся ТОЛЬКО из heartbeat узла (`node_user_activity`). Прежний
+/// счётчик считал `subscription_device_leases`, которые наполнял опрос Clash
+/// API `:9090` с панели, и этот путь давал ноль там, где люди реально были: у
+/// одного узла порт закрыт хостером снаружи, а у hysteria2 в `/connections`
+/// поля с пользователем нет вовсе.
+async fn fetch_node_activity(
+    pool: &sqlx::PgPool,
+) -> (
+    HashMap<i64, NodeCounters>,
+    HashMap<i64, NodeCapacity>,
+    HashMap<i64, NodeTrafficWindows>,
+) {
+    let service = NodeActivityService::new(pool.clone());
 
-    // Уникальные устройства, активные за последние 15 минут
-    let online_rows = sqlx::query_as::<_, (i64, i64)>(
-        "SELECT last_node_id AS node_id, COUNT(DISTINCT subscription_id)::bigint AS count
-         FROM subscription_device_leases
-         WHERE last_seen_at > NOW() - INTERVAL '15 minutes'
-           AND last_node_id IS NOT NULL
-         GROUP BY last_node_id",
-    )
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
+    let counters = service.counters_by_node().await.unwrap_or_else(|e| {
+        error!("Не удалось посчитать активность узлов: {:#}", e);
+        HashMap::new()
+    });
+    let capacity = service.capacity_by_node().await.unwrap_or_else(|e| {
+        error!("Не удалось посчитать заполнение узлов: {:#}", e);
+        HashMap::new()
+    });
+    let traffic = service.traffic_by_node().await.unwrap_or_else(|e| {
+        error!("Не удалось посчитать трафик узлов: {:#}", e);
+        HashMap::new()
+    });
 
-    let online_map: HashMap<i64, i64> = online_rows.into_iter().collect();
+    (counters, capacity, traffic)
+}
 
-    (subs_map, online_map)
+/// Сборка строк таблицы из узлов и посчитанных карт.
+fn build_node_rows(
+    nodes: Vec<Node>,
+    counters: &HashMap<i64, NodeCounters>,
+    capacity: &HashMap<i64, NodeCapacity>,
+    traffic: &HashMap<i64, NodeTrafficWindows>,
+) -> Vec<NodeRowView> {
+    nodes
+        .into_iter()
+        .map(|node| {
+            let id = node.id;
+            let counters = counters.get(&id).cloned().unwrap_or_default();
+            let windows = traffic.get(&id).cloned().unwrap_or_default();
+            // Узла нет в карте ёмкости, только если запрос упал целиком:
+            // уровень «unknown» рисует серую шкалу вместо зелёной, то есть
+            // отказ видно, а не выдаёт себя за пустой узел.
+            let cap = capacity.get(&id);
+            let level = cap.map(|c| c.level).unwrap_or("unknown").to_string();
+            let bar_class = capacity_bar_class(&level).to_string();
+            NodeRowView {
+                node,
+                now: counters.now,
+                online_15m: counters.online_15m,
+                configured: counters.configured,
+                limit: cap.map(|c| c.limit).unwrap_or(0),
+                limit_manual: cap.map(|c| c.manual).unwrap_or(false),
+                percent: cap.map(|c| c.percent).unwrap_or(0),
+                bar_percent: cap.map(|c| c.percent).unwrap_or(0).clamp(0, 100),
+                level,
+                bar_class,
+                needs_new_node: cap.map(|c| c.needs_new_node).unwrap_or(false),
+                traffic_24h: format_bytes_str(windows.last_24h.max(0) as u64),
+                traffic_30d: format_bytes_str(windows.last_30d.max(0) as u64),
+            }
+        })
+        .collect()
 }
 
 /// Общие данные для рендера страницы / HTMX-строк узлов.
@@ -101,8 +219,9 @@ struct NodeListData {
     admin_path: String,
     agent_latest_version: String,
     auto_update_agents: bool,
-    subs_map: HashMap<i64, i64>,
-    online_map: HashMap<i64, i64>,
+    counters: HashMap<i64, NodeCounters>,
+    capacity: HashMap<i64, NodeCapacity>,
+    traffic: HashMap<i64, NodeTrafficWindows>,
 }
 
 async fn fetch_node_list_data(state: &AppState, scope: NodesScope) -> NodeListData {
@@ -144,7 +263,7 @@ async fn fetch_node_list_data(state: &AppState, scope: NodesScope) -> NodeListDa
         .parse()
         .unwrap_or(true);
 
-    let (subs_map, online_map) = fetch_node_metrics(&state.pool).await;
+    let (counters, capacity, traffic) = fetch_node_activity(&state.pool).await;
 
     NodeListData {
         nodes_for_scope,
@@ -154,28 +273,37 @@ async fn fetch_node_list_data(state: &AppState, scope: NodesScope) -> NodeListDa
         admin_path,
         agent_latest_version,
         auto_update_agents,
-        subs_map,
-        online_map,
+        counters,
+        capacity,
+        traffic,
     }
 }
 
-fn render_nodes_rows_html(
-    nodes: Vec<Node>,
-    admin_path: &str,
-    agent_latest_version: &str,
-    auto_update_agents: bool,
-    subs_map: HashMap<i64, i64>,
-    online_map: HashMap<i64, i64>,
-) -> String {
-    let partial = NodesRowsPartial {
-        nodes,
-        admin_path: admin_path.to_string(),
-        agent_latest_version: agent_latest_version.to_string(),
-        auto_update_agents,
-        subs_map,
-        online_map,
-    };
+impl NodeListData {
+    /// Партиал строк для выбранного scope. Один и тот же объект собирает и
+    /// полную страницу, и HTMX-обновление: разойтись числам негде.
+    fn rows_partial(self) -> NodesRowsPartial {
+        let rows = build_node_rows(
+            self.nodes_for_scope,
+            &self.counters,
+            &self.capacity,
+            &self.traffic,
+        );
+        let (tip_now, tip_online, tip_configured, tip_capacity) = counter_tooltips();
+        NodesRowsPartial {
+            rows,
+            admin_path: self.admin_path,
+            agent_latest_version: self.agent_latest_version,
+            auto_update_agents: self.auto_update_agents,
+            tip_now,
+            tip_online,
+            tip_configured,
+            tip_capacity,
+        }
+    }
+}
 
+fn render_nodes_rows_html(partial: NodesRowsPartial) -> String {
     partial.render().unwrap_or_else(|e| {
         format!(
             r#"<tr><td colspan="6" class="px-6 py-8 text-center text-rose-400 text-xs uppercase tracking-widest">Failed to render rows: {}</td></tr>"#,
@@ -238,6 +366,11 @@ pub struct NodeEditModalTemplate {
     pub relay_nodes: Vec<Node>, // Relay-only selection for exit nodes
     pub profiles: Vec<ConfigProfile>,
     pub admin_path: String,
+    /// Ручной потолок пользователей узла, пустая строка = не задан.
+    pub max_users_override: String,
+    /// Расчётный потолок из телеметрии — подсказка рядом с полем, чтобы
+    /// оператор видел, какое число он переопределяет.
+    pub max_users_calculated: i32,
 }
 
 #[derive(askama::Template)]
@@ -339,6 +472,11 @@ pub struct UpdateNodeForm {
     pub country: Option<String>,
     #[serde(default)]
     pub config_profile_id: Option<String>,
+    /// Ручной потолок пользователей. Приходит только с полной формы узла:
+    /// точечные переключатели политик на странице узла его не присылают и
+    /// поэтому не затирают.
+    #[serde(default)]
+    pub max_users_override: Option<String>,
 }
 
 fn normalize_node_type(node_type: Option<&str>, legacy_is_relay: bool) -> &'static str {
@@ -409,43 +547,36 @@ async fn render_nodes_scope_page(
 
     // HTMX partial refresh — вернуть только строки таблицы
     if headers.contains_key("HX-Request") || headers.contains_key("hx-request") {
-        let template = NodesRowsPartial {
-            nodes: data.nodes_for_scope,
-            admin_path: data.admin_path,
-            agent_latest_version: data.agent_latest_version,
-            auto_update_agents: data.auto_update_agents,
-            subs_map: data.subs_map,
-            online_map: data.online_map,
-        };
-        return Html(template.render().unwrap_or_default()).into_response();
+        return Html(data.rows_partial().render().unwrap_or_default()).into_response();
     }
 
-    let rows_html = render_nodes_rows_html(
-        data.nodes_for_scope.clone(),
-        &data.admin_path,
-        &data.agent_latest_version,
-        data.auto_update_agents,
-        data.subs_map.clone(),
-        data.online_map.clone(),
-    );
+    let nodes_for_scope = data.nodes_for_scope.clone();
+    let relay_nodes = data.relay_nodes.clone();
+    let all_nodes_count = data.all_nodes_count;
+    let exit_nodes_count = data.exit_nodes.len();
+    let admin_path = data.admin_path.clone();
+    let agent_latest_version = data.agent_latest_version.clone();
+    let auto_update_agents = data.auto_update_agents;
+
+    let rows_html = render_nodes_rows_html(data.rows_partial());
 
     let template = NodesTemplate {
-        nodes: data.nodes_for_scope,
-        relay_nodes: data.relay_nodes.clone(),
+        nodes: nodes_for_scope,
+        relay_nodes: relay_nodes.clone(),
         rows_html,
         scope: scope.as_str().to_string(),
         scope_title: scope.title().to_string(),
-        total_nodes_count: data.all_nodes_count,
-        exit_nodes_count: data.exit_nodes.len(),
-        relay_nodes_count: data.relay_nodes.len(),
+        total_nodes_count: all_nodes_count,
+        exit_nodes_count,
+        relay_nodes_count: relay_nodes.len(),
         is_auth: true,
         username: get_auth_user(state, jar)
             .await
             .unwrap_or("Admin".to_string()),
-        admin_path: data.admin_path,
+        admin_path,
         active_page: scope.active_page().to_string(),
-        agent_latest_version: data.agent_latest_version,
-        auto_update_agents: data.auto_update_agents,
+        agent_latest_version,
+        auto_update_agents,
     };
     Html(template.render().unwrap_or_default()).into_response()
 }
@@ -470,15 +601,7 @@ pub async fn get_relay_nodes_page(
 /// Переиспользует fetch_node_list_data для единообразия с полной страницей.
 async fn render_nodes_rows_for_scope(state: &AppState, scope: NodesScope) -> Response {
     let data = fetch_node_list_data(state, scope).await;
-    let template = NodesRowsPartial {
-        nodes: data.nodes_for_scope,
-        admin_path: data.admin_path,
-        agent_latest_version: data.agent_latest_version,
-        auto_update_agents: data.auto_update_agents,
-        subs_map: data.subs_map,
-        online_map: data.online_map,
-    };
-    Html(template.render().unwrap_or_default()).into_response()
+    Html(data.rows_partial().render().unwrap_or_default()).into_response()
 }
 
 pub async fn get_exit_nodes_rows(State(state): State<AppState>) -> impl IntoResponse {
@@ -487,6 +610,141 @@ pub async fn get_exit_nodes_rows(State(state): State<AppState>) -> impl IntoResp
 
 pub async fn get_relay_nodes_rows(State(state): State<AppState>) -> impl IntoResponse {
     render_nodes_rows_for_scope(&state, NodesScope::Relay).await
+}
+
+/// Какой из трёх списков узла открыли и сколько строк показать.
+#[derive(Deserialize, Default)]
+pub struct NodeUserListQuery {
+    /// now | online | configured. Мусор трактуется как «Сейчас»: кривая
+    /// ссылка должна отдавать список, а не 400 посреди таблицы.
+    pub kind: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// Строка списка «кто на узле», уже подготовленная к показу.
+pub struct NodeUserRowView {
+    pub display: String,
+    pub user_id: Option<i64>,
+    pub tg_id: Option<i64>,
+    pub device: Option<String>,
+    pub online: bool,
+    pub last_seen_rel: String,
+    /// Дельты последнего heartbeat-интервала. У списка «Настроено» их нет:
+    /// это конфигурация, а не измерение.
+    pub traffic_label: Option<String>,
+}
+
+#[derive(Template, WebTemplate)]
+#[template(path = "partials/node_online_list.html")]
+pub struct NodeUserListPartial {
+    pub node_id: i64,
+    pub node_name: String,
+    pub title: String,
+    /// Пояснение, ЧТО именно за список: три числа в строке узла значат разное,
+    /// и открытый список обязан называть своё окно и свой источник.
+    pub note: String,
+    pub rows: Vec<NodeUserRowView>,
+    pub limit: i64,
+    /// Выдача упёрлась в лимит — значит показано не всё.
+    pub truncated: bool,
+    pub admin_path: String,
+    /// Текст отказа. Пустой список и упавший запрос выглядят одинаково, если
+    /// про отказ промолчать, а решают по ним противоположное.
+    pub error: Option<String>,
+}
+
+/// GET /admin/nodes/{id}/online?kind=now|online|configured
+///
+/// Партиал для клика по числу в строке узла.
+pub async fn get_node_user_list(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+    Query(query): Query<NodeUserListQuery>,
+) -> impl IntoResponse {
+    let kind = NodeUserList::from_query(query.kind.as_deref());
+    // Верхняя граница жёсткая: попап не должен уметь вытащить всю базу.
+    let limit = query.limit.unwrap_or(100).clamp(1, 100);
+
+    let node_name = state
+        .infrastructure_service
+        .get_node_by_id(id)
+        .await
+        .map(|node| node.name)
+        .unwrap_or_else(|_| format!("#{}", id));
+
+    let service = NodeActivityService::new(state.pool.clone());
+    let (rows, error) = match service.node_user_list(id, kind, limit).await {
+        Ok(rows) => (rows, None),
+        Err(e) => {
+            error!(
+                "Не удалось получить список пользователей узла {}: {:#}",
+                id, e
+            );
+            (
+                Vec::new(),
+                Some(format!("Список не получен: {}. Смотрите логи панели.", e)),
+            )
+        }
+    };
+
+    let truncated = rows.len() as i64 >= limit;
+    let note = match kind {
+        NodeUserList::Now => format!(
+            "Трафик в последнем heartbeat узла, окно {} секунд. Источник: node_user_activity.",
+            NOW_WINDOW_SECS
+        ),
+        NodeUserList::Online15m => format!(
+            "Уникальные пользователи за последние {} секунд. Источник: node_user_activity.",
+            ONLINE_WINDOW_SECS
+        ),
+        NodeUserList::Configured => {
+            "Подписки с этим узлом в node_id. Это план подключения, а не факт трафика.".to_string()
+        }
+    };
+
+    let rows: Vec<NodeUserRowView> = rows
+        .into_iter()
+        .map(|row| {
+            let traffic_label = if kind == NodeUserList::Configured {
+                None
+            } else {
+                Some(format!(
+                    "{} / {}",
+                    format_bytes_str(row.rx_delta.max(0) as u64),
+                    format_bytes_str(row.tx_delta.max(0) as u64)
+                ))
+            };
+            NodeUserRowView {
+                display: row.display,
+                user_id: row.user_id,
+                tg_id: row.tg_id,
+                device: row.device,
+                online: row.online,
+                last_seen_rel: row.last_seen_rel,
+                traffic_label,
+            }
+        })
+        .collect();
+
+    let template = NodeUserListPartial {
+        node_id: id,
+        node_name,
+        title: kind.title().to_string(),
+        note,
+        rows,
+        limit,
+        truncated,
+        admin_path: normalized_admin_path(&state.admin_path),
+        error,
+    };
+
+    Html(template.render().unwrap_or_else(|e| {
+        format!(
+            r#"<p class="text-xs text-rose-400">Не удалось отрисовать список: {}</p>"#,
+            e
+        )
+    }))
+    .into_response()
 }
 
 pub async fn install_node(
@@ -658,11 +916,27 @@ pub async fn get_node_edit(
             .await
             .unwrap_or_default();
 
+    // Отдельным запросом, а не полем модели: колонка добавлена этой волной, и
+    // модель `Node` о ней ничего не знает.
+    let max_users_override: Option<i32> =
+        sqlx::query_scalar("SELECT max_users_override FROM nodes WHERE id = $1")
+            .bind(node.id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None)
+            .flatten();
+    let max_users_calculated = node.max_users;
+
     let template = NodeEditModalTemplate {
         node,
         relay_nodes: all_nodes,
         profiles,
         admin_path,
+        max_users_override: max_users_override
+            .filter(|v| *v > 0)
+            .map(|v| v.to_string())
+            .unwrap_or_default(),
+        max_users_calculated,
     };
     match template.render() {
         Ok(html) => Html(html).into_response(),
@@ -732,6 +1006,25 @@ pub async fn update_node(
             .bind(id)
             .execute(&state.pool)
             .await;
+    }
+
+    // 2c. Ручной потолок пользователей узла. Пустое поле снимает ручной лимит
+    // и возвращает расчётный `max_users`. Сохраняем ТОЛЬКО когда поле реально
+    // пришло: точечные переключатели политик шлют форму без него, и запись
+    // «нет значения — значит NULL» молча сбрасывала бы настройку оператора.
+    if let Some(raw) = form.max_users_override.as_ref() {
+        let value: Option<i32> = raw.trim().parse::<i32>().ok().filter(|v| *v > 0);
+        if let Err(e) = sqlx::query("UPDATE nodes SET max_users_override = $1 WHERE id = $2")
+            .bind(value)
+            .bind(id)
+            .execute(&state.pool)
+            .await
+        {
+            error!(
+                "Failed to persist max_users_override for node {}: {}",
+                id, e
+            );
+        }
     }
 
     // 3. Trigger sync if policies changed (Policy changes need config regent)

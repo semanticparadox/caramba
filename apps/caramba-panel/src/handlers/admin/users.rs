@@ -20,6 +20,9 @@ use super::auth::{get_auth_user, is_authenticated};
 use crate::AppState;
 use crate::bot_manager::{NotificationMediaType, NotificationParseMode, NotificationPayload};
 use crate::services::logging_service::LoggingService;
+use crate::services::node_activity_service::{
+    NOW_WINDOW_SECS, NodeActivityService, ONLINE_WINDOW_SECS, UserPresence,
+};
 use caramba_db::models::store::{Plan, User};
 
 // ============================================================================
@@ -31,6 +34,12 @@ use caramba_db::models::store::{Plan, User};
 pub struct UsersTemplate {
     pub users: Vec<User>,
     pub search: String,
+    /// Где пользователь сейчас: user_id -> узел и свежесть. Одной выборкой на
+    /// всю страницу, без похода в базу на строку.
+    pub presence: HashMap<i64, UserPresence>,
+    /// Подпись к колонкам «Онлайн» и «Нода» — собрана из тех же констант, по
+    /// которым присутствие и считается.
+    pub presence_tip: String,
     pub is_auth: bool,
     pub username: String,
     pub admin_path: String,
@@ -119,6 +128,18 @@ pub struct UserDetailsTemplate {
     pub available_nodes: Vec<NodeOption>,
     /// Индивидуальные реферальные ставки (None = не заданы, используются глобальные)
     pub referral_rates: Option<UserReferralRates>,
+    /// Где пользователь сейчас. `None` = за окном свежести его не видел ни один
+    /// узел (или выборка упала — тогда об этом сказано в логах).
+    pub presence: Option<UserPresence>,
+    pub presence_tip: String,
+    /// Подневный трафик за 30 дней, уже в JSON для графика.
+    pub traffic_labels_json: String,
+    pub traffic_data_json: String,
+    /// Сумма окна человеческим текстом, чтобы не читать её с графика.
+    pub traffic_total_30d: String,
+    /// В окне нет ни одного дня: рисовать пустой график нечестно, показываем
+    /// подпись.
+    pub traffic_history_empty: bool,
     pub is_auth: bool,
     pub username: String,
     pub admin_path: String,
@@ -780,9 +801,31 @@ pub async fn get_users(
         state.user_service.search(&search).await.unwrap_or_default()
     };
 
+    // Присутствие только для показанных строк. Пустой срез сервис трактует
+    // как «все пользователи», поэтому на пустом списке его звать нельзя.
+    let presence = if users.is_empty() {
+        HashMap::new()
+    } else {
+        let ids: Vec<i64> = users.iter().map(|u| u.id).collect();
+        NodeActivityService::new(state.pool.clone())
+            .presence_for_users(&ids)
+            .await
+            .unwrap_or_else(|e| {
+                error!("Не удалось получить присутствие пользователей: {:#}", e);
+                HashMap::new()
+            })
+    };
+
+    let presence_tip = format!(
+        "Онлайн: узел видел трафик пользователя за последние {} с. Нода и давность считаются по окну {} с (node_user_activity).",
+        NOW_WINDOW_SECS, ONLINE_WINDOW_SECS
+    );
+
     let template = UsersTemplate {
         users,
         search,
+        presence,
+        presence_tip,
         is_auth: true,
         username: get_auth_user(&state, &jar)
             .await
@@ -1132,6 +1175,42 @@ pub async fn get_user_details(
     .await
     .unwrap_or(None);
 
+    // Где пользователь сейчас и сколько он качал по дням. Обе выборки читают
+    // ровно те же таблицы, что и остальная панель: node_user_activity и
+    // app_traffic_daily (тот же источник, что у графика в приложении, чтобы
+    // админ и пользователь видели одни цифры).
+    let activity = NodeActivityService::new(state.pool.clone());
+    let presence = activity.presence_for_user(id).await.unwrap_or_else(|e| {
+        error!(
+            "Не удалось получить присутствие пользователя {}: {:#}",
+            id, e
+        );
+        None
+    });
+    let presence_tip = format!(
+        "Онлайн, если узел видел трафик за последние {} с; узел и давность берутся из окна {} с.",
+        NOW_WINDOW_SECS, ONLINE_WINDOW_SECS
+    );
+
+    let traffic_history = state
+        .analytics_service
+        .get_user_traffic_history(id, 30)
+        .await
+        .unwrap_or_else(|e| {
+            error!("Не удалось получить трафик пользователя {}: {:#}", id, e);
+            Vec::new()
+        });
+    // Запрос отдаёт свежие дни первыми, график читается слева направо.
+    let mut traffic_labels: Vec<String> = traffic_history.iter().map(|d| d.date.clone()).collect();
+    let mut traffic_data: Vec<f64> = traffic_history
+        .iter()
+        .map(|d| d.traffic_used as f64 / (1024.0 * 1024.0 * 1024.0))
+        .collect();
+    traffic_labels.reverse();
+    traffic_data.reverse();
+    let traffic_total_bytes: i64 = traffic_history.iter().map(|d| d.traffic_used).sum();
+    let traffic_history_empty = traffic_history.is_empty();
+
     let template = UserDetailsTemplate {
         user,
         subscriptions,
@@ -1143,6 +1222,14 @@ pub async fn get_user_details(
         available_plans,
         available_nodes,
         referral_rates,
+        presence,
+        presence_tip,
+        traffic_labels_json: serde_json::to_string(&traffic_labels)
+            .unwrap_or_else(|_| "[]".to_string()),
+        traffic_data_json: serde_json::to_string(&traffic_data)
+            .unwrap_or_else(|_| "[]".to_string()),
+        traffic_total_30d: crate::utils::format_bytes_str(traffic_total_bytes.max(0) as u64),
+        traffic_history_empty,
         is_auth: true,
         username: get_auth_user(&state, &jar)
             .await

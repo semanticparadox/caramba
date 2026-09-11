@@ -5,6 +5,73 @@ use sqlx::{PgPool, Postgres, Transaction};
 use std::collections::HashSet;
 use std::net::IpAddr;
 
+/// Статус вытесненной подписки: её заменили другой, живой, а не потеряли по
+/// сроку. Отличать от `'expired'` обязательно — истечение возвращает человека
+/// на бесплатный план и лечится продлением, а вытеснение означает, что доступ
+/// уже обслуживает другая строка.
+pub const STATUS_SUPERSEDED: &str = "superseded";
+
+/// ЕДИНЫЙ порядок выбора активной подписки пользователя.
+///
+/// Требует, чтобы в запросе `subscriptions` был под алиасом `s`, а `plans` —
+/// под алиасом `p` (LEFT JOIN, план может быть удалён).
+///
+/// Почему именно так. Раньше выбор писался четырьмя разными способами, и самый
+/// частый — `ORDER BY expires_at DESC` — всегда выигрывала бесплатная подписка:
+/// она создаётся с `expires_at = '9999-12-31'`, то есть дальше любой купленной.
+/// Пользователь платил, а бот, ссылки и учёт трафика продолжали обслуживать
+/// бесплатную строку. Поэтому первый ключ — платность, а второй —
+/// `expires_at ASC`: среди равных важнее та, что сгорает раньше (её потеря
+/// заметна человеку, «вечную» он не заметит). `id` — только для устойчивости
+/// порядка при полном равенстве.
+pub const ACTIVE_SUBSCRIPTION_ORDER_SQL: &str =
+    "ORDER BY COALESCE(p.is_free, FALSE) ASC, s.expires_at ASC, s.id ASC";
+
+/// Готовый запрос «активная подписка пользователя» ($1 — users.id).
+/// Один текст на всю панель: расхождение этого запроса и есть тот баг, ради
+/// которого [`ACTIVE_SUBSCRIPTION_ORDER_SQL`] вынесен в константу.
+pub const ACTIVE_SUBSCRIPTION_BY_USER_SQL: &str = "SELECT s.* FROM subscriptions s \
+     LEFT JOIN plans p ON p.id = s.plan_id \
+     WHERE s.user_id = $1 AND s.status = 'active' \
+     ORDER BY COALESCE(p.is_free, FALSE) ASC, s.expires_at ASC, s.id ASC \
+     LIMIT 1";
+
+/// Все активные подписки пользователя под блокировкой строк ($1 — users.id),
+/// в том же порядке приоритета.
+///
+/// Отдельный текст от [`ACTIVE_SUBSCRIPTION_BY_USER_SQL`] по требованию
+/// PostgreSQL: `FOR UPDATE` нельзя применять к нулевой стороне внешнего
+/// соединения, поэтому платность плана берётся коррелированным подзапросом, а
+/// не LEFT JOIN. Блокировка обязательна: две параллельные выдачи иначе обе
+/// увидят «активной нет» и вставят по строке — ровно тот дубль, который мы и
+/// убираем.
+pub const ACTIVE_SUBSCRIPTIONS_FOR_UPDATE_SQL: &str = "SELECT s.* FROM subscriptions s \
+     WHERE s.user_id = $1 AND s.status = 'active' \
+     ORDER BY COALESCE((SELECT p.is_free FROM plans p WHERE p.id = s.plan_id), FALSE) ASC, \
+              s.expires_at ASC, s.id ASC \
+     FOR UPDATE";
+
+/// Одна строка-кандидат для выбора главной активной подписки.
+/// Существует ради тестируемости: правило приоритета обязано быть одним и тем
+/// же в SQL и в любом коде, который сортирует подписки в памяти.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActiveSubscriptionCandidate {
+    pub id: i64,
+    pub is_free: bool,
+    pub expires_at: DateTime<Utc>,
+}
+
+/// Главная активная подписка по тому же правилу, что и
+/// [`ACTIVE_SUBSCRIPTION_ORDER_SQL`].
+pub fn pick_primary_subscription(
+    candidates: &[ActiveSubscriptionCandidate],
+) -> Option<ActiveSubscriptionCandidate> {
+    candidates
+        .iter()
+        .min_by_key(|c| (c.is_free, c.expires_at, c.id))
+        .copied()
+}
+
 #[derive(Debug, Clone)]
 pub struct SubscriptionRepository {
     pool: PgPool,
@@ -46,14 +113,14 @@ impl SubscriptionRepository {
         .context("Failed to fetch subscription by UUID")
     }
 
+    /// Главная активная подписка пользователя — единственное правило выбора на
+    /// всю систему, см. [`ACTIVE_SUBSCRIPTION_ORDER_SQL`].
     pub async fn get_active_by_user(&self, user_id: i64) -> Result<Option<Subscription>> {
-        sqlx::query_as::<_, Subscription>(
-            "SELECT * FROM subscriptions WHERE user_id = $1 AND status = 'active' ORDER BY expires_at DESC LIMIT 1"
-        )
-        .bind(user_id)
-        .fetch_optional(&self.pool)
-        .await
-        .context("Failed to fetch active subscription for user")
+        sqlx::query_as::<_, Subscription>(ACTIVE_SUBSCRIPTION_BY_USER_SQL)
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .context("Failed to fetch active subscription for user")
     }
 
     /// Tx-aware вариант: читает активную подписку пользователя внутри транзакции.
@@ -64,13 +131,11 @@ impl SubscriptionRepository {
         tx: &mut Transaction<'_, Postgres>,
         user_id: i64,
     ) -> Result<Option<Subscription>> {
-        sqlx::query_as::<_, Subscription>(
-            "SELECT * FROM subscriptions WHERE user_id = $1 AND status = 'active' ORDER BY expires_at DESC LIMIT 1"
-        )
-        .bind(user_id)
-        .fetch_optional(&mut **tx)
-        .await
-        .context("Failed to fetch active subscription for user (tx)")
+        sqlx::query_as::<_, Subscription>(ACTIVE_SUBSCRIPTION_BY_USER_SQL)
+            .bind(user_id)
+            .fetch_optional(&mut **tx)
+            .await
+            .context("Failed to fetch active subscription for user (tx)")
     }
 
     pub async fn get_active_by_plan(&self, plan_id: i64) -> Result<Vec<Subscription>> {
@@ -98,9 +163,17 @@ impl SubscriptionRepository {
         .context("Failed to fetch user subscriptions")
     }
 
+    /// План главной активной подписки. Порядок тот же, что и в
+    /// [`get_active_by_user`]: раньше здесь не было ORDER BY вообще, и при двух
+    /// активных строках план выбирался как придётся — то есть ноды могли выдать
+    /// человеку доступ по бесплатному плану сразу после оплаты.
     pub async fn get_active_plan_id_by_user(&self, user_id: i64) -> Result<Option<i64>> {
         sqlx::query_scalar(
-            "SELECT plan_id FROM subscriptions WHERE user_id = $1 AND status = 'active' LIMIT 1",
+            "SELECT s.plan_id FROM subscriptions s \
+             LEFT JOIN plans p ON p.id = s.plan_id \
+             WHERE s.user_id = $1 AND s.status = 'active' \
+             ORDER BY COALESCE(p.is_free, FALSE) ASC, s.expires_at ASC, s.id ASC \
+             LIMIT 1",
         )
         .bind(user_id)
         .fetch_optional(&self.pool)
@@ -586,7 +659,95 @@ fn canonicalize_ip(ip: IpAddr) -> IpAddr {
 
 #[cfg(test)]
 mod tests {
-    use super::{config_client_identity, proxy_auth_password};
+    use super::{
+        ACTIVE_SUBSCRIPTION_BY_USER_SQL, ACTIVE_SUBSCRIPTION_ORDER_SQL,
+        ActiveSubscriptionCandidate, config_client_identity, pick_primary_subscription,
+        proxy_auth_password,
+    };
+    use chrono::{DateTime, TimeZone, Utc};
+
+    fn at(year: i32, month: u32, day: u32) -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(year, month, day, 0, 0, 0).unwrap()
+    }
+
+    fn free(id: i64) -> ActiveSubscriptionCandidate {
+        // Бесплатная подписка создаётся ровно с этой датой — см.
+        // store_service::ensure_free_plan_subscription_tx.
+        ActiveSubscriptionCandidate {
+            id,
+            is_free: true,
+            expires_at: at(9999, 12, 31),
+        }
+    }
+
+    fn paid(id: i64, expires: DateTime<Utc>) -> ActiveSubscriptionCandidate {
+        ActiveSubscriptionCandidate {
+            id,
+            is_free: false,
+            expires_at: expires,
+        }
+    }
+
+    /// Тот самый баг: `ORDER BY expires_at DESC` отдавал бесплатную подписку с
+    /// 9999 годом вместо только что оплаченной. Правило приоритета обязано
+    /// ставить платную первой независимо от дат.
+    #[test]
+    fn a_paid_subscription_beats_the_everlasting_free_one() {
+        let subs = [free(1), paid(2, at(2026, 10, 1))];
+        assert_eq!(pick_primary_subscription(&subs).unwrap().id, 2);
+        // Порядок аргументов ничего не меняет.
+        let reversed = [paid(2, at(2026, 10, 1)), free(1)];
+        assert_eq!(pick_primary_subscription(&reversed).unwrap().id, 2);
+    }
+
+    /// Среди равных по платности важнее та, что сгорает раньше: её исчезновение
+    /// человек заметит, а «вечную» — нет.
+    #[test]
+    fn among_equals_the_soonest_expiry_wins() {
+        let subs = [paid(7, at(2027, 1, 1)), paid(3, at(2026, 10, 1))];
+        assert_eq!(pick_primary_subscription(&subs).unwrap().id, 3);
+
+        // Полное равенство — меньший id, чтобы выбор был устойчивым между
+        // вызовами (иначе один и тот же аккаунт обслуживался бы по-разному).
+        let tie = [
+            paid(9, at(2026, 10, 1)),
+            paid(4, at(2026, 10, 1)),
+            paid(6, at(2026, 10, 1)),
+        ];
+        assert_eq!(pick_primary_subscription(&tie).unwrap().id, 4);
+    }
+
+    #[test]
+    fn only_free_subscriptions_still_yield_one() {
+        let subs = [free(5), free(2)];
+        assert_eq!(pick_primary_subscription(&subs).unwrap().id, 2);
+    }
+
+    #[test]
+    fn no_active_subscriptions_yield_nothing() {
+        assert_eq!(pick_primary_subscription(&[]), None);
+    }
+
+    /// Правило обязано быть ОДНО: SQL-запрос и функция в памяти не имеют права
+    /// разойтись — именно на таком расхождении бэкенд и мини-апп показывали
+    /// разные подписки одного аккаунта.
+    #[test]
+    fn the_sql_and_the_in_memory_rule_are_the_same_rule() {
+        let squash = |s: &str| -> String { s.split_whitespace().collect::<Vec<_>>().join(" ") };
+        assert!(
+            squash(ACTIVE_SUBSCRIPTION_BY_USER_SQL)
+                .contains(&squash(ACTIVE_SUBSCRIPTION_ORDER_SQL)),
+            "запрос активной подписки перестал использовать общий порядок: {ACTIVE_SUBSCRIPTION_BY_USER_SQL}"
+        );
+        assert!(
+            ACTIVE_SUBSCRIPTION_ORDER_SQL.contains("COALESCE(p.is_free, FALSE) ASC"),
+            "из порядка выбора исчез приоритет платного плана"
+        );
+        assert!(
+            ACTIVE_SUBSCRIPTION_ORDER_SQL.contains("s.expires_at ASC"),
+            "порядок выбора вернулся к expires_at DESC — это и есть баг с 9999 годом"
+        );
+    }
 
     /// Регрессия на BLOCKER: у email-аккаунтов `users.tg_id` = NULL. Раньше
     /// строка с NULL роняла весь `get_active_subs_by_plans` в Err, и конфиг

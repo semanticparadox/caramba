@@ -9,6 +9,7 @@ use tracing::{error, warn};
 use caramba_shared::csm::directive::{ReasonCode, Status};
 
 use crate::AppState;
+use crate::services::subscription_service::{DeviceAdmission, DeviceIdentity};
 
 /// Rate-limits the "device limit reached" Telegram notification so a client that keeps
 /// retrying a rejected connection does not spam the user. Returns true at most once per
@@ -366,6 +367,10 @@ pub async fn subscription_handler(
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
     let client_ip = extract_client_ip(req.headers());
+    // Чем представилось устройство. Наше приложение шлёт стабильный
+    // идентификатор установки и имя; сторонние клиенты не шлют ничего, и для
+    // них устройство по-прежнему опознаётся по User-Agent.
+    let device = DeviceIdentity::from_headers(req.headers());
     // Try geo headers from reverse proxy (Caddy geo module, Cloudflare, etc.)
     let client_country_header = req
         .headers()
@@ -600,85 +605,84 @@ pub async fn subscription_handler(
         }
     }
 
-    // 3.5 Enforce device limit (Phase 7)
-    let active_ips = state
+    // 3.5 Лимит устройств.
+    //
+    // Ключ проверки один и тот же, что и у записи лизы: владелец + отпечаток
+    // устройства. Раньше здесь сравнивались АДРЕСА, а лизу писал отпечаток, и
+    // из-за расхождения лимит работал ровно наоборот: пять телефонов за одним
+    // домашним NAT выглядели одним устройством и проходили насквозь, а один
+    // телефон, переключившийся с Wi-Fi на LTE, считался новым и упирался в
+    // лимит на самом себе.
+    let admission = state
         .subscription_service
-        .get_active_ips(sub.id)
+        .check_device_admission(sub.id, &device, user_agent.as_deref())
         .await
-        .unwrap_or_default();
-    let current_ip = &client_ip;
+        .unwrap_or(DeviceAdmission {
+            // Ошибка учёта не повод не пустить человека к оплаченному доступу:
+            // при недоступном счётчике считаем устройство знакомым.
+            known: true,
+            used: 0,
+            limit: 0,
+        });
 
-    // Check if this is a new IP or if we're already at the limit
-    let is_new_device = !active_ips.iter().any(|rec| rec.client_ip == *current_ip);
+    if !admission.allowed() {
+        warn!(
+            "Device limit reached for subscription {}. Limit: {}, Active: {}",
+            uuid, admission.limit, admission.used
+        );
 
-    if is_new_device {
-        let device_limit = state
-            .subscription_service
-            .get_subscription_device_limit(sub.id)
-            .await
-            .unwrap_or(0);
-        if device_limit > 0 && active_ips.len() >= device_limit as usize {
-            warn!(
-                "Device limit reached for subscription {}. Limit: {}, Active: {}",
-                uuid,
-                device_limit,
-                active_ips.len()
-            );
+        // Notify the user in Telegram that a new device was rejected, throttled to at
+        // most once per 10 minutes per subscription so retries don't spam the chat.
+        if should_notify_device_block(sub.id) {
+            let tg_id: Option<i64> = sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
+                .bind(sub.user_id)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap_or(None);
 
-            // Notify the user in Telegram that a new device was rejected, throttled to at
-            // most once per 10 minutes per subscription so retries don't spam the chat.
-            if should_notify_device_block(sub.id) {
-                let tg_id: Option<i64> =
-                    sqlx::query_scalar("SELECT tg_id FROM users WHERE id = $1")
-                        .bind(sub.user_id)
-                        .fetch_optional(&state.pool)
-                        .await
-                        .unwrap_or(None);
-
-                if let Some(tg_id) = tg_id {
-                    let lang = crate::bot::utils::lang_by_tg_id(&state, tg_id).await;
-                    let msg = crate::bot::translations::tf(
-                        lang,
-                        "devices.blocked_dm",
-                        &[
-                            &crate::bot::utils::escape_html(current_ip),
-                            &device_limit.to_string(),
-                        ],
-                    );
-                    let _ = state
-                        .bot_manager
-                        .send_rich_notification(
-                            tg_id,
-                            crate::bot_manager::NotificationPayload::html(msg),
-                        )
-                        .await;
-                }
+            if let Some(tg_id) = tg_id {
+                let lang = crate::bot::utils::lang_by_tg_id(&state, tg_id).await;
+                let msg = crate::bot::translations::tf(
+                    lang,
+                    "devices.blocked_dm",
+                    &[
+                        &crate::bot::utils::escape_html(&client_ip),
+                        &admission.limit.to_string(),
+                    ],
+                );
+                let _ = state
+                    .bot_manager
+                    .send_rich_notification(
+                        tg_id,
+                        crate::bot_manager::NotificationPayload::html(msg),
+                    )
+                    .await;
             }
-
-            // Лимит устройств — свойство ЗАПРОСА, а не строки подписки: сама
-            // подписка в этот момент исправна, и вывести отказ из её статуса
-            // невозможно. Поэтому исход навязывается явно — только этот путь
-            // его и видит.
-            access_facts.device_used = active_ips.len() as i64;
-            access_facts.device_limit = device_limit as i64;
-            let a = access::compute_as(
-                &access_facts,
-                Some((Status::DeviceLimit, ReasonCode::DEVICE_LIMIT_REACHED)),
-                None,
-            );
-            return access::refusal_response(
-                StatusCode::FORBIDDEN,
-                "Device limit reached",
-                &a,
-                Some(userinfo),
-            );
         }
+
+        // Лимит устройств — свойство ЗАПРОСА, а не строки подписки: сама
+        // подписка в этот момент исправна, и вывести отказ из её статуса
+        // невозможно. Поэтому исход навязывается явно — только этот путь
+        // его и видит.
+        access_facts.device_used = admission.used;
+        access_facts.device_limit = admission.limit as i64;
+        let a = access::compute_as(
+            &access_facts,
+            Some((Status::DeviceLimit, ReasonCode::DEVICE_LIMIT_REACHED)),
+            None,
+        );
+        return access::refusal_response(
+            StatusCode::FORBIDDEN,
+            "Device limit reached",
+            &a,
+            Some(userinfo),
+        );
     }
 
     // 4. Update access tracking
     let _ = state
         .subscription_service
-        .track_access(sub.id, &client_ip, user_agent.as_deref())
+        .track_access(sub.id, &client_ip, user_agent.as_deref(), &device)
         .await;
 
     // 4.5 Заголовок расхода для Hiddify/sing-box.

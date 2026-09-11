@@ -190,3 +190,31 @@ fn accepting_terms_in_the_bot_grants_the_free_plan() {
         "ветка accept_terms не выдаёт бесплатный план: аккаунт останется без подписки"
     );
 }
+
+/// Вторая реализация выдачи бесплатного плана (HTTP-эндпоинт, который зовёт
+/// `apps/caramba-bot` при принятии соглашения) обязана уступать дорогу любой
+/// активной подписке, а не только бесплатной.
+///
+/// С инвариантом «одна активная строка» (миграция 20260911140000) вставка
+/// бесплатной строки со статусом active вытесняет купленный тариф триггером
+/// `trg_subscriptions_single_active` — молча, без ошибки и без записи в логе.
+/// Канонический путь `store_service::ensure_free_plan_subscription_tx` от этого
+/// защищён ранним выходом по `has_paid`; здесь та же защита держится руками.
+#[test]
+fn the_bot_endpoint_never_grants_the_free_plan_over_a_paid_one() {
+    let bot = panel_src("handlers/api/bot.rs");
+    let guard = squash(between(
+        &bot,
+        "let existing_id: Option<i64> = sqlx::query_scalar(",
+        ".unwrap_or(None);",
+    ));
+
+    assert!(
+        guard.contains("OR status = 'active'"),
+        "запрос-гвард смотрит только на бесплатный план: выдача Free вытеснит активный платный тариф"
+    );
+    assert!(
+        guard.contains("ORDER BY (plan_id = $2) DESC"),
+        "гвард перестал предпочитать строку бесплатного плана: ответ already_had_free начнёт указывать на чужую подписку"
+    );
+}

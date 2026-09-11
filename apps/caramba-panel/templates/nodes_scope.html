@@ -177,6 +177,11 @@
     <div id="manual-install-modal-content"></div>
 </dialog>
 
+{# Список «кто на узле»: наполняется htmx по клику на число в строке. #}
+<dialog id="node-users-modal" class="backdrop:bg-slate-950/80 bg-transparent p-0">
+    <div id="node-users-body" class="modal-container max-w-3xl"></div>
+</dialog>
+
 <dialog id="node-install-modal" class="backdrop:bg-slate-950/80 bg-transparent p-0">
     <div class="modal-container max-w-3xl">
         <header class="modal-header">
@@ -233,6 +238,14 @@
     async function copyNodeInstallCommand() {
         if (!currentNodeInstallCommand) return;
         await navigator.clipboard.writeText(currentNodeInstallCommand);
+    }
+
+    // Модалка открывается сразу, до ответа сервера: htmx подставит содержимое
+    // в уже открытое окно, и оператор не ждёт запрос, глядя в таблицу.
+    function openNodeUsersModal() {
+        const modal = document.getElementById('node-users-modal');
+        if (!modal || modal.open) return;
+        modal.showModal();
     }
 
     function openAddNode() {

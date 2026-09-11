@@ -9,6 +9,7 @@
 use crate::AppState;
 use crate::api::v2::app_auth::AuthUser;
 use crate::services::referral_service::ReferralService;
+use crate::services::subscription_service::DeviceIdentity;
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -79,67 +80,71 @@ struct AppDevice {
     subscription_id: i64,
     /// Имя устройства: пользовательское (display_name) либо авто из User-Agent.
     name: String,
+    /// То же имя отдельным полем — контракт с приложением (B3).
+    display_name: String,
+    /// android/ios/macos/windows/linux, если устройство представилось.
+    platform: Option<String>,
+    /// Стабильный идентификатор установки приложения; у сторонних клиентов NULL.
+    client_device_id: Option<String>,
     last_ip: String,
     user_agent: Option<String>,
     first_seen_at: String,
     last_seen_at: String,
     /// Онлайн в последние 15 минут (та же эвристика, что и в api/client.rs).
     online: bool,
+    /// Это устройство, с которого пришёл запрос.
+    is_current: bool,
 }
 
-/// GET /api/v2/app/devices — все устройства по всем подпискам пользователя.
+/// GET /api/v2/app/devices — все устройства аккаунта.
 ///
-/// Объединяет subscription_device_leases по подпискам пользователя.
-/// Инфраструктурные IP (свои узлы, frontend) отфильтрованы, как в client.rs.
+/// Список строится по владельцу, а не по подписке: устройство принадлежит
+/// аккаунту и переживает смену тарифа (см. миграцию 20260911150000).
+///
+/// `is_current` определяется по заголовку `X-Caramba-Device-Id`, который шлёт
+/// приложение: сравнение по адресу врало на любом NAT — все телефоны в одной
+/// квартире помечались как «это устройство».
 pub async fn list_devices(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::Extension(auth): axum::Extension<AuthUser>,
 ) -> impl IntoResponse {
-    let rows = sqlx::query(
-        r#"SELECT sdl.id,
-                  sdl.subscription_id,
-                  COALESCE(NULLIF(sdl.display_name, ''), sdl.device_name) AS name,
-                  sdl.last_ip,
-                  sdl.user_agent,
-                  sdl.first_seen_at,
-                  sdl.last_seen_at,
-                  (sdl.last_seen_at > NOW() - INTERVAL '15 minutes') AS online
-           FROM subscription_device_leases sdl
-           JOIN subscriptions s ON s.id = sdl.subscription_id
-           WHERE s.user_id = $1
-             AND sdl.last_ip <> '0.0.0.0'
-             AND sdl.last_ip NOT IN (SELECT ip FROM nodes WHERE ip IS NOT NULL)
-             AND sdl.last_ip NOT IN (SELECT ip_address FROM frontend_servers WHERE ip_address IS NOT NULL)
-           ORDER BY sdl.last_seen_at DESC"#,
-    )
-    .bind(auth.user_id)
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
+    let caller = DeviceIdentity::from_headers(&headers);
+    // Запасной вариант для клиента без идентификатора установки — сравнение по
+    // адресу. Оно врёт на общем NAT, поэтому используется только когда опознать
+    // устройство нечем.
+    let caller_ip = crate::subscription::extract_client_ip(&headers);
+    let leases = state
+        .subscription_service
+        .list_user_devices(auth.user_id)
+        .await
+        .unwrap_or_default();
 
-    let devices: Vec<AppDevice> = rows
+    let devices: Vec<AppDevice> = leases
         .into_iter()
-        .map(|r| {
-            let last_ip: String = r.try_get("last_ip").unwrap_or_default();
+        .map(|l| {
+            let label = l.label();
+            let is_current = match (
+                caller.client_device_id.as_deref(),
+                l.client_device_id.as_deref(),
+            ) {
+                (Some(mine), Some(theirs)) => mine == theirs,
+                (Some(_), None) => false,
+                _ => !caller_ip.is_empty() && caller_ip == l.last_ip,
+            };
             AppDevice {
-                id: r.try_get("id").unwrap_or(0),
-                subscription_id: r.try_get("subscription_id").unwrap_or(0),
-                name: r
-                    .try_get::<Option<String>, _>("name")
-                    .ok()
-                    .flatten()
-                    .unwrap_or_else(|| "Unknown Device".to_string()),
-                last_ip: mask_ip(&last_ip),
-                user_agent: r.try_get::<Option<String>, _>("user_agent").ok().flatten(),
-                first_seen_at: r
-                    .try_get::<chrono::DateTime<chrono::Utc>, _>("first_seen_at")
-                    .map(|t| t.to_rfc3339())
-                    .unwrap_or_default(),
-                last_seen_at: r
-                    .try_get::<chrono::DateTime<chrono::Utc>, _>("last_seen_at")
-                    .map(|t| t.to_rfc3339())
-                    .unwrap_or_default(),
-                online: r.try_get::<bool, _>("online").unwrap_or(false),
+                id: l.id,
+                subscription_id: l.subscription_id,
+                name: label.clone(),
+                display_name: label,
+                platform: l.platform,
+                client_device_id: l.client_device_id,
+                last_ip: mask_ip(&l.last_ip),
+                user_agent: l.user_agent,
+                first_seen_at: l.first_seen_at.to_rfc3339(),
+                last_seen_at: l.last_seen_at.to_rfc3339(),
+                online: l.online,
+                is_current,
             }
         })
         .collect();
@@ -154,44 +159,23 @@ pub struct RenameDeviceRequest {
 }
 
 /// PATCH /api/v2/app/devices/{id} — переименование устройства (display_name).
+///
+/// Пустое имя сбрасывает на авто-имя из User-Agent. Принадлежность лизы
+/// аккаунту проверяет сам UPDATE (`WHERE user_id = $`), поэтому отдельного
+/// запроса на проверку владельца больше нет.
 pub async fn rename_device(
     State(state): State<AppState>,
     axum::Extension(auth): axum::Extension<AuthUser>,
     Path(device_id): Path<i64>,
     Json(payload): Json<RenameDeviceRequest>,
 ) -> impl IntoResponse {
-    // Lease должен принадлежать подписке пользователя.
-    let owned = sqlx::query_scalar::<_, i64>(
-        "SELECT sdl.id FROM subscription_device_leases sdl \
-         JOIN subscriptions s ON s.id = sdl.subscription_id \
-         WHERE sdl.id = $1 AND s.user_id = $2",
-    )
-    .bind(device_id)
-    .bind(auth.user_id)
-    .fetch_optional(&state.pool)
-    .await
-    .ok()
-    .flatten();
-
-    if owned.is_none() {
-        return (StatusCode::NOT_FOUND, "Device not found").into_response();
-    }
-
-    let new_name = payload
-        .name
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.chars().take(64).collect::<String>());
-
-    let res = sqlx::query("UPDATE subscription_device_leases SET display_name = $1 WHERE id = $2")
-        .bind(new_name.as_deref())
-        .bind(device_id)
-        .execute(&state.pool)
-        .await;
-
-    match res {
-        Ok(_) => Json(serde_json::json!({ "ok": true })).into_response(),
+    match state
+        .subscription_service
+        .rename_user_device(auth.user_id, device_id, payload.name.as_deref())
+        .await
+    {
+        Ok(true) => Json(serde_json::json!({ "ok": true })).into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, "Device not found").into_response(),
         Err(e) => {
             tracing::error!(err = %e, "app: rename device failed");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
@@ -201,49 +185,27 @@ pub async fn rename_device(
 
 /// DELETE /api/v2/app/devices/{id} — отзыв (kick) устройства.
 ///
-/// Удаляет lease и легаси-запись IP-трекинга, затем асинхронно закрывает
-/// активные соединения подписки (как kick_subscription_device в client.rs).
+/// Удаляет лизу аккаунта вместе с легаси-записью IP-трекинга, затем асинхронно
+/// рвёт соединения подписки, чтобы отвязанное устройство отвалилось сразу, а не
+/// на следующем пятиминутном опросе.
 pub async fn revoke_device(
     State(state): State<AppState>,
     axum::Extension(auth): axum::Extension<AuthUser>,
     Path(device_id): Path<i64>,
 ) -> impl IntoResponse {
-    // Находим lease и проверяем принадлежность пользователю.
-    let row = sqlx::query(
-        "SELECT sdl.subscription_id, sdl.last_ip FROM subscription_device_leases sdl \
-         JOIN subscriptions s ON s.id = sdl.subscription_id \
-         WHERE sdl.id = $1 AND s.user_id = $2",
-    )
-    .bind(device_id)
-    .bind(auth.user_id)
-    .fetch_optional(&state.pool)
-    .await
-    .ok()
-    .flatten();
-
-    let (sub_id, ip): (i64, String) = match row {
-        Some(r) => (
-            r.try_get("subscription_id").unwrap_or(0),
-            r.try_get("last_ip").unwrap_or_default(),
-        ),
-        None => return (StatusCode::NOT_FOUND, "Device not found").into_response(),
+    let sub_id = match state
+        .subscription_service
+        .revoke_user_device(auth.user_id, device_id)
+        .await
+    {
+        Ok(Some(sub_id)) => sub_id,
+        Ok(None) => return (StatusCode::NOT_FOUND, "Device not found").into_response(),
+        Err(e) => {
+            tracing::error!(err = %e, "app: revoke device failed");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
 
-    let _ = sqlx::query("DELETE FROM subscription_device_leases WHERE id = $1")
-        .bind(device_id)
-        .execute(&state.pool)
-        .await;
-
-    let _ = sqlx::query(
-        "DELETE FROM subscription_ip_tracking WHERE subscription_id = $1 AND client_ip = $2",
-    )
-    .bind(sub_id)
-    .bind(&ip)
-    .execute(&state.pool)
-    .await;
-
-    // Активно рвём соединения подписки, чтобы отозванное устройство отвалилось
-    // сразу, а не на следующем поллинге. Spawned — ответ возвращается быстро.
     let conn_service = state.connection_service.clone();
     tokio::spawn(async move {
         if let Err(e) = conn_service.kill_subscription_connections(sub_id).await {
@@ -664,10 +626,14 @@ pub async fn list_subscriptions(
                 COALESCE(s.expires_at, s.created_at, CURRENT_TIMESTAMP) AS expires_at,
                 s.note,
                 s.relay_country,
+                -- Устройств у АККАУНТА и в том же окне свежести, что у гейта
+                -- лимита и экрана «Устройства». Счёт по подписке за 15 минут
+                -- показывал «1 из 3» там, где привязано три устройства, и
+                -- обнулялся при смене тарифа.
                 (
                     SELECT COUNT(*) FROM subscription_device_leases sdl
-                    WHERE sdl.subscription_id = s.id
-                      AND sdl.last_seen_at > NOW() - INTERVAL '15 minutes'
+                    WHERE sdl.user_id = s.user_id
+                      AND sdl.last_seen_at > $2
                       AND sdl.last_ip <> '0.0.0.0'
                 ) AS device_used,
                 (
@@ -683,6 +649,10 @@ pub async fn list_subscriptions(
            ORDER BY COALESCE(s.created_at, CURRENT_TIMESTAMP) DESC"#,
     )
     .bind(auth.user_id)
+    .bind(
+        chrono::Utc::now()
+            - chrono::Duration::days(crate::services::subscription_service::DEVICE_LEASE_TTL_DAYS),
+    )
     .fetch_all(&state.pool)
     .await
     .unwrap_or_default();

@@ -18,6 +18,7 @@ import 'package:caramba_client/router/routes.dart';
 import 'package:caramba_client/state/account_state.dart';
 import 'package:caramba_client/state/branding_state.dart';
 import 'package:caramba_client/state/auth_state.dart';
+import 'package:caramba_client/state/device_identity.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/theme/spacing.dart';
 import 'package:caramba_client/theme/tokens.dart';
@@ -163,7 +164,7 @@ class ProfileScreen extends ConsumerWidget {
 
               // ---- Устройства
               devicesAsync.when(
-                data: (devices) => _DevicesSection(devices: devices),
+                data: (devices) => ProfileDevicesSection(devices: devices),
                 loading: () => const Column(
                   children: [SectionTitle('Устройства'), InlineLoading()],
                 ),
@@ -228,13 +229,25 @@ class ProfileScreen extends ConsumerWidget {
   String _balanceLabel(int cents) => ReferralInfo.formatMinor(cents);
 }
 
-class _DevicesSection extends ConsumerWidget {
+/// Устройства аккаунта: имя, платформа, последняя активность, отметка «это
+/// устройство», переименование и отвязка.
+///
+/// ПУБЛИЧНАЯ и общая с десктопом (`profile_desktop.dart`) намеренно. Раньше
+/// секция была приватной, и десктоп держал её дословную копию: два списка
+/// устройств с двумя наборами тостов расходятся при первой же правке, а список
+/// этот — единственное место, где человек управляет привязками. Раскладка
+/// строки одинакова на обеих платформах, различается только колонка, в которой
+/// секция стоит.
+class ProfileDevicesSection extends ConsumerWidget {
   final List<Device> devices;
-  const _DevicesSection({required this.devices});
+  const ProfileDevicesSection({required this.devices, super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
+    // Своё устройство: панель помечает его `is_current` по заголовку запроса,
+    // но со старой панелью поля нет вовсе — тогда сверяем идентификатор сами.
+    final mine = ref.watch(deviceIdentityProvider).valueOrNull;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -248,35 +261,275 @@ class _DevicesSection extends ConsumerWidget {
         if (devices.isEmpty)
           const InlineEmpty(message: 'Подключённых устройств нет')
         else
-          RowsGroup(
+          for (final d in devices)
+            DeviceCard(device: d, isCurrent: isCurrentDevice(d, mine)),
+      ],
+    );
+  }
+}
+
+/// Это ли устройство, с которого человек сейчас смотрит на список.
+///
+/// Два источника, и оба нужны: `is_current` панели работает и для сторонних
+/// клиентов (там панель узнаёт лизу по отпечатку), а сверка идентификатора —
+/// единственное, что работает с панелью, которая новых полей ещё не отдаёт.
+bool isCurrentDevice(Device device, DeviceIdentity? mine) {
+  if (device.isCurrent) return true;
+  if (mine == null || !mine.isKnown) return false;
+  return device.clientDeviceId.isNotEmpty &&
+      device.clientDeviceId == mine.clientDeviceId;
+}
+
+/// Карточка одного устройства. Публичная ради теста, монтирующего её без всего
+/// стека профиля (см. `SubscriptionCard` рядом — та же причина).
+class DeviceCard extends ConsumerWidget {
+  final Device device;
+  final bool isCurrent;
+
+  const DeviceCard({required this.device, this.isCurrent = false, super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.c;
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpace.s2),
+      padding: const EdgeInsets.all(AppSpace.s4),
+      decoration: BoxDecoration(
+        color: c.surface1,
+        borderRadius: AppRadius.r16,
+        border: Border.all(color: c.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              for (final d in devices)
-                CRow(
-                  icon: d.icon,
-                  label: d.name,
-                  value: d.lastSeenLabel,
-                  valueColor: d.online ? c.success : null,
-                  trailing: IconBtn(
-                    Lucide.trash,
-                    size: 36,
-                    color: c.danger,
-                    onTap: () async {
-                      try {
-                        await ref.read(devicesProvider.notifier).remove(d.id);
-                        if (context.mounted) {
-                          showCarambaToast(context, 'Устройство отключено');
-                        }
-                      } on ApiException catch (e) {
-                        if (context.mounted) {
-                          showCarambaToast(context, e.message);
-                        }
-                      }
-                    },
-                  ),
+              IBox(device.icon, size: 34),
+              const SizedBox(width: AppSpace.s3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      device.name,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppType.bodyMd.copyWith(color: c.textHi),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      device.metaLabel,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppType.bodySm.copyWith(
+                        color: device.online ? c.success : c.textMed,
+                      ),
+                    ),
+                  ],
                 ),
+              ),
+              if (isCurrent) ...[
+                const SizedBox(width: AppSpace.s2),
+                const Tag('Это устройство', ok: true),
+              ],
             ],
           ),
-      ],
+          const SizedBox(height: AppSpace.s3),
+          Row(
+            children: [
+              Expanded(
+                child: GhostButton(
+                  label: 'Переименовать',
+                  icon: Lucide.user,
+                  minHeight: 42,
+                  onPressed: () => _rename(context, ref),
+                ),
+              ),
+              const SizedBox(width: AppSpace.s2),
+              Expanded(
+                child: GhostButton(
+                  label: 'Отвязать',
+                  icon: Lucide.trash,
+                  minHeight: 42,
+                  onPressed: () => _unbind(context, ref),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _rename(BuildContext context, WidgetRef ref) async {
+    final name = await showAdaptiveSheet<String>(
+      context,
+      builder: (ctx) => _RenameDeviceSheet(device: device),
+    );
+    if (name == null) return;
+    try {
+      await ref.read(devicesProvider.notifier).rename(device.id, name);
+      // Своё устройство переименовано — местное имя обязано поехать следом:
+      // заголовок `X-Caramba-Device-Name` следующего запроса иначе вернёт
+      // панели прежнее имя, и переименование отменится само собой.
+      if (isCurrent) {
+        await ref.read(deviceIdentityStoreProvider).rename(name);
+        ref.invalidate(deviceIdentityProvider);
+      }
+      if (context.mounted) showCarambaToast(context, 'Имя устройства изменено');
+    } on ApiException catch (e) {
+      if (context.mounted) showCarambaToast(context, e.message);
+    }
+  }
+
+  Future<void> _unbind(BuildContext context, WidgetRef ref) async {
+    // Подтверждение только для своего устройства: отвязать чужой телефон это
+    // решение, которое видно сразу, а отвязать своё значит оборвать туннель
+    // здесь и сейчас — о таком спрашивают.
+    if (isCurrent) {
+      final ok = await showAdaptiveSheet<bool>(
+        context,
+        builder: (ctx) => const _ConfirmUnbindSheet(),
+      );
+      if (ok != true) return;
+    }
+    try {
+      await ref.read(devicesProvider.notifier).remove(device.id);
+      if (context.mounted) showCarambaToast(context, 'Устройство отвязано');
+    } on ApiException catch (e) {
+      if (context.mounted) showCarambaToast(context, e.message);
+    }
+  }
+}
+
+/// Лист переименования: поле с текущим именем и кнопка сохранения. Возвращает
+/// новое имя либо `null`, если человек закрыл лист.
+class _RenameDeviceSheet extends StatefulWidget {
+  final Device device;
+  const _RenameDeviceSheet({required this.device});
+
+  @override
+  State<_RenameDeviceSheet> createState() => _RenameDeviceSheetState();
+}
+
+class _RenameDeviceSheetState extends State<_RenameDeviceSheet> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.device.name,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _controller.text.trim();
+    if (name.isEmpty) return;
+    Navigator.of(context).pop(name);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpace.s5,
+          AppSpace.s1,
+          AppSpace.s5,
+          AppSpace.s6,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Имя устройства',
+              style: AppType.titleLg.copyWith(color: c.textHi),
+            ),
+            const SizedBox(height: AppSpace.s1),
+            Text(
+              'Так это устройство будет называться в списке. Видите его только вы.',
+              style: AppType.bodyMd.copyWith(color: c.textMed),
+            ),
+            const SizedBox(height: AppSpace.s4),
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              maxLength: kDeviceNameMaxLength,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _submit(),
+              style: AppType.bodyMd.copyWith(color: c.textHi),
+              decoration: InputDecoration(
+                counterText: '',
+                hintText: 'Например, Телефон Артёма',
+                hintStyle: AppType.bodyMd.copyWith(color: c.textLow),
+                filled: true,
+                fillColor: c.surface1,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: AppSpace.s4,
+                  vertical: AppSpace.s3 + 2,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: AppRadius.r12,
+                  borderSide: BorderSide(color: c.borderSubtle),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: AppRadius.r12,
+                  borderSide: BorderSide(color: c.borderStrong),
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpace.s3),
+            FilledButton(onPressed: _submit, child: const Text('Сохранить')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Подтверждение отвязки СВОЕГО устройства.
+class _ConfirmUnbindSheet extends StatelessWidget {
+  const _ConfirmUnbindSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpace.s5,
+          AppSpace.s1,
+          AppSpace.s5,
+          AppSpace.s6,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Отвязать это устройство',
+              style: AppType.titleLg.copyWith(color: c.textHi),
+            ),
+            const SizedBox(height: AppSpace.s1),
+            Text(
+              'Подключение на нём прервётся. Устройство займёт слот заново при '
+              'следующем подключении.',
+              style: AppType.bodyMd.copyWith(color: c.textMed),
+            ),
+            const SizedBox(height: AppSpace.s4),
+            QuietButton(
+              label: 'Отвязать',
+              onPressed: () => Navigator.of(context).pop(true),
+            ),
+            GhostButton(
+              label: 'Отмена',
+              minHeight: 42,
+              onPressed: () => Navigator.of(context).pop(false),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -558,7 +811,9 @@ class _FamilySheet extends ConsumerWidget {
       final invite = await ref
           .read(apiClientProvider)
           .inviteFamily(subscriptionId: sub.id);
-      final link = invite.inviteLinkFor(ref.read(activeBrandingProvider).botUrl);
+      final link = invite.inviteLinkFor(
+        ref.read(activeBrandingProvider).botUrl,
+      );
       unawaited(Clipboard.setData(ClipboardData(text: link)));
       ref.invalidate(familyProvider(sub.id));
       if (context.mounted) {

@@ -21,10 +21,11 @@
 /// «потянуть вниз» на мыши нет), заголовок раздела рисует тулбар десктопного
 /// шелла, поэтому `ScreenHead` здесь не строится.
 ///
-/// Приватные секции устройств и рефералов из `profile_screen.dart` не
-/// импортируются: они приватные для той библиотеки. Их содержимое повторено
-/// ниже; логика удаления устройства, тосты и тексты условий совпадают
-/// дословно, различается только раскладка.
+/// Секция устройств общая с мобильным экраном ([ProfileDevicesSection]):
+/// переименование, отвязка и отметка «это устройство» обязаны вести себя
+/// одинаково на всех платформах, а дословная копия расходится при первой же
+/// правке. Реферальная секция пока приватна в `profile_screen.dart` и потому
+/// повторена ниже — тексты совпадают дословно, различается только раскладка.
 library;
 
 import 'package:flutter/material.dart';
@@ -33,7 +34,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart' hide Family;
 
 import 'package:go_router/go_router.dart';
 
-import 'package:caramba_client/data/api_client.dart';
 import 'package:caramba_client/data/models/sub_plan.dart';
 import 'package:caramba_client/desktop/desktop_tokens.dart';
 import 'package:caramba_client/features/notifications/notifications_screen.dart';
@@ -170,7 +170,7 @@ class ProfileDesktopScreen extends ConsumerWidget {
 
                   // ---- Устройства
                   devicesAsync.when(
-                    data: (devices) => _DesktopDevicesSection(devices: devices),
+                    data: (devices) => ProfileDevicesSection(devices: devices),
                     loading: () => const Column(
                       children: [SectionTitle('Устройства'), InlineLoading()],
                     ),
@@ -329,63 +329,9 @@ class _PanelRequiredPane extends StatelessWidget {
   }
 }
 
-/// Устройства аккаунта. Копия мобильной секции (её класс приватен в
-/// `profile_screen.dart`): те же строки, то же удаление с теми же тостами.
-class _DesktopDevicesSection extends ConsumerWidget {
-  final List<Device> devices;
-  const _DesktopDevicesSection({required this.devices});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final c = context.c;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SectionTitle(
-          'Устройства',
-          trailing: Text(
-            '${devices.length}',
-            style: AppType.monoSm.copyWith(color: c.textLow),
-          ),
-        ),
-        if (devices.isEmpty)
-          const InlineEmpty(message: 'Подключённых устройств нет')
-        else
-          RowsGroup(
-            children: [
-              for (final d in devices)
-                CRow(
-                  icon: d.icon,
-                  label: d.name,
-                  value: d.lastSeenLabel,
-                  valueColor: d.online ? c.success : null,
-                  trailing: IconBtn(
-                    Lucide.trash,
-                    size: 36,
-                    color: c.danger,
-                    onTap: () async {
-                      try {
-                        await ref.read(devicesProvider.notifier).remove(d.id);
-                        if (context.mounted) {
-                          showCarambaToast(context, 'Устройство отключено');
-                        }
-                      } on ApiException catch (e) {
-                        if (context.mounted) {
-                          showCarambaToast(context, e.message);
-                        }
-                      }
-                    },
-                  ),
-                ),
-            ],
-          ),
-      ],
-    );
-  }
-}
-
-/// Реферальная сводка. Копия мобильной секции по той же причине, что и
-/// устройства: её класс приватен в `profile_screen.dart`.
+/// Реферальная сводка. Копия мобильной секции: её класс приватен в
+/// `profile_screen.dart`. Секция устройств, в отличие от неё, теперь общая
+/// (`ProfileDevicesSection`) — там расходиться копиям было нельзя.
 class _DesktopReferralSection extends StatelessWidget {
   final ReferralInfo referral;
   const _DesktopReferralSection({required this.referral});

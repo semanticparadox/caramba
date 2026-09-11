@@ -49,6 +49,10 @@ pub struct UserWithTraffic {
 #[allow(dead_code)] // Fields used in template but compiler can't detect
 pub struct AnalyticsTemplate {
     pub total_traffic_30d: String,
+    /// Алл-тайм счётчики узлов. Держится ОТДЕЛЬНЫМ полем, потому что раньше
+    /// это же число стояло под подписью «30d» и врало тем сильнее, чем дольше
+    /// жили узлы.
+    pub total_traffic_all_time: String,
     pub active_nodes_count: i64,
     pub orders: Vec<OrderWithUser>,
     pub top_users: Vec<UserWithTraffic>,
@@ -116,6 +120,7 @@ pub async fn get_traffic_analytics(
     );
 
     let total_traffic_30d = format_bytes_str(stats.total_traffic_30d_bytes as u64);
+    let total_traffic_all_time = format_bytes_str(stats.total_traffic_bytes as u64);
     let active_nodes_count = stats.active_nodes;
 
     let orders = state
@@ -170,6 +175,7 @@ pub async fn get_traffic_analytics(
 
     let template = AnalyticsTemplate {
         total_traffic_30d,
+        total_traffic_all_time,
         active_nodes_count,
         orders,
         top_users,
