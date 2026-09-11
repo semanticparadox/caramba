@@ -140,7 +140,22 @@ pub async fn proxy_handler(
     State(state): State<AppState>,
     req: Request<Body>,
 ) -> Response {
-    forward(state, req, format!("api/{path}"), API_TIMEOUTS).await
+    let upstream = with_query(format!("api/{path}"), req.uri().query());
+    forward(state, req, upstream, API_TIMEOUTS).await
+}
+
+/// Дописывает строку запроса к пути апстрима.
+///
+/// Зачем: axum-экстрактор `Path` отдаёт только путь, и прокси молча терял
+/// `?platform=android` у `/api/v2/app/version`, `?relay_country=` и любые
+/// другие параметры — через зеркало приложение получало «unknown platform»,
+/// хотя напрямую к панели тот же запрос работал. Пустая строка запроса
+/// («/x?») тоже не дописывается: апстриму она не нужна.
+fn with_query(path: String, query: Option<&str>) -> String {
+    match query {
+        Some(q) if !q.is_empty() => format!("{path}?{q}"),
+        _ => path,
+    }
 }
 
 /// Раздача сборок клиента через зеркало: `/downloads/*` уходит на панель как
@@ -156,7 +171,8 @@ pub async fn downloads_handler(
     State(state): State<AppState>,
     req: Request<Body>,
 ) -> Response {
-    forward(state, req, format!("downloads/{path}"), DOWNLOAD_TIMEOUTS).await
+    let upstream = with_query(format!("downloads/{path}"), req.uri().query());
+    forward(state, req, upstream, DOWNLOAD_TIMEOUTS).await
 }
 
 async fn forward(
@@ -290,10 +306,23 @@ async fn forward(
 
 #[cfg(test)]
 mod tests {
-    use super::candidate_targets;
+    use super::{candidate_targets, with_query};
 
     /// Путь уходит на панель как есть: ни `api/`, ни чего-либо ещё функция
     /// больше не дописывает — иначе файл клиента искали бы по `/api/downloads`.
+    #[test]
+    fn the_query_string_survives_the_proxy() {
+        assert_eq!(
+            with_query("api/v2/app/version".into(), Some("platform=android")),
+            "api/v2/app/version?platform=android"
+        );
+        assert_eq!(
+            with_query("api/v2/app/relays".into(), None),
+            "api/v2/app/relays"
+        );
+        assert_eq!(with_query("api/x".into(), Some("")), "api/x");
+    }
+
     #[test]
     fn downloads_path_goes_to_the_panel_unchanged() {
         let targets = candidate_targets(
