@@ -168,12 +168,12 @@
 
                     <div class="pt-6 border-t border-border-default">
                         <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-1 ml-1">Caramba Connect app — download links</p>
-                        <p class="text-xs text-slate-500 mb-4 ml-1">Shown by the bot under the sign-in link and in the Mini App. Leave a field empty to show «coming soon» for that platform.</p>
+                        <p class="text-xs text-slate-500 mb-4 ml-1">Shown by the bot under the sign-in link and in the Mini App. Leave a field empty and the panel builds the link itself from the file it already serves — through the subscription mirror when one is set, so the panel address never leaves. If you fill a field in, prefer the mirror host (<code>https://app.&lt;your-domain&gt;/downloads/…</code>) over the panel address. A field stays empty and no file is on disk → that platform shows «coming soon».</p>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">Android (APK)</label>
                             <input type="url" form="main-settings-form" name="app_download_url_android" value="{{ app_download_url_android }}"
-                                placeholder="https://…/Caramba-Connect-Android-arm64.apk" class="input-field">
+                                placeholder="https://app.example.com/downloads/Caramba-Connect-Android-arm64.apk" class="input-field">
                         </div>
                         <div>
                             <label class="block text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-2 ml-1">iPhone / iPad</label>

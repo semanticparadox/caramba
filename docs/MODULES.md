@@ -158,9 +158,13 @@ decision on Windows elevation (`requireAdministrator` versus a UAC relaunch).
 - Delivery: the installer copies whichever of those assets exist in the release
   into `<install_dir>/apps/caramba-panel/downloads/` (a missing asset is not an
   error); the panel serves that directory at `/downloads`, and
-  `GET /api/client/app/downloads` falls back to `{panel_url}/downloads/<file>`
+  `GET /api/client/app/downloads` falls back to `<public base>/downloads/<file>`
   when the `app_download_url_<platform>` setting is empty. The setting, when
-  set, wins.
+  set, wins. The public base is the one shared helper
+  `api::v2::app_enroll::public_origin`: `subscription_domain` first, `panel_url`
+  only as a fallback — `apps/caramba-sub` proxies `GET|HEAD /downloads/*`
+  straight to the panel, so the panel address never ends up in a link people
+  click.
 
 ## Reference
 

@@ -1801,6 +1801,23 @@ server {{
         proxy_set_header Connection "upgrade";
     }}
 
+    # Caramba Connect builds (APK/EXE/DMG). Через релей их качают все
+    # пользователи — так адрес панели не попадает в ссылку.
+    location /downloads/ {{
+        proxy_pass https://caramba_hub;
+        proxy_ssl_server_name on;
+        proxy_ssl_name {upstream_host};
+        proxy_set_header Host {upstream_host};
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_ssl_verify off;
+
+        # Файлы большие: буферизация ответа целиком съела бы диск релея.
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+    }}
+
     # Telegram Bot Webhook (if needed)
     location /bot/ {{
         proxy_pass https://caramba_hub;
@@ -1862,7 +1879,7 @@ server {{
             upstream
         };
         format!(
-            "{subscription_host}, {tma_host} {{\n    encode zstd gzip\n\n    handle /sub/* {{\n        reverse_proxy {upstream}\n    }}\n\n    handle /app/* {{\n        reverse_proxy {upstream}\n    }}\n\n    handle /bot/* {{\n        reverse_proxy {upstream}\n    }}\n\n    handle {{\n        respond \"relay-only host\" 403\n    }}\n}}",
+            "{subscription_host}, {tma_host} {{\n    encode zstd gzip\n\n    handle /sub/* {{\n        reverse_proxy {upstream}\n    }}\n\n    handle /app/* {{\n        reverse_proxy {upstream}\n    }}\n\n    handle /bot/* {{\n        reverse_proxy {upstream}\n    }}\n\n    handle /downloads/* {{\n        reverse_proxy {upstream}\n    }}\n\n    handle {{\n        respond \"relay-only host\" 403\n    }}\n}}",
             subscription_host = subscription_host,
             tma_host = tma_host,
             upstream = upstream

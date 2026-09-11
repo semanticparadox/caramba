@@ -188,6 +188,20 @@ fn storage_code(code: &str) -> String {
 /// приложение не туда, и человек увидит непонятный сбой сети вместо понятного
 /// «оператор не настроил панель».
 async fn connector_origin(state: &AppState) -> Result<String> {
+    public_origin(state).await.ok_or_else(|| {
+        anyhow!("neither subscription_domain nor panel_url is configured; a connect link would point nowhere")
+    })
+}
+
+/// ЕДИНЫЙ помощник «публичная база» для всего, что уезжает людям: origin
+/// коннектора и адрес скачивания клиента (`api::client`, `/downloads/...`).
+///
+/// Помощник один намеренно. Пока адрес загрузки собирался из `panel_url`
+/// отдельно, ссылка на APK светила панель ровно тем людям, ради которых
+/// заводили зеркало. Теперь оба адреса берутся из одного места и по одному
+/// правилу: зеркало (`subscription_domain`) важнее панели, панель — запасной
+/// вариант.
+pub(crate) async fn public_origin(state: &AppState) -> Option<String> {
     let mirror = state
         .settings
         .get_or_default("subscription_domain", "")
@@ -198,17 +212,19 @@ async fn connector_origin(state: &AppState) -> Result<String> {
     } else {
         configured
     };
+    public_origin_from(&mirror, &panel)
+}
 
-    let choice = choose_connector_origin(&mirror, &panel);
+/// Чистая часть [`public_origin`]: её можно проверить тестом без БД.
+pub(crate) fn public_origin_from(mirror_raw: &str, panel_raw: &str) -> Option<String> {
+    let choice = choose_connector_origin(mirror_raw, panel_raw);
     if let Some(reason) = choice.mirror_ignored {
         // Молча откатиться на panel_url нельзя: оператор настраивал зеркало
         // именно затем, чтобы адрес панели не уезжал людям, и обязан узнать,
         // что его настройку не взяли.
-        tracing::warn!(reason, "connect link: subscription_domain ignored");
+        tracing::warn!(reason, "public origin: subscription_domain ignored");
     }
-    choice.origin.ok_or_else(|| {
-        anyhow!("neither subscription_domain nor panel_url is configured; a connect link would point nowhere")
-    })
+    choice.origin
 }
 
 /// Что выбрано под origin и почему зеркало не подошло (для warn у вызывающего).

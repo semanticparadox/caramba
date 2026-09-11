@@ -85,6 +85,13 @@ async fn main() -> anyhow::Result<()> {
             "/api/{*path}",
             axum::routing::any(handlers::proxy::proxy_handler),
         )
+        // Сборки клиента через зеркало. Файлы лежат на панели, но ссылку на
+        // них получают все пользователи, поэтому отдаём их с публичного
+        // домена: адрес панели в ссылке больше не светится.
+        .route(
+            "/downloads/{*path}",
+            get(handlers::proxy::downloads_handler).head(handlers::proxy::downloads_handler),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             metrics_middleware,

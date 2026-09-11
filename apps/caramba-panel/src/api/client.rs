@@ -4342,31 +4342,16 @@ fn local_download_file(platform: &str) -> Option<&'static str> {
         })
 }
 
-/// Origin панели из сырого значения настройки.
+/// Публичная база, от которой строится ссылка на файл клиента.
 ///
-/// Повторяет `app_enroll::connector_origin`: та же настройка `panel_url`, тот
-/// же запасной `PANEL_URL`, тот же отказ на пустом значении и на «localhost».
-/// Это не случайное дублирование: ссылка на APK и ссылка `caramba://connect`
-/// обязаны вести на один хост, иначе человек скачает клиент с одной панели, а
-/// подключится к другой.
-fn panel_origin_from(raw: &str) -> Option<String> {
-    let raw = raw.trim().trim_end_matches('/');
-    if raw.is_empty() || raw == "localhost" {
-        return None;
-    }
-    Some(if raw.starts_with("http") {
-        raw.to_string()
-    } else {
-        format!("https://{raw}")
-    })
-}
-
-async fn panel_origin(state: &AppState) -> Option<String> {
-    let configured = state.settings.get_or_default("panel_url", "").await;
-    if let Some(origin) = panel_origin_from(&configured) {
-        return Some(origin);
-    }
-    panel_origin_from(&env::var("PANEL_URL").unwrap_or_default())
+/// Тот же помощник, что выдаёт origin для `caramba://connect`
+/// (`app_enroll::public_origin`): зеркало (`subscription_domain`) важнее
+/// `panel_url`. Так ссылка на APK и ссылка коннектора всегда ведут на один
+/// хост, и — главное — адрес панели не уезжает каждому, кто просто скачивает
+/// клиент: зеркало проксирует `/downloads/*` на панель само (см.
+/// apps/caramba-sub).
+async fn download_base(state: &AppState) -> Option<String> {
+    crate::api::v2::app_enroll::public_origin(state).await
 }
 
 /// Выбор адреса загрузки для одной платформы — чистая функция, чтобы правило
@@ -4378,29 +4363,31 @@ async fn panel_origin(state: &AppState) -> Option<String> {
 /// незамеченной, кнопка будет работать и вести не туда, куда просил оператор.
 fn resolve_app_download_url(
     configured: &str,
-    panel_origin: Option<&str>,
+    download_base: Option<&str>,
     local_file: Option<&str>,
 ) -> Option<String> {
     if !configured.trim().is_empty() {
         return accept_download_url(configured);
     }
     // Собранный адрес проходит ту же проверку, что и введённый руками: если
-    // panel_url записан как http, ссылку отдавать нельзя — мини-апп внутри
+    // база записана как http, ссылку отдавать нельзя — мини-апп внутри
     // Telegram её всё равно не откроет.
-    accept_download_url(&format!("{}/downloads/{}", panel_origin?, local_file?))
+    accept_download_url(&format!("{}/downloads/{}", download_base?, local_file?))
 }
 
 /// GET /api/client/app/downloads — где скачать Caramba Connect.
 ///
 /// Адреса задаёт оператор в Settings → «Caramba Connect app — download links».
 /// Если адрес не задан, но инсталлятор уже положил файл клиента в каталог
-/// раздачи, отдаём ссылку на саму панель — типовая установка тогда работает
-/// без единой настройки.
+/// раздачи, собираем ссылку сами — типовая установка тогда работает без единой
+/// настройки. База берётся зеркальная (см. [`download_base`]): файл лежит на
+/// панели, но скачивается через `app.<домен>`, поэтому адрес панели в ссылке
+/// не появляется.
 ///
 /// Отсутствие ключа — не ошибка: по такой платформе мини-апп показывает
 /// «скоро», поэтому пустой объект здесь нормальный ответ, а не отказ.
 async fn get_app_downloads(State(state): State<AppState>) -> impl IntoResponse {
-    let origin = panel_origin(&state).await;
+    let origin = download_base(&state).await;
     let mut out = serde_json::Map::new();
     for key in APP_DOWNLOAD_PLATFORMS {
         let raw = state
@@ -4475,9 +4462,12 @@ async fn post_app_connect_link(
 #[cfg(test)]
 mod app_download_tests {
     use super::{
-        APP_DOWNLOAD_PLATFORMS, accept_download_url, panel_origin_from, platform_download_files,
+        APP_DOWNLOAD_PLATFORMS, accept_download_url, platform_download_files,
         resolve_app_download_url,
     };
+    use crate::api::v2::app_enroll::public_origin_from;
+
+    const ANDROID_FILE: &str = "Caramba-Connect-Android-arm64.apk";
 
     #[test]
     fn accepts_https_url_and_drops_surrounding_spaces() {
@@ -4538,9 +4528,33 @@ mod app_download_tests {
             resolve_app_download_url(
                 "   ",
                 Some("https://panel.exarobot.top"),
-                Some("Caramba-Connect-Android-arm64.apk"),
+                Some(ANDROID_FILE),
             )
             .as_deref(),
+            Some("https://panel.exarobot.top/downloads/Caramba-Connect-Android-arm64.apk")
+        );
+    }
+
+    /// Главное правило этой кнопки: пока зеркало настроено, адрес панели в
+    /// ссылке на файл не появляется ВООБЩЕ — её качают все пользователи.
+    #[test]
+    fn the_mirror_is_the_download_base_when_it_is_configured() {
+        let base = public_origin_from("https://app.example.org", "https://panel.exarobot.top");
+        assert_eq!(base.as_deref(), Some("https://app.example.org"));
+        assert_eq!(
+            resolve_app_download_url("", base.as_deref(), Some(ANDROID_FILE)).as_deref(),
+            Some("https://app.example.org/downloads/Caramba-Connect-Android-arm64.apk")
+        );
+    }
+
+    /// Зеркала нет — ссылка обязана остаться рабочей, пусть и через панель:
+    /// иначе типовая установка без настроек потеряла бы кнопку «скачать».
+    #[test]
+    fn without_a_mirror_the_download_base_is_the_panel() {
+        let base = public_origin_from("   ", "panel.exarobot.top/");
+        assert_eq!(base.as_deref(), Some("https://panel.exarobot.top"));
+        assert_eq!(
+            resolve_app_download_url("", base.as_deref(), Some(ANDROID_FILE)).as_deref(),
             Some("https://panel.exarobot.top/downloads/Caramba-Connect-Android-arm64.apk")
         );
     }
@@ -4570,17 +4584,17 @@ mod app_download_tests {
     }
 
     #[test]
-    fn panel_origin_adds_https_and_strips_the_trailing_slash() {
+    fn download_base_adds_https_and_strips_the_trailing_slash() {
         assert_eq!(
-            panel_origin_from(" panel.exarobot.top/ ").as_deref(),
+            public_origin_from("", " panel.exarobot.top/ ").as_deref(),
             Some("https://panel.exarobot.top")
         );
         assert_eq!(
-            panel_origin_from("https://panel.exarobot.top/").as_deref(),
+            public_origin_from("", "https://panel.exarobot.top/").as_deref(),
             Some("https://panel.exarobot.top")
         );
-        assert_eq!(panel_origin_from(""), None);
-        assert_eq!(panel_origin_from("localhost"), None);
+        assert_eq!(public_origin_from("", ""), None);
+        assert_eq!(public_origin_from("", "localhost"), None);
     }
 
     #[test]

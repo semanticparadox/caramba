@@ -28,8 +28,11 @@ macOS currently uses proxy mode; an iOS Network Extension and Apple distribution
 Android builds are served by the panel as static files: the installer drops
 release assets into `<install_dir>/apps/caramba-panel/downloads/`, the panel
 serves that directory at `/downloads`, and `GET /api/client/app/downloads`
-returns `{panel_url}/downloads/<file>` when the `app_download_url_<platform>`
-setting is empty (the setting, when set, wins). The asset names are a contract
+returns `<public base>/downloads/<file>` when the `app_download_url_<platform>`
+setting is empty (the setting, when set, wins). The public base prefers the
+subscription mirror (`subscription_domain`) over `panel_url`; the mirror
+(`apps/caramba-sub`) proxies `/downloads/*` to the panel, so download links do
+not expose the panel host. The asset names are a contract
 between CI, the installer and the panel — do not rename them:
 
 ```
