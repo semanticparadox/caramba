@@ -34,6 +34,13 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
+
+# Уровень UAC задаёт runner.exe.manifest (requireAdministrator для wintun).
+# Линкер MSVC по умолчанию сам дописывает в манифест trustInfo с asInvoker и
+# затем сливает его с нашим через mt.exe — два trustInfo в одном манифесте
+# mt.exe не принимает, и сборка падала с LNK1327 «failure during running
+# mt.exe». /MANIFESTUAC:NO убирает вклад линкера, остаётся только файл.
+target_link_options(${BINARY_NAME} PRIVATE "/MANIFESTUAC:NO")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
