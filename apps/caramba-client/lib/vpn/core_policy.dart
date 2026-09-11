@@ -11,4 +11,9 @@
 library;
 
 export 'package:caramba_vpn/caramba_vpn.dart'
-    show CorePolicy, CorePolicyDns, CorePolicySplit, TunnelMode;
+    show
+        CorePolicy,
+        CorePolicyDevice,
+        CorePolicyDns,
+        CorePolicySplit,
+        TunnelMode;

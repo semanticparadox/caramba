@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -22,6 +23,79 @@ import (
 // ClashUserAgent — User-Agent, по которому панель определяет clash/mihomo-клиента
 // и отдаёт mihomo-конфиг. Дублируем определением ?client=clash для надёжности.
 const ClashUserAgent = "caramba-core/1.0 (mihomo) clash.meta"
+
+// Заголовки, которыми устройство называет себя панели на ВЫБОРКЕ ПОДПИСКИ.
+//
+// Зачем они здесь, а не только в Dart-клиенте панели. Приложение шлёт эту
+// тройку на /api/v2/app/*, и панель заводит по ней лизу устройства с
+// client_device_id. Но сам конфиг подписки (/sub/{uuid}) качает ядро, и до сих
+// пор оно представлялось одним лишь User-Agent — у панели не было способа
+// узнать в этом запросе тот же телефон. Один аппарат заводил ДВЕ лизы (одну по
+// идентификатору, другую по UA) и съедал два слота лимита устройств.
+//
+// Имена совпадают с apps/caramba-client/lib/state/device_identity.dart и с
+// DeviceIdentity::HEADER_* панели: это один контракт на три языка.
+const (
+	HeaderDeviceID       = "X-Caramba-Device-Id"
+	HeaderDeviceName     = "X-Caramba-Device-Name"
+	HeaderDevicePlatform = "X-Caramba-Device-Platform"
+)
+
+// Потолки значений заголовков. Те же, что режет панель
+// (subscription_service.rs, DeviceIdentity::sanitize): длиннее не доедет
+// осмысленным, зато раздует каждый запрос.
+const (
+	maxDeviceIDLen       = 64
+	maxDeviceNameLen     = 64
+	maxDevicePlatformLen = 32
+)
+
+// DeviceIdentity — чем устройство представляется панели.
+//
+// Пустой ID означает «идентичности нет»: заголовки не отправляются вовсе.
+// Отправить пустой X-Caramba-Device-Id хуже, чем не отправить ничего — панель
+// завела бы одну лизу с пустым ключом на все устройства сразу.
+type DeviceIdentity struct {
+	// ID — стабильный идентификатор установки (UUID v4), тот же, что уходит в
+	// заголовках Dart-клиента.
+	ID string
+	// Name — имя по умолчанию для списка устройств в кабинете.
+	Name string
+	// Platform — android/ios/macos/windows/linux, в нижнем регистре.
+	Platform string
+}
+
+// IsZero сообщает, что идентичности нет и заголовки отправлять нечего.
+func (d DeviceIdentity) IsZero() bool { return d.ID == "" }
+
+// sanitizeHeaderValue приводит значение к тому, что законно едет HTTP-
+// заголовком: только печатный ASCII, без управляющих символов (ими подделывают
+// заголовки), с обрезкой по потолку. Значение приходит из приложения, то есть
+// в конечном счёте из имени хоста и настроек человека, — доверять ему форму
+// нельзя.
+func sanitizeHeaderValue(v string, max int) string {
+	var b strings.Builder
+	for _, r := range v {
+		if r < 0x20 || r > 0x7e {
+			continue
+		}
+		if b.Len() >= max {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// normalizeDeviceIdentity чистит тройку разом. Платформа опускается в нижний
+// регистр: она ключ колонки, а не текст для человека.
+func normalizeDeviceIdentity(id, name, platform string) DeviceIdentity {
+	return DeviceIdentity{
+		ID:       sanitizeHeaderValue(id, maxDeviceIDLen),
+		Name:     sanitizeHeaderValue(name, maxDeviceNameLen),
+		Platform: strings.ToLower(sanitizeHeaderValue(platform, maxDevicePlatformLen)),
+	}
+}
 
 // HTTPDoer — минимальный интерфейс HTTP-клиента.
 type HTTPDoer interface {
@@ -112,6 +186,14 @@ type Client struct {
 	subBaseURL string
 	http       HTTPDoer
 	userAgent  string
+
+	// mu защищает device: идентичность приезжает из приложения политикой
+	// (SetPolicyJSON) уже после сборки клиента и может обновиться в момент,
+	// когда выборка подписки уже идёт в другой горутине.
+	mu sync.RWMutex
+	// device — чем представляться панели. Пустой ID означает «молчим»,
+	// см. DeviceIdentity.
+	device DeviceIdentity
 }
 
 // Option настраивает Client.
@@ -122,6 +204,11 @@ func WithHTTPClient(d HTTPDoer) Option { return func(c *Client) { c.http = d } }
 
 // WithUserAgent переопределяет User-Agent (по умолчанию ClashUserAgent).
 func WithUserAgent(ua string) Option { return func(c *Client) { c.userAgent = ua } }
+
+// WithDeviceIdentity задаёт идентичность устройства при сборке клиента.
+func WithDeviceIdentity(id, name, platform string) Option {
+	return func(c *Client) { c.device = normalizeDeviceIdentity(id, name, platform) }
+}
 
 // NewClient создаёт клиент подписки. subBaseURL — корень сервиса подписок.
 func NewClient(subBaseURL string, opts ...Option) *Client {
@@ -134,6 +221,27 @@ func NewClient(subBaseURL string, opts ...Option) *Client {
 		o(c)
 	}
 	return c
+}
+
+// SetDeviceIdentity сообщает клиенту, чем представляться панели на выборке
+// подписки. Пустой id стирает идентичность: заголовки перестают отправляться.
+//
+// Вызывается из api.Core при применении политики приложения: идентичность
+// устройства живёт в приложении (защищённое хранилище), а ядро её только
+// передаёт дальше — своей ядро не заводит и завести не может.
+func (c *Client) SetDeviceIdentity(id, name, platform string) {
+	next := normalizeDeviceIdentity(id, name, platform)
+	c.mu.Lock()
+	c.device = next
+	c.mu.Unlock()
+}
+
+// DeviceIdentity возвращает текущую идентичность. Нужна пересборке клиента при
+// смене панели: забыть её там значит молча вернуть телефон ко второй лизе.
+func (c *Client) DeviceIdentity() DeviceIdentity {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.device
 }
 
 // HTTPDoer возвращает текущий HTTP-клиент. Нужен, чтобы проверить, что
@@ -191,6 +299,7 @@ func (c *Client) FetchProfile(ctx context.Context, subscriptionUUID string, opts
 	}
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Accept", "text/yaml, application/yaml, */*")
+	c.applyDeviceHeaders(req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -221,6 +330,25 @@ func (c *Client) FetchProfile(ctx context.Context, subscriptionUUID string, opts
 	}
 
 	return &Profile{RawYAML: raw, Metadata: meta}, nil
+}
+
+// applyDeviceHeaders называет устройство панели.
+//
+// Без идентификатора не отправляется НИЧЕГО, включая имя и платформу: без
+// ключа они панели бесполезны, а лишние заголовки — это лишний отпечаток
+// клиента на каждом запросе.
+func (c *Client) applyDeviceHeaders(req *http.Request) {
+	d := c.DeviceIdentity()
+	if d.IsZero() {
+		return
+	}
+	req.Header.Set(HeaderDeviceID, d.ID)
+	if d.Name != "" {
+		req.Header.Set(HeaderDeviceName, d.Name)
+	}
+	if d.Platform != "" {
+		req.Header.Set(HeaderDevicePlatform, d.Platform)
+	}
 }
 
 // parseMetadata собирает метаданные из заголовков ответа и тела YAML.

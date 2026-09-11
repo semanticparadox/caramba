@@ -107,6 +107,116 @@ impl DeviceIdentity {
     }
 }
 
+/// User-Agent, которым представляется НАШЕ ядро, когда качает конфиг подписки
+/// (`libs/caramba-core/subscription`, `ClashUserAgent`).
+///
+/// Нужен ровно для слияния лиз: анонимный запрос сливается с уже опознанной
+/// лизой только если он пришёл от нашего же ядра. Без этой оговорки чужой
+/// клиент (Hiddify, Clash) за тем же NAT прицепился бы к лизе телефона и не
+/// занял бы слот лимита — то есть починка одного просчёта открыла бы другой.
+pub const CORE_SUBSCRIPTION_USER_AGENT: &str = "caramba-core/1.0 (mihomo) clash.meta";
+
+/// Окно, в котором два представления одного устройства считаются одним
+/// устройством.
+///
+/// Десять минут — это «то же самое приложение прямо сейчас»: приложение
+/// дёргает `/api/v2/app/*` и поднимает туннель в пределах одной сессии. Шире
+/// окно — и за NAT начнут склеиваться разные аппараты; уже — и ядро успеет
+/// завести вторую лизу, пока пользователь листает экран.
+pub const DEVICE_MERGE_WINDOW_MINUTES: i64 = 10;
+
+/// Лиза в том виде, в каком её видит РЕШЕНИЕ о слиянии.
+///
+/// Отдельный тип, потому что решение обязано проверяться без базы: за ним
+/// стоит правило «когда два представления это одно устройство», а не запрос.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeaseCandidate {
+    pub id: i64,
+    pub client_device_id: Option<String>,
+    pub user_agent: Option<String>,
+    pub last_ip: String,
+    pub last_seen_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Найденная лиза: её номер и идентификатор установки, который в ней УЖЕ
+/// записан.
+///
+/// Идентификатор возвращается наружу не для красоты: по нему считается
+/// отпечаток строки. Слить анонимный запрос в опознанную лизу и пересчитать её
+/// отпечаток от User-Agent значило бы столкнуть её с уникальным индексом
+/// `(subscription_id, device_fingerprint)` ровно на той строке, ради слияния с
+/// которой всё и затевалось.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MatchedLease {
+    pub id: i64,
+    pub client_device_id: Option<String>,
+}
+
+/// Два представления одного устройства: приложение называет себя
+/// `client_device_id`, а ядро, качающее подписку, — одним User-Agent.
+///
+/// ЗАЧЕМ. Приложение шлёт `X-Caramba-Device-*` на `/api/v2/app/*`, и панель
+/// заводит по ним лизу. Конфиг подписки (`/sub/{uuid}`) выкачивает Go-ядро, и
+/// сборки до этой правки не присылали ничего, кроме User-Agent. Один телефон
+/// заводил ДВЕ лизы и съедал два слота лимита устройств: ветка по
+/// `client_device_id` и ветка по User-Agent никогда не сходились.
+///
+/// ЧЕМ СКЛЕИВАЕМ. Адресом и временем: две записи с одного адреса в пределах
+/// [`DEVICE_MERGE_WINDOW_MINUTES`] — это один аппарат. Адрес `0.0.0.0` —
+/// заглушка внутренних вызовов, по ней не склеивается ничего.
+pub fn merge_lease_candidate(
+    device: &DeviceIdentity,
+    user_agent: Option<&str>,
+    ip: &str,
+    now: chrono::DateTime<chrono::Utc>,
+    candidates: &[LeaseCandidate],
+) -> Option<MatchedLease> {
+    if ip.is_empty() || ip == "0.0.0.0" {
+        return None;
+    }
+    let cutoff = now - Duration::minutes(DEVICE_MERGE_WINDOW_MINUTES);
+    let fresh = |row: &&LeaseCandidate| row.last_ip == ip && row.last_seen_at > cutoff;
+
+    match device.client_device_id.as_deref() {
+        // Запрос назвал себя, но своей лизы ещё нет. Если рядом лежит
+        // безымянная лиза того же клиента с того же адреса — это она и есть:
+        // присваиваем ей идентификатор вместо того, чтобы заводить вторую.
+        Some(client_device_id) => {
+            let same_ua = |row: &&LeaseCandidate| {
+                row.client_device_id.is_none()
+                    && row.user_agent.as_deref().map(str::trim).unwrap_or("")
+                        == user_agent.map(str::trim).unwrap_or("")
+            };
+            candidates
+                .iter()
+                .filter(fresh)
+                .filter(same_ua)
+                .max_by_key(|row| row.last_seen_at)
+                .map(|row| MatchedLease {
+                    id: row.id,
+                    client_device_id: Some(client_device_id.to_string()),
+                })
+        }
+        // Запрос себя не назвал. Сливаем ТОЛЬКО запрос нашего ядра: у чужого
+        // клиента за тем же NAT нет никакого отношения к этому телефону.
+        None => {
+            let ua = user_agent.map(str::trim).unwrap_or("");
+            if !ua.is_empty() && ua != CORE_SUBSCRIPTION_USER_AGENT {
+                return None;
+            }
+            candidates
+                .iter()
+                .filter(fresh)
+                .filter(|row| row.client_device_id.is_some())
+                .max_by_key(|row| row.last_seen_at)
+                .map(|row| MatchedLease {
+                    id: row.id,
+                    client_device_id: row.client_device_id.clone(),
+                })
+        }
+    }
+}
+
 /// Решение гейта устройств по ОДНОМУ ключу: и «знаем ли мы это устройство», и
 /// «сколько их у аккаунта» считаются одинаково, по владельцу и отпечатку.
 /// Раньше внешний гейт сравнивал адреса, а внутренний отпечатки: несколько
@@ -370,7 +480,8 @@ impl SubscriptionService {
         device: &DeviceIdentity,
         fingerprint: &str,
         user_agent: Option<&str>,
-    ) -> Result<Option<i64>> {
+        ip: &str,
+    ) -> Result<Option<MatchedLease>> {
         // Приложение узнаётся по своему идентификатору в первую очередь: его
         // User-Agent меняется при каждом обновлении, а идентификатор нет.
         if let Some(client_device_id) = device.client_device_id.as_deref() {
@@ -385,9 +496,23 @@ impl SubscriptionService {
             .await
             .context("Failed to look up a device lease by client device id")?;
 
-            if found.is_some() {
-                return Ok(found);
+            if let Some(id) = found {
+                return Ok(Some(MatchedLease {
+                    id,
+                    client_device_id: Some(client_device_id.to_string()),
+                }));
             }
+        }
+
+        // Слияние двух представлений одного устройства. Спрашивается РАНЬШЕ
+        // ветки по User-Agent: анонимный запрос нашего же ядра обязан попасть в
+        // лизу, которую приложение уже завело по идентификатору, а не завести
+        // рядом вторую — ровно она и съедала второй слот лимита.
+        if let Some(merged) = self
+            .merge_device_lease(user_id, device, user_agent, ip)
+            .await?
+        {
+            return Ok(Some(merged));
         }
 
         // Второе условие подбирает лизы, заведённые ДО перехода на отпечаток от
@@ -399,8 +524,8 @@ impl SubscriptionService {
         // устройство уже опознано выше, и чужое приложение с тем же
         // User-Agent не имеет права прицепиться к его лизе.
         let legacy_ua = user_agent.unwrap_or("unknown");
-        sqlx::query_scalar(
-            "SELECT id FROM subscription_device_leases \
+        let found: Option<(i64, Option<String>)> = sqlx::query_as(
+            "SELECT id, client_device_id FROM subscription_device_leases \
              WHERE user_id = $1 \
                AND (device_fingerprint = $2 \
                     OR (client_device_id IS NULL \
@@ -412,7 +537,60 @@ impl SubscriptionService {
         .bind(legacy_ua)
         .fetch_optional(&self.pool)
         .await
-        .context("Failed to look up a device lease by fingerprint")
+        .context("Failed to look up a device lease by fingerprint")?;
+
+        Ok(found.map(|(id, lease_device_id)| MatchedLease {
+            id,
+            // Идентификатор запроса сильнее записанного: ветка подобрала
+            // безымянную строку, и этот вызов её именует.
+            client_device_id: device.client_device_id.clone().or(lease_device_id),
+        }))
+    }
+
+    /// Свежие лизы аккаунта с ЭТОГО адреса — вход решения о слиянии.
+    ///
+    /// Запрос узкий намеренно: решение принимает чистая функция
+    /// [`merge_lease_candidate`], а база отдаёт ей только те строки, среди
+    /// которых слияние вообще возможно.
+    async fn merge_device_lease(
+        &self,
+        user_id: i64,
+        device: &DeviceIdentity,
+        user_agent: Option<&str>,
+        ip: &str,
+    ) -> Result<Option<MatchedLease>> {
+        // Заглушка внутренних вызовов: по ней не склеивается ничего, и запрос
+        // в базу ради заведомого «нет» не делается.
+        if ip.is_empty() || ip == "0.0.0.0" {
+            return Ok(None);
+        }
+        let now = Utc::now();
+        let cutoff = now - Duration::minutes(DEVICE_MERGE_WINDOW_MINUTES);
+        let rows: Vec<LeaseCandidate> = sqlx::query_as(
+            "SELECT id, client_device_id, user_agent, last_ip, last_seen_at \
+             FROM subscription_device_leases \
+             WHERE user_id = $1 AND last_ip = $2 AND last_seen_at > $3 \
+             ORDER BY last_seen_at DESC LIMIT 20",
+        )
+        .bind(user_id)
+        .bind(ip)
+        .bind(cutoff)
+        .fetch_all(&self.pool)
+        .await
+        .context("Failed to load device leases for a merge decision")?
+        .into_iter()
+        .map(
+            |(id, client_device_id, user_agent, last_ip, last_seen_at)| LeaseCandidate {
+                id,
+                client_device_id,
+                user_agent,
+                last_ip,
+                last_seen_at,
+            },
+        )
+        .collect();
+
+        Ok(merge_lease_candidate(device, user_agent, ip, now, &rows))
     }
 
     /// Сколько устройств привязано к аккаунту в окне свежести.
@@ -435,21 +613,33 @@ impl SubscriptionService {
     /// внутри `upsert_device_lease` как страховка от гонки. Оба считают по
     /// одному ключу и одному окну — расхождения, из-за которого NAT пробивал
     /// лимит, а смена сети в него упиралась, больше нет.
+    ///
+    /// `client_ip` обязателен по той же причине: слияние двух представлений
+    /// одного устройства опирается на адрес, и гейт, не знающий адреса, отказал
+    /// бы телефону, лизу которого запись через мгновение нашла бы.
     pub async fn check_device_admission(
         &self,
         subscription_id: i64,
         device: &DeviceIdentity,
         user_agent: Option<&str>,
+        client_ip: &str,
     ) -> Result<DeviceAdmission> {
         let user_id = self.lease_user_id(subscription_id).await?;
         let normalized_ua = Self::normalize_user_agent(user_agent);
+        let normalized_ip = Self::normalize_client_ip(client_ip).unwrap_or_default();
         let fingerprint = Self::device_fingerprint_for(
             user_id,
             device.client_device_id.as_deref(),
             normalized_ua.as_deref(),
         );
         let known = self
-            .find_device_lease(user_id, device, &fingerprint, normalized_ua.as_deref())
+            .find_device_lease(
+                user_id,
+                device,
+                &fingerprint,
+                normalized_ua.as_deref(),
+                &normalized_ip,
+            )
             .await?
             .is_some();
         let limit = self
@@ -513,10 +703,39 @@ impl SubscriptionService {
                     .map(|_| "Caramba Connect".to_string())
             });
 
-        if let Some(lease_id) = self
-            .find_device_lease(user_id, device, &fingerprint, normalized_ua.as_deref())
+        if let Some(matched) = self
+            .find_device_lease(
+                user_id,
+                device,
+                &fingerprint,
+                normalized_ua.as_deref(),
+                normalized_ip,
+            )
             .await?
         {
+            // Слияние НЕ трогает отпечаток опознанной строки (NULL в COALESCE
+            // ниже оставляет колонку как есть).
+            //
+            // Иначе слияние ломало бы само себя: анонимный запрос ядра,
+            // попавший в лизу приложения, пересчитал бы её отпечаток с
+            // `dev:<id>` на `user:N|ua:...` и налетел на уникальный индекс
+            // `(subscription_id, device_fingerprint)` — на той самой второй
+            // строке, ради избавления от которой слияние и заведено.
+            let merged_into_identified =
+                device.is_anonymous() && matched.client_device_id.is_some();
+            let lease_fingerprint = if merged_into_identified {
+                None
+            } else {
+                Some(fingerprint.as_str())
+            };
+            // Анонимный запрос не переименовывает опознанное устройство:
+            // «Pixel 8» не имеет права стать «Mihomo» оттого, что конфиг
+            // подписки качает ядро.
+            let auto_name = if merged_into_identified {
+                None
+            } else {
+                auto_name
+            };
             // Устройство уже известно — обновляем строку на месте. Лимит здесь
             // не проверяется: он гейт подключения нового устройства, а не повод
             // отвязать уже привязанное.
@@ -527,7 +746,7 @@ impl SubscriptionService {
             sqlx::query(
                 "UPDATE subscription_device_leases SET
                      subscription_id = $1,
-                     device_fingerprint = $2,
+                     device_fingerprint = COALESCE($2, device_fingerprint),
                      device_name = COALESCE($3, device_name),
                      display_name = COALESCE(display_name, $4),
                      user_agent = COALESCE($5, user_agent),
@@ -539,15 +758,15 @@ impl SubscriptionService {
                  WHERE id = $10",
             )
             .bind(subscription_id)
-            .bind(&fingerprint)
+            .bind(lease_fingerprint)
             .bind(auto_name.as_deref())
             .bind(device.display_name.as_deref())
             .bind(normalized_ua.as_deref())
             .bind(device.platform.as_deref())
-            .bind(device.client_device_id.as_deref())
+            .bind(matched.client_device_id.as_deref())
             .bind(normalized_ip)
             .bind(node_id)
-            .bind(lease_id)
+            .bind(matched.id)
             .execute(&self.pool)
             .await
             .context("Failed to refresh the known device lease")?;
@@ -2557,7 +2776,10 @@ impl SubscriptionService {
 
 #[cfg(test)]
 mod tests {
-    use super::{DeviceAdmission, DeviceIdentity, SubscriptionService};
+    use super::{
+        CORE_SUBSCRIPTION_USER_AGENT, DEVICE_MERGE_WINDOW_MINUTES, DeviceAdmission, DeviceIdentity,
+        Duration, LeaseCandidate, SubscriptionService, Utc, merge_lease_candidate,
+    };
     use axum::http::HeaderMap;
 
     fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
@@ -2690,5 +2912,205 @@ mod tests {
             limit: 0,
         };
         assert!(unlimited.allowed());
+    }
+
+    // ---------------------------------------------------------- слияние лиз
+
+    fn app_device() -> DeviceIdentity {
+        DeviceIdentity {
+            client_device_id: Some("dev-1".to_string()),
+            display_name: Some("Pixel 8".to_string()),
+            platform: Some("android".to_string()),
+        }
+    }
+
+    fn lease(
+        id: i64,
+        client_device_id: Option<&str>,
+        user_agent: Option<&str>,
+        ip: &str,
+        age_minutes: i64,
+    ) -> LeaseCandidate {
+        LeaseCandidate {
+            id,
+            client_device_id: client_device_id.map(ToOwned::to_owned),
+            user_agent: user_agent.map(ToOwned::to_owned),
+            last_ip: ip.to_string(),
+            last_seen_at: Utc::now() - Duration::minutes(age_minutes),
+        }
+    }
+
+    /// Тот самый баг. Приложение уже завело лизу по `X-Caramba-Device-Id`, а
+    /// конфиг подписки качает Go-ядро, и до этой правки оно представлялось
+    /// одним User-Agent. Два представления одного телефона занимали два слота
+    /// лимита устройств.
+    #[test]
+    fn the_core_fetch_lands_in_the_lease_the_app_already_opened() {
+        let now = Utc::now();
+        let rows = vec![lease(
+            7,
+            Some("dev-1"),
+            Some("CarambaConnect/1.0"),
+            "1.2.3.4",
+            2,
+        )];
+        let matched = merge_lease_candidate(
+            &DeviceIdentity::default(),
+            Some(CORE_SUBSCRIPTION_USER_AGENT),
+            "1.2.3.4",
+            now,
+            &rows,
+        )
+        .expect("анонимная выборка ядра обязана попасть в лизу приложения");
+        assert_eq!(matched.id, 7);
+        // Идентификатор берётся из НАЙДЕННОЙ строки: по нему потом считается её
+        // отпечаток, и терять его нельзя.
+        assert_eq!(matched.client_device_id.as_deref(), Some("dev-1"));
+    }
+
+    /// Обратное направление: ядро успело первым, лиза безымянная. Запрос,
+    /// назвавший себя, обязан присвоить ей идентификатор, а не завести вторую.
+    #[test]
+    fn a_named_request_adopts_the_anonymous_lease_of_the_same_client() {
+        let now = Utc::now();
+        let rows = vec![lease(
+            9,
+            None,
+            Some(CORE_SUBSCRIPTION_USER_AGENT),
+            "1.2.3.4",
+            1,
+        )];
+        let matched = merge_lease_candidate(
+            &app_device(),
+            Some(CORE_SUBSCRIPTION_USER_AGENT),
+            "1.2.3.4",
+            now,
+            &rows,
+        )
+        .expect("именованный запрос обязан усыновить безымянную лизу того же клиента");
+        assert_eq!(matched.id, 9);
+        assert_eq!(matched.client_device_id.as_deref(), Some("dev-1"));
+    }
+
+    /// Чужой клиент за тем же NAT — ДРУГОЕ устройство. Иначе починка двойной
+    /// лизы открыла бы дыру в лимите: Hiddify на ноутбуке ехал бы на лизе
+    /// телефона и не занимал слот.
+    #[test]
+    fn a_third_party_client_never_merges_into_someone_elses_lease() {
+        let now = Utc::now();
+        let rows = vec![lease(
+            7,
+            Some("dev-1"),
+            Some("CarambaConnect/1.0"),
+            "1.2.3.4",
+            2,
+        )];
+        assert_eq!(
+            merge_lease_candidate(
+                &DeviceIdentity::default(),
+                Some("Hiddify/2.0"),
+                "1.2.3.4",
+                now,
+                &rows,
+            ),
+            None
+        );
+    }
+
+    /// Границы склейки: другой адрес, протухшее окно и адрес-заглушка
+    /// внутренних вызовов не склеивают ничего.
+    #[test]
+    fn the_merge_is_bounded_by_address_and_time() {
+        let now = Utc::now();
+        let other_ip = vec![lease(7, Some("dev-1"), None, "5.6.7.8", 1)];
+        assert_eq!(
+            merge_lease_candidate(
+                &DeviceIdentity::default(),
+                Some(CORE_SUBSCRIPTION_USER_AGENT),
+                "1.2.3.4",
+                now,
+                &other_ip,
+            ),
+            None
+        );
+
+        let stale = vec![lease(
+            7,
+            Some("dev-1"),
+            None,
+            "1.2.3.4",
+            DEVICE_MERGE_WINDOW_MINUTES + 1,
+        )];
+        assert_eq!(
+            merge_lease_candidate(
+                &DeviceIdentity::default(),
+                Some(CORE_SUBSCRIPTION_USER_AGENT),
+                "1.2.3.4",
+                now,
+                &stale,
+            ),
+            None
+        );
+
+        let fresh = vec![lease(7, Some("dev-1"), None, "0.0.0.0", 1)];
+        assert_eq!(
+            merge_lease_candidate(
+                &DeviceIdentity::default(),
+                Some(CORE_SUBSCRIPTION_USER_AGENT),
+                "0.0.0.0",
+                now,
+                &fresh,
+            ),
+            None
+        );
+    }
+
+    /// Именованный запрос не усыновляет безымянную лизу ДРУГОГО клиента: у
+    /// человека за одним адресом может стоять и наш телефон, и сторонний
+    /// клиент на компьютере.
+    #[test]
+    fn a_named_request_does_not_adopt_a_different_client() {
+        let now = Utc::now();
+        let rows = vec![lease(9, None, Some("Hiddify/2.0"), "1.2.3.4", 1)];
+        assert_eq!(
+            merge_lease_candidate(
+                &app_device(),
+                Some(CORE_SUBSCRIPTION_USER_AGENT),
+                "1.2.3.4",
+                now,
+                &rows,
+            ),
+            None
+        );
+    }
+
+    /// Из нескольких подходящих строк берётся самая свежая: это последнее
+    /// представление того же устройства.
+    #[test]
+    fn the_freshest_candidate_wins() {
+        let now = Utc::now();
+        let rows = vec![
+            lease(1, Some("dev-old"), None, "1.2.3.4", 9),
+            lease(2, Some("dev-new"), None, "1.2.3.4", 1),
+        ];
+        let matched =
+            merge_lease_candidate(&DeviceIdentity::default(), None, "1.2.3.4", now, &rows)
+                .expect("хартбит без User-Agent тоже сливается");
+        assert_eq!(matched.id, 2);
+    }
+
+    /// Ядро называет себя тем же User-Agent, что записан в панели. Разъедутся
+    /// строки — слияние перестанет срабатывать молча, и двойная лиза вернётся.
+    #[test]
+    fn the_core_user_agent_matches_the_go_constant() {
+        let core = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../libs/caramba-core/subscription/subscription.go"
+        ))
+        .expect("нет исходника клиента подписки ядра");
+        assert!(
+            core.contains(&format!("= \"{CORE_SUBSCRIPTION_USER_AGENT}\"")),
+            "User-Agent ядра разошёлся с константой панели"
+        );
     }
 }

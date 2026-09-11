@@ -130,6 +130,16 @@ type Core struct {
 	// смениться. Отчёт обязан рассказывать про то, что применено, а не про то,
 	// что выбрано сейчас. nil означает, что подъёма ещё не было.
 	lastRoute *routeSnapshot
+	// deviceIdentity — чем приложение представляется панели (заголовки
+	// X-Caramba-Device-*). Приходит политикой (SetPolicyJSON, поле device) и
+	// хранится здесь ТОЛЬКО чтобы пережить пересборку клиента подписки в
+	// SetPanelURL: сам клиент подписки держит свою копию и ставит заголовки.
+	//
+	// Своей идентичности ядро не заводит: она живёт в защищённом хранилище
+	// приложения и обязана быть той же самой, что уходит в заголовках его
+	// вызовов /api/v2/app/*. Иначе панель видит два устройства там, где
+	// человек держит одно, и оба съедают слот лимита.
+	deviceIdentity subscription.DeviceIdentity
 	// lastPanelYAML — сырой YAML последнего успешно загруженного профиля панели.
 	// Нужен CarambaProbe: замер узлов идёт по «текущей загруженной конфигурации»
 	// и не должен ради этого повторно ходить в сеть.
@@ -262,6 +272,13 @@ func (c *Core) SetPanelURL(panelURL string) error {
 	panelClient := auth.NewPanelClient(panelURL, auth.WithStore(c.store), auth.WithHTTPClient(c.doer))
 	c.auth = panelClient
 	c.sub = subscription.NewClient(subBase, subscription.WithHTTPClient(c.doer))
+	// Третье место, где легко потерять состояние: клиент подписки здесь новый,
+	// а идентичность устройства приехала политикой ДО смены панели. Не
+	// перенести её значит, что после enroll в другую панель тот же телефон
+	// снова качает подписку безымянным и заводит себе вторую лизу.
+	if !c.deviceIdentity.IsZero() {
+		c.sub.SetDeviceIdentity(c.deviceIdentity.ID, c.deviceIdentity.Name, c.deviceIdentity.Platform)
+	}
 	c.subInfo = app.NewSubscriptionClient(panelClient)
 	c.subscriptionID = ""
 	c.lastPanelYAML = nil

@@ -166,6 +166,16 @@ final routePlanProvider = Provider<RoutePlan>((ref) {
 /// человека», то есть решение об интерфейсе.
 const Set<String> kPathPolicyKeys = <String>{'protocol', 'preset', 'relay'};
 
+/// Ключи политики, которые вообще НЕ настройка: человек их не выбирает.
+///
+/// `device` — идентичность этого устройства. Она едет политикой лишь потому,
+/// что политика — единственный шов до ядра на всех платформах. Оставь её в
+/// отпечатке — и первое же появление идентичности (защищённое хранилище
+/// отвечает уже после первой сборки политики) подняло бы баннер
+/// «переподключитесь, чтобы применить» на ровном месте: менять человеку
+/// нечего, а предложение висит.
+const Set<String> kIdentityPolicyKeys = <String>{'device'};
+
 /// Отпечаток НАСТРОЕЧНОЙ половины политики: всё, кроме [kPathPolicyKeys].
 ///
 /// Считается вычитанием, а не перечислением: поле, добавленное в политику
@@ -173,7 +183,9 @@ const Set<String> kPathPolicyKeys = <String>{'protocol', 'preset', 'relay'};
 /// сторону «порвать туннель молча».
 String settingsSignature(CorePolicy policy) {
   final map = Map<String, Object?>.from(policy.toJson())
-    ..removeWhere((k, _) => kPathPolicyKeys.contains(k));
+    ..removeWhere(
+      (k, _) => kPathPolicyKeys.contains(k) || kIdentityPolicyKeys.contains(k),
+    );
   return jsonEncode(map);
 }
 

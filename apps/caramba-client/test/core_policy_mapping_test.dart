@@ -10,6 +10,7 @@ import 'package:caramba_client/data/models/relay.dart';
 import 'package:caramba_client/data/models/split_app.dart';
 import 'package:caramba_client/state/core_config_state.dart';
 import 'package:caramba_client/state/core_policy_mapping.dart';
+import 'package:caramba_client/state/device_identity.dart';
 import 'package:caramba_client/vpn/core_policy.dart';
 
 /// Входы ровно в той форме, в какой их отдаёт панель: `GET /app/relays`
@@ -199,6 +200,66 @@ void main() {
       expect(json.containsKey('mtu'), isFalse);
       expect(json.containsKey('dns'), isFalse);
       expect(json['protocol'], 'auto');
+    });
+  });
+
+  group('идентичность устройства в политике', () {
+    // Подписку качает ЯДРО, а не Dart. Пока идентичность не доезжала до него,
+    // панель видела в запросе `/sub/{uuid}` безымянного клиента и заводила на
+    // тот же телефон вторую лизу по User-Agent — один аппарат съедал два слота
+    // лимита устройств.
+    test('едет тем же id/именем/платформой, что и заголовки панели', () {
+      const identity = DeviceIdentity(
+        clientDeviceId: '11111111-2222-3333-4444-555555555555',
+        displayName: 'Art MacBook',
+        platform: 'macos',
+      );
+      final policy = corePolicyFrom(
+        const CoreConfig(),
+        _panelRelays,
+        device: identity,
+      );
+      expect(policy.device?.id, identity.clientDeviceId);
+      expect(policy.device?.name, 'Art MacBook');
+      expect(policy.device?.platform, 'macos');
+      // Ровно те же значения, что уходят заголовками: расхождение вернуло бы
+      // вторую лизу на тот же телефон.
+      expect(policy.device?.id, identity.headers[kDeviceIdHeader]);
+      expect(policy.device?.name, identity.headers[kDeviceNameHeader]);
+      expect(policy.device?.platform, identity.headers[kDevicePlatformHeader]);
+    });
+
+    test('имя чистится до того, что законно едет заголовком', () {
+      final policy = corePolicyFrom(
+        const CoreConfig(),
+        _panelRelays,
+        device: const DeviceIdentity(
+          clientDeviceId: 'dev-1',
+          displayName: 'Ноутбук Артёма',
+          platform: 'macos',
+        ),
+      );
+      // Ядро положит имя в HTTP-заголовок, а тот едет latin-1: кириллица либо
+      // ломает запрос, либо приезжает мусором. Пусто — панель поставит своё.
+      expect(policy.device?.name, isEmpty);
+      expect(policy.device?.id, 'dev-1');
+    });
+
+    test('без идентичности ключа device в JSON нет вовсе', () {
+      // «Не знаем» обязано означать «не менять»: пустой идентификатор завёл бы
+      // на панели одну лизу с пустым ключом на все устройства сразу.
+      expect(
+        corePolicyFrom(const CoreConfig(), _panelRelays).toJson(),
+        isNot(contains('device')),
+      );
+      expect(
+        corePolicyFrom(
+          const CoreConfig(),
+          _panelRelays,
+          device: DeviceIdentity.unknown,
+        ).toJson(),
+        isNot(contains('device')),
+      );
     });
   });
 

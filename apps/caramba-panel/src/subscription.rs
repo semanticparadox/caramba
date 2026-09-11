@@ -615,7 +615,7 @@ pub async fn subscription_handler(
     // лимит на самом себе.
     let admission = state
         .subscription_service
-        .check_device_admission(sub.id, &device, user_agent.as_deref())
+        .check_device_admission(sub.id, &device, user_agent.as_deref(), &client_ip)
         .await
         .unwrap_or(DeviceAdmission {
             // Ошибка учёта не повод не пустить человека к оплаченному доступу:

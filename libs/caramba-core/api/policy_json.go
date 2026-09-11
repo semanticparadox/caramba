@@ -8,6 +8,7 @@ import (
 
 	"github.com/semanticparadox/caramba/libs/caramba-core/profile"
 	"github.com/semanticparadox/caramba/libs/caramba-core/routing"
+	"github.com/semanticparadox/caramba/libs/caramba-core/subscription"
 )
 
 // policyPatch — разбор JSON-политики приложения (CoreConfig на стороне Flutter).
@@ -40,6 +41,22 @@ type policyPatch struct {
 		AllowDomains  []string `json:"allowDomains"`
 		AllowSites    []string `json:"allowSites"`
 	} `json:"split"`
+	// Device — чем устройство представляется панели на ВЫБОРКЕ ПОДПИСКИ.
+	//
+	// Едет политикой, а не отдельным вызовом канала, намеренно: политика уже
+	// доходит до ядра одной JSON-строкой на всех пяти платформах (Android,
+	// darwin, Windows, Linux, FFI-десктоп), и нативные стороны её не
+	// разбирают — просто передают в SetPolicyJSON. Новое поле здесь не стоит
+	// ни одной правки в Kotlin, Swift и C++; отдельный метод канала стоил бы
+	// пяти.
+	//
+	// Идентичность НЕ часть политики подключения по смыслу и на маршрут не
+	// влияет: она едет этим же швом только потому, что шов один.
+	Device *struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Platform string `json:"platform"`
+	} `json:"device"`
 }
 
 // allowedSiteTags — закрытый словарь тегов GEOSITE, которые приложение может
@@ -248,6 +265,23 @@ func (c *Core) SetPolicyJSON(jsonStr string) error {
 			return fmt.Errorf("api: недопустимое значение поля split.mode: %q (ожидается off|bypass|allow)", mode)
 		}
 		p.Split = split
+	}
+
+	if patch.Device != nil {
+		// Идентичность применяется вместе с политикой, то есть тоже атомарно:
+		// сюда мы доходим, только если все перечислимые поля прошли проверку.
+		c.deviceIdentity = subscription.DeviceIdentity{
+			ID:       patch.Device.ID,
+			Name:     patch.Device.Name,
+			Platform: patch.Device.Platform,
+		}
+		// Чистка и потолки — в клиенте подписки: он единственный, кто кладёт
+		// эти значения в HTTP-заголовки, и правило «что законно в заголовке»
+		// обязано жить рядом с местом, где заголовок ставится.
+		if c.sub != nil {
+			c.sub.SetDeviceIdentity(patch.Device.ID, patch.Device.Name, patch.Device.Platform)
+			c.deviceIdentity = c.sub.DeviceIdentity()
+		}
 	}
 
 	c.policy = p

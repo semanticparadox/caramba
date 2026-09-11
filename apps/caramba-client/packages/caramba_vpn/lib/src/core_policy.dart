@@ -100,6 +100,56 @@ class CorePolicyDns {
   };
 }
 
+/// Идентичность УСТРОЙСТВА в политике (`device` в ABI v2).
+///
+/// ЗАЧЕМ ОНА ЕДЕТ ПОЛИТИКОЙ, а не отдельным методом канала. Ядро само качает
+/// конфиг подписки (`/sub/{uuid}`) и до сих пор представлялось панели одним
+/// User-Agent, тогда как приложение шлёт на `/api/v2/app/*` тройку
+/// `X-Caramba-Device-*`. Панель заводила на один телефон ДВЕ лизы — по
+/// идентификатору и по User-Agent — и списывала два слота лимита устройств.
+/// Чтобы это починить, идентичность должна доехать до ядра.
+///
+/// Политика — единственный шов, который уже доходит до ядра одной JSON-строкой
+/// на всех платформах (Android, darwin, Windows, Linux, FFI): нативные стороны
+/// её не разбирают, а передают в `SetPolicyJSON` как есть. Поэтому новое поле
+/// здесь не стоит ни одной правки в Kotlin, Swift и C++, тогда как отдельный
+/// метод канала стоил бы пяти реализаций и пяти шансов забыть одну.
+///
+/// К маршруту трафика поле отношения не имеет и на выбор узла не влияет.
+class CorePolicyDevice {
+  /// Стабильный идентификатор установки (UUID v4). Тот же, что уходит в
+  /// заголовке `X-Caramba-Device-Id` вызовов панели.
+  final String id;
+
+  /// Имя устройства по умолчанию для списка в кабинете.
+  final String name;
+
+  /// `android` | `ios` | `macos` | `windows` | `linux`.
+  final String platform;
+
+  const CorePolicyDevice({
+    required this.id,
+    this.name = '',
+    this.platform = '',
+  });
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'name': name,
+    'platform': platform,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      other is CorePolicyDevice &&
+      other.id == id &&
+      other.name == name &&
+      other.platform == platform;
+
+  @override
+  int get hashCode => Object.hash(id, name, platform);
+}
+
 /// Политика ядра, применяемая ДО `Up` (ABI v2 `CarambaSetPolicy`).
 ///
 /// Пример из контракта:
@@ -140,6 +190,10 @@ class CorePolicy {
   final CorePolicyDns? dns;
   final CorePolicySplit? split;
 
+  /// Чем устройство представляется панели на выборке подписки. `null` —
+  /// «не менять»: ядро оставляет ту идентичность, которую уже получило.
+  final CorePolicyDevice? device;
+
   const CorePolicy({
     this.protocol,
     this.preset,
@@ -152,6 +206,7 @@ class CorePolicy {
     this.adblock,
     this.dns,
     this.split,
+    this.device,
   });
 
   /// Пустая политика: ничего не переопределяет (валидный вход для ядра).
@@ -169,6 +224,7 @@ class CorePolicy {
     bool? adblock,
     CorePolicyDns? dns,
     CorePolicySplit? split,
+    CorePolicyDevice? device,
   }) => CorePolicy(
     protocol: protocol ?? this.protocol,
     preset: preset ?? this.preset,
@@ -181,6 +237,7 @@ class CorePolicy {
     adblock: adblock ?? this.adblock,
     dns: dns ?? this.dns,
     split: split ?? this.split,
+    device: device ?? this.device,
   );
 
   /// JSON ровно по ABI v2. Ключи со значением null не пишутся вовсе — ядро
@@ -198,6 +255,7 @@ class CorePolicy {
     if (adblock != null) map['adblock'] = adblock;
     if (dns != null) map['dns'] = dns!.toJson();
     if (split != null) map['split'] = split!.toJson();
+    if (device != null) map['device'] = device!.toJson();
     return map;
   }
 }

@@ -10,6 +10,7 @@ import 'package:caramba_client/state/auto_reconnect.dart';
 import 'package:caramba_client/state/connection_profiles_state.dart';
 import 'package:caramba_client/state/core_config_state.dart';
 import 'package:caramba_client/state/core_policy_mapping.dart';
+import 'package:caramba_client/state/device_identity.dart';
 import 'package:caramba_client/state/exit_inventory_state.dart';
 import 'package:caramba_client/state/providers.dart';
 import 'package:caramba_client/state/servers_state.dart';
@@ -610,10 +611,16 @@ final exitHeadlineProvider = Provider<ExitHeadline>((ref) {
 
 /// Текущая политика ядра, собранная из пользовательского выбора. Отдельный
 /// провайдер, чтобы её видели и connect, и баннер «нужно переподключение».
+///
+/// Идентичность устройства приезжает сюда же и намеренно ЧЕРЕЗ ПОЛИТИКУ: это
+/// единственный шов, который доходит до ядра одной JSON-строкой на всех пяти
+/// платформах. Пока хранилище не ответило, `valueOrNull` даёт `null` — поле в
+/// JSON не появляется, и ядро остаётся на прежней идентичности, а не теряет её.
 final corePolicyProvider = Provider<CorePolicy>((ref) {
   return corePolicyFrom(
     ref.watch(coreConfigProvider),
     ref.watch(relaysProvider),
+    device: ref.watch(deviceIdentityProvider).valueOrNull,
   );
 });
 

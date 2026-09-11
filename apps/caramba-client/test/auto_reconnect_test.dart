@@ -805,4 +805,44 @@ void _outcomeUnchangedTests() {
       expect(calls, contains('reconnect'));
     });
   });
+
+  group('идентичность устройства не настройка', () {
+    // Идентичность едет политикой только потому, что политика — единственный
+    // шов до ядра на всех платформах. Считай её настройкой — и её появление
+    // (защищённое хранилище отвечает уже после первой сборки политики) подняло
+    // бы баннер «переподключитесь, чтобы применить» на ровном месте: менять
+    // человеку нечего, а предложение висит.
+    test('не меняет отпечаток настроек', () {
+      const withoutDevice = CorePolicy(preset: 'global', killSwitch: true);
+      const withDevice = CorePolicy(
+        preset: 'global',
+        killSwitch: true,
+        device: CorePolicyDevice(id: 'dev-1', name: 'Mac', platform: 'macos'),
+      );
+      expect(
+        settingsSignature(withDevice),
+        settingsSignature(withoutDevice),
+      );
+    });
+
+    test('не поднимает требование переподключиться', () {
+      const applied = CorePolicy(preset: 'global');
+      const current = CorePolicy(
+        preset: 'global',
+        device: CorePolicyDevice(id: 'dev-1'),
+      );
+      expect(
+        settingsAwaitReconnect(
+          connected: true,
+          preferencesStale: false,
+          applied: applied,
+          appliedMode: TunnelMode.tun,
+          current: () => current,
+          currentMode: () => TunnelMode.tun,
+        ),
+        isFalse,
+      );
+    });
+  });
+
 }

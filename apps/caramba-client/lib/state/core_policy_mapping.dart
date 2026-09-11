@@ -12,6 +12,7 @@ import 'package:caramba_client/data/models/protocol.dart';
 import 'package:caramba_client/data/models/relay.dart';
 import 'package:caramba_client/data/models/split_app.dart';
 import 'package:caramba_client/state/core_config_state.dart';
+import 'package:caramba_client/state/device_identity.dart';
 import 'package:caramba_client/vpn/core_policy.dart';
 
 /// Пресеты маршрутизации ядра (`preset` в ABI v2). UI-идентификаторы
@@ -43,7 +44,20 @@ const Map<String, CorePolicyDns> kDnsPresets = <String, CorePolicyDns>{
 /// [relays] — тот же список, что показывает пикер (панельный, когда загружен,
 /// иначе [Relay.defaults]): индекс `config.relay` значим только относительно
 /// него. Выход индекса за границы списка трактуется как «не выбрано».
-CorePolicy corePolicyFrom(CoreConfig config, List<Relay> relays) {
+///
+/// [device] — идентичность этого устройства ([DeviceIdentity]), та же самая,
+/// что уходит заголовками `X-Caramba-Device-*` в вызовах панели. Она едет
+/// политикой, потому что подписку (`/sub/{uuid}`) качает ЯДРО, а не Dart: без
+/// неё панель видела в этом запросе безымянного клиента, заводила на тот же
+/// телефон вторую лизу по User-Agent и списывала два слота лимита устройств за
+/// один аппарат. `null` (хранилище ещё не ответило) означает «не менять»: поле
+/// в JSON не появляется вовсе, и ядро оставляет ту идентичность, что уже
+/// получило.
+CorePolicy corePolicyFrom(
+  CoreConfig config,
+  List<Relay> relays, {
+  DeviceIdentity? device,
+}) {
   return CorePolicy(
     protocol: _protocol(config.protocol),
     preset: _preset(config.route),
@@ -56,6 +70,22 @@ CorePolicy corePolicyFrom(CoreConfig config, List<Relay> relays) {
     adblock: config.blockAds,
     dns: _dns(config.dns),
     split: _split(config),
+    device: _device(device),
+  );
+}
+
+/// Идентичность в форме контракта ядра. Неизвестная и пустая одинаково дают
+/// `null`: отправить пустой идентификатор хуже, чем не отправить ничего —
+/// панель завела бы одну лизу с пустым ключом на все устройства сразу.
+CorePolicyDevice? _device(DeviceIdentity? device) {
+  if (device == null || !device.isKnown) return null;
+  return CorePolicyDevice(
+    id: device.clientDeviceId,
+    // Имя чистится тем же правилом, что и для HTTP-заголовка: ядро положит
+    // его именно в заголовок, и кириллическое имя там либо ломает запрос,
+    // либо приезжает мусором.
+    name: asciiHeaderValue(device.displayName),
+    platform: device.platform,
   );
 }
 
