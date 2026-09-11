@@ -481,12 +481,17 @@ async fn try_install_mini_app_assets(version: &str, install_dir: &str) -> Result
 /// `apps/caramba-panel/downloads/`. Имена совпадают с ассетами релиза и с тем,
 /// что ищет на диске `GET /api/client/app/downloads` в панели: разъехавшееся
 /// имя означает молчаливое «скоро» в мини-аппе вместо кнопки загрузки.
-const CLIENT_DOWNLOAD_ASSETS: [&str; 5] = [
-    "caramba-connect-arm64.apk",
-    "caramba-connect-armv7.apk",
-    "caramba-connect-windows-x64.zip",
-    "caramba-connect-macos-arm64.dmg",
-    "caramba-connect-linux-x64.tar.gz",
+///
+/// Единая схема `Caramba-Connect-<OS>-<arch>.<ext>` (CI: client-android.yml,
+/// client-desktop.yml). Старые имена `caramba-connect-*` больше не ищутся:
+/// файлы прежних релизов на диске панели просто остаются лежать.
+const CLIENT_DOWNLOAD_ASSETS: [&str; 6] = [
+    "Caramba-Connect-Android-arm64.apk",
+    "Caramba-Connect-Android-armv7.apk",
+    "Caramba-Connect-Setup-x64.exe",
+    "Caramba-Connect-Windows-x64-portable.zip",
+    "Caramba-Connect-macOS-arm64.dmg",
+    "Caramba-Connect-Linux-x64.tar.gz",
 ];
 
 /// Скачивает один ассет клиента в каталог раздачи.

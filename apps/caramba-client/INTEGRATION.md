@@ -52,17 +52,20 @@ described in a workflow file.
 
 Known holes that are not build problems:
 
-- Windows: `windows/runner/runner.exe.manifest` is still `asInvoker`, but WinTun
-  needs administrator rights to create the adapter. The window title and
-  `ProductName` are still the Flutter default `caramba_client`.
+- Windows: `windows/runner/runner.exe.manifest` requests
+  `requireAdministrator` (WinTun needs it to create the adapter), so every
+  launch shows a UAC prompt. The executable stays `caramba_client.exe`; the
+  installer (`windows/installer/caramba-connect.iss`, Inno Setup) installs it
+  as "Caramba Connect" and registers the `caramba://` / `carambaconnect://`
+  URL schemes. See `docs/WINDOWS.md`.
 - Linux: no `webview_flutter` and no `mobile_scanner` implementation exists for
   the platform. The QR screen already hides itself on desktop; a webview screen
   would throw `MissingPluginException`. There is no app icon in the repo and no
   package (deb/AppImage) — `linux/caramba-connect.desktop` is a template for a
   future packager.
-- macOS: the DMG asset is named `caramba-connect-macos-arm64.dmg` for historical
-  reasons; the bundle inside is universal. The name is wired into the installer
-  and the panel, so it stays.
+- macOS: the DMG asset is named `Caramba-Connect-macOS-arm64.dmg`, but the
+  bundle inside (`Caramba Connect.app`) is universal. The name is wired into
+  the installer and the panel, so it stays.
 
 ## What is and is not committed
 
@@ -561,8 +564,8 @@ bash libs/caramba-core/scripts/build-desktop-lib.sh macos
 cp libs/caramba-core/build/libcaramba_core.dylib \
    apps/caramba-client/packages/caramba_vpn/darwin/Libraries/
 cd apps/caramba-client && bash scripts/build.sh macos-dmg
-# -> build/macos/Build/Products/Release/caramba_client.app  (~165 MB, universal)
-# -> build/caramba-connect-macos-arm64.dmg                  (~66 MB, UDZO, unsigned)
+# -> build/macos/Build/Products/Release/Caramba Connect.app  (~175 MB, universal)
+# -> build/Caramba-Connect-macOS-arm64.dmg                    (~66 MB, UDZO, unsigned)
 ```
 
 The copy is not optional: the podspec vendors that exact path, and without it the
@@ -842,10 +845,10 @@ nothing is published.
 
 | Workflow | Runner | Asset |
 | --- | --- | --- |
-| `.github/workflows/client-android.yml` | ubuntu-latest | `caramba-connect-arm64.apk`, `caramba-connect-armv7.apk` (signed) |
-| `.github/workflows/client-desktop.yml`, job `macos` | macos-latest | `caramba-connect-macos-arm64.dmg` (unsigned) — plus the iOS compile check, which produces no asset |
-| `.github/workflows/client-desktop.yml`, job `windows` | windows-latest, Git Bash | `caramba-connect-windows-x64.zip` |
-| `.github/workflows/client-desktop.yml`, job `linux` | ubuntu-latest | `caramba-connect-linux-x64.tar.gz` |
+| `.github/workflows/client-android.yml` | ubuntu-latest | `Caramba-Connect-Android-arm64.apk`, `Caramba-Connect-Android-armv7.apk` (signed) |
+| `.github/workflows/client-desktop.yml`, job `macos` | macos-latest | `Caramba-Connect-macOS-arm64.dmg` (unsigned) — plus the iOS compile check, which produces no asset |
+| `.github/workflows/client-desktop.yml`, job `windows` | windows-latest, Git Bash + Inno Setup | `Caramba-Connect-Setup-x64.exe` (installer), `Caramba-Connect-Windows-x64-portable.zip` (root folder `Caramba Connect\`) |
+| `.github/workflows/client-desktop.yml`, job `linux` | ubuntu-latest | `Caramba-Connect-Linux-x64.tar.gz` (root folder `caramba-connect/` with `install.sh`) |
 
 The three desktop jobs are independent (no `needs`): a Windows failure must not
 block publishing the DMG. Those asset names are a contract with the installer and
@@ -904,9 +907,10 @@ named gap. Before you expect a real tunnel elsewhere:
 - iOS has no Network Extension target and no certificate. It compiles and links
   against the core on the simulator, and that is the whole claim.
 - Windows and Linux builds have never been executed — not in CI, not on a
-  machine. Windows additionally needs administrator (and the manifest still says
-  `asInvoker`) and has no code-signing certificate; Linux needs root or
-  `CAP_NET_ADMIN`.
+  machine. Windows additionally needs administrator (the manifest now says
+  `requireAdministrator`, so UAC asks on every launch) and has no code-signing
+  certificate; Linux needs root or `CAP_NET_ADMIN` (`linux/install.sh` sets
+  it via `setcap`).
 - Android needs the user to accept the VPN consent dialog on first connect.
 - AmneziaWG needs both the panel's global and per-node toggles on, and the
   node's `amneziawg-go` binary hash pinned in the release pipeline before it

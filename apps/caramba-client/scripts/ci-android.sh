@@ -38,7 +38,9 @@
 # Артефакты (все gitignored):
 #   libs/caramba-core/build/exarobot.aar
 #   apps/caramba-client/packages/caramba_vpn/android/libs/caramba.aar
-#   apps/caramba-client/build/dist/caramba-connect-{arm64,armv7}.apk
+#   apps/caramba-client/build/dist/Caramba-Connect-Android-{arm64,armv7}.apk
+#   (единая схема имён Caramba-Connect-<OS>-<arch>.<ext>, та же, что ищут
+#   apps/caramba-installer и /api/client/app/downloads в панели)
 #
 set -euo pipefail
 
@@ -181,8 +183,8 @@ rename_apk() {
   echo "    ${dst}  ($(du -h "${dst}" | cut -f1))"
 }
 log "релизные артефакты:"
-rename_apk app-arm64-v8a-release.apk   caramba-connect-arm64.apk
-rename_apk app-armeabi-v7a-release.apk caramba-connect-armv7.apk
+rename_apk app-arm64-v8a-release.apk   Caramba-Connect-Android-arm64.apk
+rename_apk app-armeabi-v7a-release.apk Caramba-Connect-Android-armv7.apk
 
 # --- 8. подпись в лог ---------------------------------------------------------
 # Печатается только открытая часть (subject/fingerprint) — по ней видно, тот же
@@ -194,7 +196,7 @@ for cand in "${SDK}"/build-tools/*/apksigner; do
   if [[ -x "${cand}" ]]; then APKSIGNER="${cand}"; fi
 done
 if [[ -n "${APKSIGNER}" ]]; then
-  for apk in caramba-connect-arm64.apk caramba-connect-armv7.apk; do
+  for apk in Caramba-Connect-Android-arm64.apk Caramba-Connect-Android-armv7.apk; do
     log "apksigner verify ${apk}"
     "${APKSIGNER}" verify --print-certs "${DIST_DIR}/${apk}"
   done

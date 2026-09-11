@@ -1,4 +1,5 @@
-use crate::bot::translations::{Lang, t};
+use crate::bot::apk_delivery::FilePlatform;
+use crate::bot::translations::{Lang, t, tf};
 use teloxide::types::{
     CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardMarkup,
 };
@@ -13,16 +14,23 @@ pub fn main_menu(lang: Lang, app_mode: bool, always_support: bool) -> KeyboardMa
     if app_mode {
         // Режим «только приложение» обязан оставлять дорогу В приложение.
         //
-        // Раньше он прятал всё, кроме поддержки, — включая единственную кнопку,
+        // Раньше он прятал всё, кроме поддержки, включая единственную кнопку,
         // по которой бот отдаёт ссылку caramba://connect. Выпуск ссылки при этом
         // работал и был выкачен, но нажать было негде: на боевой панели в этом
         // режиме за всё время не выдалось ни одного кода. Функция, до которой
         // нельзя дотянуться, ничем не отличается от отсутствующей.
-        let mut row = vec![KeyboardButton::new(t(lang, "menu.open_app"))];
+        //
+        // Каждая кнопка своей строкой: владелец не нашёл, где скопировать ссылку,
+        // когда она пряталась под «Войти в приложение», поэтому «Подключить»
+        // и «Скачать» стоят первыми и на всю ширину, поддержка последней.
+        let mut rows = vec![
+            vec![KeyboardButton::new(t(lang, "menu.open_app"))],
+            vec![KeyboardButton::new(t(lang, "menu.download_app"))],
+        ];
         if always_support {
-            row.push(KeyboardButton::new(t(lang, "menu.support")));
+            rows.push(vec![KeyboardButton::new(t(lang, "menu.support"))]);
         }
-        return KeyboardMarkup::new(vec![row]).resize_keyboard();
+        return KeyboardMarkup::new(rows).resize_keyboard();
     }
 
     KeyboardMarkup::new(vec![
@@ -98,67 +106,132 @@ pub async fn guide_index_button(
     ]]))
 }
 
-/// Кнопка-ссылка «Скачать для Android».
+/// Платформы ссылок на сайт в порядке показа; ключ настройки
+/// `app_download_url_{id}`, подпись кнопки `app.download_{id}_btn`.
+pub const APP_DOWNLOAD_PLATFORMS: [&str; 5] = ["android", "ios", "windows", "macos", "linux"];
+
+/// Кнопки-ссылки «Скачать для …» для всех настроенных платформ.
 ///
-/// Адрес APK задаёт оператор в Settings → «Caramba Connect app — download
-/// links»; пусто или не https — кнопки нет. Требование https не косметическое:
-/// по кнопке человек ставит себе APK, и отдавать его по открытому каналу
-/// значит разрешить подменить установочный файл по дороге. Telegram к тому же
-/// не примет URL-кнопку с посторонней схемой.
-async fn app_download_url_button(
+/// Адреса задаёт оператор в Settings → «Caramba Connect app — download
+/// links»; пусто или не https, значит кнопки нет. Требование https не
+/// косметическое: по кнопке человек ставит себе установщик, и отдавать его по
+/// открытому каналу значит разрешить подменить файл по дороге. Telegram к тому
+/// же не примет URL-кнопку с посторонней схемой.
+async fn app_download_url_buttons(
     settings: &crate::settings::SettingsService,
     lang: Lang,
-) -> Option<InlineKeyboardButton> {
-    let url = settings
-        .get_or_default("app_download_url_android", "")
-        .await;
-    let parsed = url.trim().parse::<reqwest::Url>().ok()?;
-    if parsed.scheme() != "https" {
-        return None;
+) -> Vec<InlineKeyboardButton> {
+    let mut buttons = Vec::new();
+    for id in APP_DOWNLOAD_PLATFORMS {
+        let url = settings
+            .get_or_default(&format!("app_download_url_{id}"), "")
+            .await;
+        let Ok(parsed) = url.trim().parse::<reqwest::Url>() else {
+            continue;
+        };
+        if parsed.scheme() != "https" {
+            continue;
+        }
+        buttons.push(InlineKeyboardButton::url(
+            t(lang, &format!("app.download_{id}_btn")),
+            parsed,
+        ));
     }
-    Some(InlineKeyboardButton::url(
-        t(lang, "app.download_android_btn"),
-        parsed,
-    ))
+    buttons
 }
 
-/// Только кнопка-ссылка, без выдачи файла.
+/// Кнопки-ссылки по две в строке: пять платформ в столбик растягивают
+/// сообщение на весь экран телефона, а по две подписи ещё читаются.
+fn two_per_row(buttons: Vec<InlineKeyboardButton>) -> Vec<Vec<InlineKeyboardButton>> {
+    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+    for button in buttons {
+        match rows.last_mut() {
+            Some(row) if row.len() < 2 => row.push(button),
+            _ => rows.push(vec![button]),
+        }
+    }
+    rows
+}
+
+/// Только кнопки-ссылки, без выдачи файла.
 ///
 /// Нужна запасному пути в `apk_delivery`: сообщение «файла в Telegram нет» не
-/// может нести кнопку «получить файл в Telegram» — она вернула бы человека в
+/// может нести кнопку «получить файл в Telegram», она вернула бы человека в
 /// то же самое сообщение по кругу.
 pub async fn app_download_url_keyboard(
     settings: &crate::settings::SettingsService,
     lang: Lang,
 ) -> Option<InlineKeyboardMarkup> {
-    let button = app_download_url_button(settings, lang).await?;
-    Some(InlineKeyboardMarkup::new(vec![vec![button]]))
+    let rows = two_per_row(app_download_url_buttons(settings, lang).await);
+    if rows.is_empty() {
+        None
+    } else {
+        Some(InlineKeyboardMarkup::new(rows))
+    }
 }
 
-/// Способы забрать приложение — строки для клавиатуры сообщения со ссылкой.
+/// Меню выбора платформы для файлов из Telegram: одна кнопка на загруженную
+/// платформу, каждая своей строкой.
+pub fn tg_file_platform_keyboard(lang: Lang, uploaded: &[FilePlatform]) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(
+        uploaded
+            .iter()
+            .map(|platform| {
+                vec![InlineKeyboardButton::callback(
+                    platform.label(lang),
+                    platform.callback_data(),
+                )]
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+/// Общее меню скачивания под «📥 Скачать приложение»: ссылки на сайт для
+/// настроенных платформ, затем файлы из Telegram для загруженных.
 ///
-/// Две строки, обе необязательные: ссылка на домен панели и выдача APK файлом
+/// ПОРЯДОК НЕ СЛУЧАЕН: ссылка отдаёт всегда свежую сборку с сервера, файл в
+/// Telegram ту, что владелец загрузил руками, поэтому ссылки первыми. Файлы
+/// подписаны «в Telegram», чтобы отличаться от ссылок на ту же платформу
+/// строкой выше. `None`, если не настроено ничего.
+pub async fn download_menu_keyboard(
+    settings: &crate::settings::SettingsService,
+    lang: Lang,
+    uploaded: &[FilePlatform],
+) -> Option<InlineKeyboardMarkup> {
+    let mut rows = two_per_row(app_download_url_buttons(settings, lang).await);
+    for platform in uploaded {
+        rows.push(vec![InlineKeyboardButton::callback(
+            tf(lang, "app.tg_file_platform_btn", &[platform.label(lang)]),
+            platform.callback_data(),
+        )]);
+    }
+    if rows.is_empty() {
+        None
+    } else {
+        Some(InlineKeyboardMarkup::new(rows))
+    }
+}
+
+/// Способы забрать приложение: строки для клавиатуры сообщения со ссылкой.
+///
+/// Ссылки на сайт для всех настроенных платформ и одна кнопка выдачи файла
 /// прямо в Telegram. ПОРЯДОК НЕ СЛУЧАЕН: ссылка отдаёт всегда свежую сборку с
-/// сервера, файл в Telegram — ту, что владелец загрузил руками, поэтому ссылка
-/// остаётся первой, пока работает. Вторая строка — страховка ровно на тот
+/// сервера, файл в Telegram ту, что владелец загрузил руками, поэтому ссылки
+/// остаются первыми, пока работают. Кнопка файла страховка ровно на тот
 /// случай, ради которого всё затевалось: домен заблокирован, а Telegram у
 /// человека очевидно работает, раз он читает это сообщение.
 ///
-/// Кнопка выдачи файла появляется только когда `file_id` действительно записан
-/// (см. `apk_delivery`): кнопка, которая отвечает «файла нет», хуже отсутствия
-/// кнопки. Если не настроено ничего — клавиатуры нет вовсе.
+/// Кнопка выдачи файла появляется только когда хоть один `file_id`
+/// действительно записан (см. `apk_delivery`): кнопка, которая отвечает
+/// «файла нет», хуже отсутствия кнопки. Если не настроено ничего, клавиатуры
+/// нет вовсе.
 async fn app_download_rows(
     settings: &crate::settings::SettingsService,
     lang: Lang,
 ) -> Vec<Vec<InlineKeyboardButton>> {
-    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
-    if let Some(button) = app_download_url_button(settings, lang).await {
-        rows.push(vec![button]);
-    }
-    let has_file = !settings
-        .get_or_default(crate::bot::apk_delivery::SETTING_APK_FILE_ID, "")
+    let mut rows = two_per_row(app_download_url_buttons(settings, lang).await);
+    let has_file = !crate::bot::apk_delivery::uploaded_platforms(settings)
         .await
-        .trim()
         .is_empty();
     if has_file {
         rows.push(vec![InlineKeyboardButton::callback(
@@ -249,6 +322,33 @@ mod tests {
             InlineKeyboardButtonKind::CopyText(copy) => assert_eq!(copy.text, link),
             other => panic!("не кнопка копирования: {other:?}"),
         }
+    }
+
+    /// Ссылки на сайт раскладываются по две в строке, хвост из одной кнопки
+    /// не теряется.
+    #[test]
+    fn url_buttons_are_laid_out_two_per_row() {
+        let mk = |n: usize| {
+            (0..n)
+                .map(|i| InlineKeyboardButton::callback(format!("b{i}"), format!("c{i}")))
+                .collect::<Vec<_>>()
+        };
+        assert!(two_per_row(mk(0)).is_empty());
+        let rows = two_per_row(mk(5));
+        assert_eq!(rows.iter().map(Vec::len).collect::<Vec<_>>(), vec![2, 2, 1]);
+    }
+
+    /// Меню файлов из Telegram: по строке на платформу, callback несёт её id.
+    #[test]
+    fn tg_file_menu_has_one_row_per_uploaded_platform() {
+        let uploaded = [FilePlatform::Android, FilePlatform::MacOs];
+        let kb = tg_file_platform_keyboard(Lang::Ru, &uploaded);
+        assert_eq!(kb.inline_keyboard.len(), 2);
+        match &kb.inline_keyboard[1][0].kind {
+            InlineKeyboardButtonKind::CallbackData(data) => assert_eq!(data, "apk_send_macos"),
+            other => panic!("не callback-кнопка: {other:?}"),
+        }
+        assert_eq!(kb.inline_keyboard[0][0].text, "📲 Android (APK)");
     }
 
     /// Ссылка длиннее предела обязана оставить сообщение без кнопки, а не

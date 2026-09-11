@@ -5,13 +5,15 @@
 # Без него xdg-open по ссылке из бота на Linux не найдёт приложение, и весь
 # путь «ссылка из Telegram -> экран подключения» на десктопе не работает.
 #
-# Что делает упаковщик (deb/rpm/AppImage/tar.gz + install.sh):
+# Что делает упаковщик (сегодня это linux/install.sh внутри архива
+# Caramba-Connect-Linux-x64.tar.gz, собираемого scripts/ci-desktop.sh linux):
 #   1. кладёт бандл из build/linux/x64/release/bundle в /opt/caramba-connect/;
 #   2. подставляет реальный путь в Exec= (ниже — путь по умолчанию) и кладёт
 #      этот файл в /usr/share/applications/caramba-connect.desktop;
 #   3. кладёт иконку caramba-connect.png в
 #      /usr/share/icons/hicolor/512x512/apps/ (исходник: linux/icons/);
-#   4. обновляет базы: update-desktop-database и gtk-update-icon-cache.
+#   4. обновляет базы: update-desktop-database и gtk-update-icon-cache;
+#   5. выдаёт бинарю cap_net_admin+ep (tun без sudo).
 #
 # Проверка регистрации схемы после установки:
 #   xdg-mime query default x-scheme-handler/caramba   # -> caramba-connect.desktop

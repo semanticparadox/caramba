@@ -20,6 +20,7 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::bot::apk_delivery::{FilePlatform, SettingField};
 
 use super::auth::{get_auth_user, is_authenticated};
 
@@ -42,7 +43,39 @@ fn is_checkbox_enabled(value: Option<&str>) -> bool {
         .unwrap_or(false)
 }
 
-/// Форматирует размер APK (байты, хранятся строкой) в МБ с одним знаком после
+/// Строка блока «Файлы Caramba Connect в Telegram» в админке: по одной на
+/// платформу из `FilePlatform::ALL`, загружен файл или нет. Имя чекбокса
+/// «Забыть файл» в шаблоне собирается как `apk_tg_forget_{id}`.
+pub struct TgFileRow {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub uploaded: bool,
+    pub file_name: String,
+    pub size_mb: String,
+    pub uploaded_at_display: String,
+}
+
+/// Читает слот файла платформы из настроек в строку админки.
+async fn tg_file_row(state: &AppState, platform: FilePlatform) -> TgFileRow {
+    let read = |field: SettingField| {
+        let key = platform.setting_key(field);
+        async move { state.settings.get_or_default(&key, "").await }
+    };
+    let file_id = read(SettingField::FileId).await;
+    let file_name = read(SettingField::FileName).await;
+    let file_size = read(SettingField::FileSize).await;
+    let uploaded_at = read(SettingField::UploadedAt).await;
+    TgFileRow {
+        id: platform.id(),
+        label: platform.admin_label(),
+        uploaded: !file_id.trim().is_empty(),
+        file_name: file_name.trim().to_string(),
+        size_mb: format_apk_size_mb(&file_size),
+        uploaded_at_display: format_apk_uploaded_at(&uploaded_at),
+    }
+}
+
+/// Форматирует размер файла (байты, хранятся строкой) в МБ с одним знаком после
 /// запятой для read-only строки в админке. Пустая/битая строка → "?", чтобы
 /// не ронять рендер настроек из-за мусора в поле.
 fn format_apk_size_mb(bytes_str: &str) -> String {
@@ -52,7 +85,7 @@ fn format_apk_size_mb(bytes_str: &str) -> String {
     }
 }
 
-/// Форматирует RFC3339-дату загрузки APK (пишет K1 при захвате документа) в
+/// Форматирует RFC3339-дату загрузки файла (пишет бот при захвате документа) в
 /// человекочитаемый вид для админки. Невалидная/пустая дата → "?".
 fn format_apk_uploaded_at(rfc3339: &str) -> String {
     DateTime::parse_from_rfc3339(rfc3339.trim())
@@ -412,12 +445,10 @@ pub struct SettingsTemplate {
     pub app_download_url_windows: String,
     pub app_download_url_macos: String,
     pub app_download_url_linux: String,
-    // APK, который бот раздаёт по file_id в обход блокировки домена (K1 apk_delivery.rs).
-    // Ключи настроек — общий контракт с ботом (см. app_apk_tg_file_id_android и др.).
-    pub apk_tg_uploaded_android: bool,
-    pub apk_tg_file_name_android: String,
-    pub apk_tg_file_size_mb_android: String,
-    pub apk_tg_uploaded_at_display_android: String,
+    // Файлы всех платформ, которые бот раздаёт по file_id в обход блокировки
+    // домена (bot::apk_delivery). Ключи настроек берутся у бота, чтобы у
+    // админки не было своего мнения об их написании.
+    pub apk_tg_files: Vec<TgFileRow>,
     // Подарок при регистрации (акция). Пустой `welcome_gift_plan_id` = выключено.
     pub welcome_gift_plan_id: String,
     pub welcome_gift_days: String,
@@ -628,8 +659,13 @@ pub struct SaveSettingsForm {
     pub app_download_url_windows: Option<String>,
     pub app_download_url_macos: Option<String>,
     pub app_download_url_linux: Option<String>,
-    // Чекбокс-действие «Забыть файл»: при true очищаем четыре ключа APK-file_id (не персистится сам).
+    // Чекбоксы-действия «Забыть файл» по платформам: при true очищаем четыре
+    // ключа слота (сами не персистятся). Имена = `apk_tg_forget_{FilePlatform::id}`.
     pub apk_tg_forget_android: Option<String>,
+    pub apk_tg_forget_windows: Option<String>,
+    pub apk_tg_forget_windows_portable: Option<String>,
+    pub apk_tg_forget_macos: Option<String>,
+    pub apk_tg_forget_linux: Option<String>,
     pub welcome_gift_plan_id: Option<String>,
     pub welcome_gift_days: Option<String>,
     pub welcome_gift_until: Option<String>,
@@ -785,28 +821,11 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         .settings
         .get_or_default("app_download_url_linux", "")
         .await;
-    // APK по file_id (K1): читаем те же четыре ключа строковыми литералами,
-    // как условлено в спеке — без общего кода с ботом.
-    let app_apk_tg_file_id_android = state
-        .settings
-        .get_or_default("app_apk_tg_file_id_android", "")
-        .await;
-    let apk_tg_file_name_android = state
-        .settings
-        .get_or_default("app_apk_tg_file_name_android", "")
-        .await;
-    let app_apk_tg_file_size_android = state
-        .settings
-        .get_or_default("app_apk_tg_file_size_android", "")
-        .await;
-    let app_apk_tg_uploaded_at_android = state
-        .settings
-        .get_or_default("app_apk_tg_uploaded_at_android", "")
-        .await;
-    let apk_tg_uploaded_android = !app_apk_tg_file_id_android.trim().is_empty();
-    let apk_tg_file_size_mb_android = format_apk_size_mb(&app_apk_tg_file_size_android);
-    let apk_tg_uploaded_at_display_android =
-        format_apk_uploaded_at(&app_apk_tg_uploaded_at_android);
+    // Файлы в Telegram по платформам: слоты читаются через контракт бота.
+    let mut apk_tg_files = Vec::with_capacity(FilePlatform::ALL.len());
+    for platform in FilePlatform::ALL {
+        apk_tg_files.push(tg_file_row(&state, platform).await);
+    }
     let welcome_gift_plan_id = state
         .settings
         .get_or_default("welcome_gift_plan_id", "")
@@ -1411,10 +1430,7 @@ pub async fn get_settings(State(state): State<AppState>, jar: CookieJar) -> impl
         app_download_url_windows,
         app_download_url_macos,
         app_download_url_linux,
-        apk_tg_uploaded_android,
-        apk_tg_file_name_android,
-        apk_tg_file_size_mb_android,
-        apk_tg_uploaded_at_display_android,
+        apk_tg_files,
         welcome_gift_plan_id,
         welcome_gift_days,
         welcome_gift_until,
@@ -1805,14 +1821,25 @@ pub async fn save_settings(
     if let Some(v) = form.app_download_url_linux {
         settings.insert("app_download_url_linux".to_string(), v.trim().to_string());
     }
-    // «Забыть файл»: чистим все четыре ключа, которыми бот (K1) раздаёт APK по
-    // file_id — так админка может закрыть протухший/ошибочный upload без
-    // прямого доступа к БД. Сам чекбокс — разовое действие, не персистится.
-    if is_checkbox_enabled(form.apk_tg_forget_android.as_deref()) {
-        settings.insert("app_apk_tg_file_id_android".to_string(), "".to_string());
-        settings.insert("app_apk_tg_file_name_android".to_string(), "".to_string());
-        settings.insert("app_apk_tg_file_size_android".to_string(), "".to_string());
-        settings.insert("app_apk_tg_uploaded_at_android".to_string(), "".to_string());
+    // «Забыть файл»: чистим все четыре ключа слота, которыми бот раздаёт файл
+    // платформы по file_id, так админка закрывает протухший/ошибочный upload
+    // без прямого доступа к БД. Сам чекбокс разовое действие, не персистится.
+    let forget_flags = [
+        (FilePlatform::Android, form.apk_tg_forget_android.as_deref()),
+        (FilePlatform::Windows, form.apk_tg_forget_windows.as_deref()),
+        (
+            FilePlatform::WindowsPortable,
+            form.apk_tg_forget_windows_portable.as_deref(),
+        ),
+        (FilePlatform::MacOs, form.apk_tg_forget_macos.as_deref()),
+        (FilePlatform::Linux, form.apk_tg_forget_linux.as_deref()),
+    ];
+    for (platform, flag) in forget_flags {
+        if is_checkbox_enabled(flag) {
+            for key in platform.setting_keys() {
+                settings.insert(key, String::new());
+            }
+        }
     }
     if let Some(v) = form.welcome_gift_plan_id {
         settings.insert(

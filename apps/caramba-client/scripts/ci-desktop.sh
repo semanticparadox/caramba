@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # ci-desktop.sh — единственный путь сборки десктопных артефактов Caramba Connect
-# (macOS DMG, Windows ZIP, Linux tar.gz) плюс проверка компиляции iOS.
+# (macOS DMG, Windows Setup.exe + ZIP, Linux tar.gz) плюс проверка компиляции iOS.
 #
 # Тот же принцип, что у ci-android.sh: один скрипт крутится и локально, и в
 # GitHub Actions (.github/workflows/client-desktop.yml). Шаги в workflow —
@@ -14,7 +14,7 @@
 #
 # Использование:
 #   bash apps/caramba-client/scripts/ci-desktop.sh macos     # → DMG
-#   bash apps/caramba-client/scripts/ci-desktop.sh windows   # → ZIP (только на Windows)
+#   bash apps/caramba-client/scripts/ci-desktop.sh windows   # → Setup.exe + ZIP (только на Windows)
 #   bash apps/caramba-client/scripts/ci-desktop.sh linux     # → tar.gz (только на Linux)
 #   bash apps/caramba-client/scripts/ci-desktop.sh ios       # проверка компиляции, без ассета
 #
@@ -30,11 +30,19 @@
 #                              каждый длинный шаг обёрнут в timeout, см. T_* ниже)
 #   CARAMBA_T_CORE, CARAMBA_T_BUILD, CARAMBA_T_PUB, CARAMBA_T_FETCH,
 #   CARAMBA_T_ZIP, CARAMBA_T_TOOLCHECK — лимиты соответствующих шагов, секунды
+#   CARAMBA_ISCC             — путь к ISCC.exe (Inno Setup 6), если он не в
+#                              стандартном месте; только для цели windows
+#   CARAMBA_ALLOW_NO_VCRT=1  — не падать, если VC++-рантайм (msvcp140.dll и
+#                              компания) не нашёлся в Visual Studio раннера
 #
 # Артефакты (все gitignored, см. .gitignore:51 «build/»):
-#   macos   → apps/caramba-client/build/dist/caramba-connect-macos-arm64.dmg
-#   windows → apps/caramba-client/build/dist/caramba-connect-windows-x64.zip
-#   linux   → apps/caramba-client/build/dist/caramba-connect-linux-x64.tar.gz
+#   macos   → apps/caramba-client/build/dist/Caramba-Connect-macOS-arm64.dmg
+#   windows → apps/caramba-client/build/dist/Caramba-Connect-Setup-x64.exe
+#             + Caramba-Connect-Windows-x64-portable.zip
+#   linux   → apps/caramba-client/build/dist/Caramba-Connect-Linux-x64.tar.gz
+#   Единая схема имён Caramba-Connect-<OS>-<arch>.<ext> — контракт с
+#   apps/caramba-installer (список ассетов) и /api/client/app/downloads в
+#   панели: переименовав файл здесь, нужно переименовать его и там.
 #   ios     → ассета нет (подписи и таргета Network Extension у проекта нет)
 #
 set -euo pipefail
@@ -295,9 +303,10 @@ build_macos() {
   [[ -n "${app}" ]] || die "не найден .app после сборки"
   log "собрано: ${app} ($(size_of "${app}"))"
 
-  # Имя бинаря берём из Info.plist, а не из имени папки .app: EXECUTABLE_NAME
-  # развязан с PRODUCT_NAME (внутри caramba_client.app лежит «Caramba Connect»),
-  # и прежний basename нашёл бы несуществующий файл, а lipo уронил бы прогон.
+  # Имя бинаря берём из Info.plist, а не из имени папки .app: бандл теперь
+  # «Caramba Connect.app» (PRODUCT_NAME с пробелом), и любая догадка по
+  # basename рано или поздно разъедется с CFBundleExecutable, а lipo уронит
+  # прогон на несуществующем файле.
   local exe
   exe="$(plutil -extract CFBundleExecutable raw -o - "${app}/Contents/Info.plist" 2>/dev/null || true)"
   [[ -n "${exe}" ]] || die "в ${app}/Contents/Info.plist нет CFBundleExecutable"
@@ -314,10 +323,10 @@ build_macos() {
     die "в бандле нет Contents/Frameworks/libcaramba_core.dylib — уехал бы mock"
   fi
 
-  local dmg="${CLIENT_DIR}/build/caramba-connect-macos-arm64.dmg"
+  local dmg="${CLIENT_DIR}/build/Caramba-Connect-macOS-arm64.dmg"
   [[ -s "${dmg}" ]] || die "DMG не собрался: ${dmg}"
-  cp "${dmg}" "${DIST_DIR}/caramba-connect-macos-arm64.dmg"
-  log "артефакт: ${DIST_DIR}/caramba-connect-macos-arm64.dmg ($(size_of "${dmg}"))"
+  cp "${dmg}" "${DIST_DIR}/Caramba-Connect-macOS-arm64.dmg"
+  log "артефакт: ${DIST_DIR}/Caramba-Connect-macOS-arm64.dmg ($(size_of "${dmg}"))"
   # Подписи нет (сертификата Apple Developer у проекта нет) — Gatekeeper на
   # чужой машине потребует «Открыть всё равно». Пишем это в лог прогона, чтобы
   # факт не терялся между релизами.
@@ -366,13 +375,26 @@ build_linux() {
     die "в бандле нет lib/libcaramba_core.so — уехал бы mock"
   fi
 
-  local out="${DIST_DIR}/caramba-connect-linux-x64.tar.gz"
+  # Архив с корневой папкой caramba-connect/ (без пробела: путь идёт в Exec
+  # .desktop-файла и в /opt), а не голый bundle/: владелец просил нормальное
+  # имя папки установки на всех системах. Внутрь кладём install.sh, шаблон
+  # .desktop и иконку — install.sh сам ставит всё в /opt/caramba-connect,
+  # регистрирует обработчик caramba:// и выдаёт бинарю CAP_NET_ADMIN.
+  local stage="${CLIENT_DIR}/build/linux-stage" root="caramba-connect"
+  rm -rf "${stage}"
+  mkdir -p "${stage}"
+  cp -R "${bundle}" "${stage}/${root}"
+  for extra in linux/install.sh linux/caramba-connect.desktop linux/icons/caramba-connect.png; do
+    [[ -f "${CLIENT_DIR}/${extra}" ]] || die "нет ${extra} — архив без установщика уехал бы в релиз"
+    cp "${CLIENT_DIR}/${extra}" "${stage}/${root}/"
+  done
+  chmod 755 "${stage}/${root}/install.sh" "${stage}/${root}/caramba_client"
+
+  local out="${DIST_DIR}/Caramba-Connect-Linux-x64.tar.gz"
   rm -f "${out}"
-  tar -czf "${out}" -C "${CLIENT_DIR}/build/linux/x64/release" bundle
+  tar -czf "${out}" -C "${stage}" "${root}"
   log "артефакт: ${out} ($(size_of "${out}"))"
-  # .desktop с обработчиком схемы caramba:// в архив не кладётся: путь Exec
-  # знает только упаковщик (deb/AppImage). Шаблон — linux/caramba-connect.desktop.
-  log "ВНИМАНИЕ: пакета (deb/AppImage) нет, запуск туннеля требует CAP_NET_ADMIN"
+  log "ВНИМАНИЕ: пакета (deb/AppImage) нет; установка — sudo ./caramba-connect/install.sh (setcap cap_net_admin+ep)"
 }
 
 # --- Windows ------------------------------------------------------------------
@@ -426,6 +448,142 @@ ensure_python3_shim() {
   log "python3 → шим на python (нужен fetch-wintun.sh для распаковки)"
 }
 
+# Единая схема имён ассетов (та же у бота, мини-аппа и инсталлятора панели):
+# Caramba-Connect-<Платформа>-<арх>.<ext>. Портативный ZIP несёт внутри
+# корневую папку «Caramba Connect/» — распаковка даёт человеческое имя, а не
+# россыпь DLL рядом с архивом.
+WIN_SETUP_NAME="Caramba-Connect-Setup-x64.exe"
+WIN_ZIP_NAME="Caramba-Connect-Windows-x64-portable.zip"
+WIN_STAGING_ROOT="Caramba Connect"
+
+# ISCC.exe на образе windows-latest лежит в фиксированном месте и в PATH не
+# добавлен. Локально путь можно задать через CARAMBA_ISCC.
+find_iscc() {
+  if [[ -n "${CARAMBA_ISCC:-}" ]]; then
+    [[ -f "${CARAMBA_ISCC}" ]] || die "CARAMBA_ISCC указывает на несуществующий файл: ${CARAMBA_ISCC}"
+    echo "${CARAMBA_ISCC}"
+    return 0
+  fi
+  local cand
+  for cand in "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" "/c/Program Files/Inno Setup 6/ISCC.exe"; do
+    if [[ -f "${cand}" ]]; then
+      echo "${cand}"
+      return 0
+    fi
+  done
+  if command -v ISCC.exe >/dev/null 2>&1; then
+    command -v ISCC.exe
+    return 0
+  fi
+  if command -v iscc >/dev/null 2>&1; then
+    command -v iscc
+    return 0
+  fi
+  return 1
+}
+
+# flutter build windows НЕ кладёт в бандл рантайм Visual C++ (msvcp140.dll,
+# vcruntime140.dll, vcruntime140_1.dll), а без него на чистой Windows exe
+# падает с «msvcp140.dll не найден» ещё до первого кадра. Документация Flutter
+# велит класть эти три файла рядом с exe (вариант «application-local»); берём
+# их из Visual Studio на раннере — она там есть всегда, иначе не собрался бы
+# и сам Flutter.
+copy_vc_runtime() {
+  local dst="$1" name
+  local missing=()
+  for name in msvcp140.dll vcruntime140.dll vcruntime140_1.dll; do
+    [[ -f "${dst}/${name}" ]] || missing+=("${name}")
+  done
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    log "VC++-рантайм уже в бандле"
+    return 0
+  fi
+  local base="" crt_dir=""
+  if [[ -n "${VCToolsRedistDir:-}" ]]; then
+    base="$(cygpath -u "${VCToolsRedistDir}")"
+  else
+    local vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+    if [[ -x "${vswhere}" ]]; then
+      local vs_root
+      vs_root="$("${vswhere}" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath </dev/null 2>/dev/null | tr -d '\r' | head -1 || true)"
+      # Идентификатор компонента мог смениться между версиями VS — тогда
+      # берём просто последнюю установленную студию.
+      [[ -n "${vs_root}" ]] || vs_root="$("${vswhere}" -latest -products '*' -property installationPath </dev/null 2>/dev/null | tr -d '\r' | head -1 || true)"
+      [[ -n "${vs_root}" ]] && base="$(cygpath -u "${vs_root}")/VC/Redist/MSVC"
+    fi
+  fi
+  if [[ -n "${base}" && -d "${base}" ]]; then
+    # Несколько версий тулсета могут лежать рядом (14.3x, 14.4x): берём самую
+    # новую; DLL обратно совместимы в пределах VC14x.
+    # onecore/ и debug_nonredist/ лежат рядом — это не тот рантайм.
+    crt_dir="$(find "${base}" -type f -name msvcp140.dll -path '*x64*' -path '*.CRT*' -not -path '*onecore*' -not -path '*debug*' 2>/dev/null | sort -V | tail -1 || true)"
+    [[ -n "${crt_dir}" ]] && crt_dir="$(dirname "${crt_dir}")"
+  fi
+  if [[ -n "${crt_dir}" ]]; then
+    for name in "${missing[@]}"; do
+      [[ -f "${crt_dir}/${name}" ]] && cp "${crt_dir}/${name}" "${dst}/${name}"
+    done
+    log "VC++-рантайм из ${crt_dir} → ${dst}"
+  fi
+  local still=()
+  for name in "${missing[@]}"; do
+    [[ -f "${dst}/${name}" ]] || still+=("${name}")
+  done
+  if [[ ${#still[@]} -gt 0 ]]; then
+    if [[ "${CARAMBA_ALLOW_NO_VCRT:-0}" == "1" ]]; then
+      warn "в бандле нет ${still[*]} — на чистой Windows понадобится vc_redist.x64.exe (CARAMBA_ALLOW_NO_VCRT=1)"
+    else
+      die "не нашёл VC++-рантайм (${still[*]}) в Visual Studio раннера; задайте VCToolsRedistDir или CARAMBA_ALLOW_NO_VCRT=1"
+    fi
+  fi
+}
+
+# Проверка, что ZIP несёт корневую папку: make_zip пакует «всё из каталога», и
+# если staging собрали не тем уровнем, архив уедет россыпью файлов, а
+# заметит это только пользователь после распаковки.
+check_zip_root() {
+  local zip="$1" py
+  for py in python3 python; do
+    command -v "${py}" >/dev/null 2>&1 || continue
+    if "${py}" -c 'import sys, zipfile; names = {n.replace("\\", "/") for n in zipfile.ZipFile(sys.argv[1]).namelist()}; sys.exit(0 if sys.argv[2] in names else 1)' \
+        "${zip}" "${WIN_STAGING_ROOT}/caramba_client.exe" </dev/null; then
+      log "в ZIP есть ${WIN_STAGING_ROOT}/caramba_client.exe"
+      return 0
+    fi
+    die "в ZIP нет ${WIN_STAGING_ROOT}/caramba_client.exe — архив без корневой папки"
+  done
+  warn "нет python — содержимое ZIP не проверено"
+}
+
+# Setup.exe через Inno Setup 6 (скрипт windows/installer/caramba-connect.iss).
+# Версию берём из pubspec.yaml, чтобы запись в «Приложения и возможности»
+# совпадала с тегом релиза client-v<pubspec>.
+build_windows_installer() {
+  local staging="$1" out_dir="$2"
+  local iscc
+  iscc="$(find_iscc)" || die "ISCC.exe (Inno Setup 6) не найден: на windows-latest это C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe, локально задайте CARAMBA_ISCC"
+  log "Inno Setup: ${iscc}"
+  local version build
+  version="$(sed -n 's/^version:[[:space:]]*\([0-9][0-9.]*\)+\([0-9][0-9]*\).*/\1/p' "${CLIENT_DIR}/pubspec.yaml")"
+  build="$(sed -n 's/^version:[[:space:]]*\([0-9][0-9.]*\)+\([0-9][0-9]*\).*/\2/p' "${CLIENT_DIR}/pubspec.yaml")"
+  [[ -n "${version}" && -n "${build}" ]] || die "не разобрал version: в pubspec.yaml (ожидаю X.Y.Z+N)"
+  local iss="${CLIENT_DIR}/windows/installer/caramba-connect.iss"
+  [[ -f "${iss}" ]] || die "нет скрипта инсталлятора: ${iss}"
+  # ISCC — нативная программа: пути отдаём в форме C:\..., см. make_zip.
+  local staging_native out_native iss_native
+  staging_native="$(cygpath -w "${staging}")"
+  out_native="$(cygpath -w "${out_dir}")"
+  iss_native="$(cygpath -w "${iss}")"
+  rm -f "${out_dir}/${WIN_SETUP_NAME}"
+  # MSYS_NO_PATHCONV / MSYS2_ARG_CONV_EXCL: Git Bash при запуске нативной
+  # программы переписывает аргументы вида /DFoo=bar как пути (D:\Foo=bar), и
+  # ISCC получает мусор вместо определений. /Qp — без простыни, но с прогрессом.
+  MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' run_step "${T_ZIP}" "ISCC → ${WIN_SETUP_NAME}" \
+    "${iscc}" /Qp "/DAppVersion=${version}" "/DAppBuild=${build}" \
+    "/DSourceDir=${staging_native}" "/O${out_native}" "${iss_native}"
+  [[ -s "${out_dir}/${WIN_SETUP_NAME}" ]] || die "инсталлятор не создался: ${out_dir}/${WIN_SETUP_NAME}"
+}
+
 build_windows() {
   need_host windows
   # Утилита patch больше не нужна: mk-patched-deps.sh перешёл на `git apply`
@@ -474,13 +632,29 @@ build_windows() {
   done
   log "содержимое Release проверено (exe + ядро + wintun)"
 
-  local out="${DIST_DIR}/caramba-connect-windows-x64.zip"
-  log "упаковываю ${rel} → ${out}"
-  make_zip "${rel}" "${out}"
-  log "артефакт: ${out} ($(size_of "${out}"))"
-  # Ни подписи кода, ни манифеста с requireAdministrator: SmartScreen будет
-  # ругаться, а wintun без прав администратора адаптер не создаст.
-  log "ВНИМАНИЕ: exe НЕ подписан; wintun требует запуска от администратора"
+  # Staging: копия Release под именем «Caramba Connect/». Из него и ZIP (с
+  # корневой папкой), и инсталлятор — оба ассета гарантированно из одних и тех
+  # же файлов. Release не трогаем: пусть остаётся тем, что выдал Flutter.
+  local staging_parent="${CLIENT_DIR}/build/dist-staging/windows"
+  local staging="${staging_parent}/${WIN_STAGING_ROOT}"
+  rm -rf "${staging_parent}"
+  mkdir -p "${staging}" "${DIST_DIR}"
+  cp -R "${rel}/." "${staging}/"
+  copy_vc_runtime "${staging}"
+  log "staging: ${staging} ($(size_of "${staging}"))"
+
+  local zip_out="${DIST_DIR}/${WIN_ZIP_NAME}"
+  log "упаковываю ${staging_parent} → ${zip_out}"
+  make_zip "${staging_parent}" "${zip_out}"
+  check_zip_root "${zip_out}"
+  log "артефакт: ${zip_out} ($(size_of "${zip_out}"))"
+
+  build_windows_installer "${staging}" "${DIST_DIR}"
+  log "артефакт: ${DIST_DIR}/${WIN_SETUP_NAME} ($(size_of "${DIST_DIR}/${WIN_SETUP_NAME}"))"
+  # Подписи кода нет: SmartScreen предупредит и про Setup.exe, и про exe из
+  # ZIP. Права администратора exe запрашивает сам (runner.exe.manifest,
+  # requireAdministrator) — wintun без них адаптер не создаст.
+  log "ВНИМАНИЕ: Setup.exe и exe НЕ подписаны (SmartScreen); exe запрашивает права администратора через манифест"
 }
 
 # --- iOS (только проверка компиляции) -----------------------------------------

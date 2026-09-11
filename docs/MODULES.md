@@ -141,7 +141,8 @@ decision on Windows elevation (`requireAdministrator` versus a UAC relaunch).
 
 - CI: `.github/workflows/client-android.yml` (signed APK) and
   `.github/workflows/client-desktop.yml` (three independent jobs: macOS DMG +
-  iOS compile check, Windows ZIP, Linux tar.gz). Both trigger on `v*` tags,
+  iOS compile check, Windows Setup.exe + portable ZIP, Linux tar.gz). Both
+  trigger on `v*` tags,
   appending assets to that tag's release, and on `workflow_dispatch`.
   Toolchains pinned: Flutter `3.47.2`, Go `1.26`.
 - All build logic lives in `apps/caramba-client/scripts/ci-android.sh` and
@@ -150,9 +151,10 @@ decision on Windows elevation (`requireAdministrator` versus a UAC relaunch).
   not fail the build, it silently produces a mock bundle.
 - Release asset names are a contract between CI, `apps/caramba-installer` and
   `apps/caramba-panel`; renaming one breaks the mini app's download button:
-  `caramba-connect-arm64.apk`, `caramba-connect-armv7.apk`,
-  `caramba-connect-macos-arm64.dmg`, `caramba-connect-windows-x64.zip`,
-  `caramba-connect-linux-x64.tar.gz`.
+  `Caramba-Connect-Android-arm64.apk`, `Caramba-Connect-Android-armv7.apk`,
+  `Caramba-Connect-Setup-x64.exe`, `Caramba-Connect-Windows-x64-portable.zip`,
+  `Caramba-Connect-macOS-arm64.dmg`, `Caramba-Connect-Linux-x64.tar.gz`.
+  The old lowercase `caramba-connect-*` names are no longer looked up.
 - Delivery: the installer copies whichever of those assets exist in the release
   into `<install_dir>/apps/caramba-panel/downloads/` (a missing asset is not an
   error); the panel serves that directory at `/downloads`, and

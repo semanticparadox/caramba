@@ -4,20 +4,21 @@
 // future. If not, the values below would default to using the project name when this becomes a
 // 'flutter create' template.
 
-// The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = caramba_client
-
-// Имя исполняемого файла внутри Contents/MacOS.
+// Имя бандла (.app) и, через наследование, имя исполняемого файла.
 //
-// ЗАЧЕМ ОТДЕЛЬНО ОТ PRODUCT_NAME. По умолчанию EXECUTABLE_NAME наследует
-// PRODUCT_NAME, и человек видел техническое caramba_client везде, где система
-// показывает имя процесса: Dock, «Завершить принудительно», Мониторинг
-// системы, запрос доступа к сети. Сменить PRODUCT_NAME нельзя, на нём висит
-// имя папки caramba_client.app и все сборочные скрипты, поэтому развязываем
-// именно имя бинаря. Сопутствующая правка обязательна: scripts/ci-desktop.sh
-// раньше считал имя бинаря равным basename(.app) и теперь читает
-// CFBundleExecutable из Info.plist.
-EXECUTABLE_NAME = Caramba Connect
+// ЗАЧЕМ «Caramba Connect», а не техническое caramba_client. Папка .app это
+// то, что человек видит в DMG, в /Applications, в Finder и в Launchpad;
+// владелец прямо попросил нормальное имя установки на всех системах. Имя
+// бинаря внутри Contents/MacOS (EXECUTABLE_NAME) по умолчанию равно
+// PRODUCT_NAME, поэтому Dock, «Завершить принудительно» и Мониторинг системы
+// тоже показывают «Caramba Connect» без отдельной настройки.
+//
+// Пробел в имени переживают все звенья: scripts/build.sh ищет *.app через
+// find, scripts/ci-desktop.sh берёт имя бинаря из CFBundleExecutable через
+// plutil, а productReference и TEST_HOST в Runner.xcodeproj/project.pbxproj
+// переименованы вместе с этой строкой. Bundle id (ниже) не менялся: на нём
+// держатся Keychain, настройки и регистрация схем caramba://.
+PRODUCT_NAME = Caramba Connect
 
 // Один источник иконки вместо двух.
 //

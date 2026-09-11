@@ -107,7 +107,7 @@ jobs:
             if [ -x "$cand" ]; then APKSIGNER="$cand"; fi
           done
           [ -n "$APKSIGNER" ] || { echo "::error::apksigner не найден"; exit 1; }
-          for apk in caramba-connect-arm64.apk caramba-connect-armv7.apk; do
+          for apk in Caramba-Connect-Android-arm64.apk Caramba-Connect-Android-armv7.apk; do
             out="$("$APKSIGNER" verify --print-certs "apps/caramba-client/build/dist/$apk")"
             echo "$out"
             if echo "$out" | grep -qi 'CN=Android Debug'; then
@@ -123,8 +123,8 @@ jobs:
           name: caramba-connect-apk
           if-no-files-found: error
           path: |
-            apps/caramba-client/build/dist/caramba-connect-arm64.apk
-            apps/caramba-client/build/dist/caramba-connect-armv7.apk
+            apps/caramba-client/build/dist/Caramba-Connect-Android-arm64.apk
+            apps/caramba-client/build/dist/Caramba-Connect-Android-armv7.apk
 
       # Тот же action, что в release.yml: он дописывает ассеты в уже созданный
       # релиз тега, поэтому гонки с release.yml нет.
@@ -134,7 +134,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           files: |
-            apps/caramba-client/build/dist/caramba-connect-arm64.apk
-            apps/caramba-client/build/dist/caramba-connect-armv7.apk
+            apps/caramba-client/build/dist/Caramba-Connect-Android-arm64.apk
+            apps/caramba-client/build/dist/Caramba-Connect-Android-armv7.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

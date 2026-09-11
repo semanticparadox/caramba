@@ -4304,16 +4304,28 @@ fn accept_download_url(raw: &str) -> Option<String> {
 const CLIENT_DOWNLOADS_DIR: &str = "apps/caramba-panel/downloads";
 
 /// Имена файлов клиента для платформы в порядке предпочтения — ровно те, что
-/// кладёт инсталлятор при апгрейде. iOS в списке нет: там App Store, файла на
-/// диске панели не бывает никогда.
+/// кладёт инсталлятор при апгрейде (`CLIENT_DOWNLOAD_ASSETS` в
+/// apps/caramba-installer) по единой схеме `Caramba-Connect-<OS>-<arch>.<ext>`.
+/// iOS в списке нет: там App Store, файла на диске панели не бывает никогда.
+/// Старые имена `caramba-connect-*` не ищутся намеренно: иначе панель
+/// после апгрейда молча раздавала бы прошлогодний файл рядом с новым.
 fn platform_download_files(platform: &str) -> &'static [&'static str] {
     match platform {
         // arm64 первым: armv7 — запасной вариант для старых устройств, и если
         // лежат оба, ссылку нужно давать на основной.
-        "android" => &["caramba-connect-arm64.apk", "caramba-connect-armv7.apk"],
-        "windows" => &["caramba-connect-windows-x64.zip"],
-        "macos" => &["caramba-connect-macos-arm64.dmg"],
-        "linux" => &["caramba-connect-linux-x64.tar.gz"],
+        "android" => &[
+            "Caramba-Connect-Android-arm64.apk",
+            "Caramba-Connect-Android-armv7.apk",
+        ],
+        // Инсталлятор первым: переносной ZIP — запасной вариант для тех, кому
+        // нельзя ставить программы, ссылка по умолчанию ведёт на нормальную
+        // установку.
+        "windows" => &[
+            "Caramba-Connect-Setup-x64.exe",
+            "Caramba-Connect-Windows-x64-portable.zip",
+        ],
+        "macos" => &["Caramba-Connect-macOS-arm64.dmg"],
+        "linux" => &["Caramba-Connect-Linux-x64.tar.gz"],
         _ => &[],
     }
 }
@@ -4501,7 +4513,7 @@ mod app_download_tests {
             resolve_app_download_url(
                 " https://mirror.example/app.apk ",
                 Some("https://panel.example"),
-                Some("caramba-connect-arm64.apk"),
+                Some("Caramba-Connect-Android-arm64.apk"),
             )
             .as_deref(),
             Some("https://mirror.example/app.apk")
@@ -4514,7 +4526,7 @@ mod app_download_tests {
             resolve_app_download_url(
                 "http://mirror.example/app.apk",
                 Some("https://panel.example"),
-                Some("caramba-connect-arm64.apk"),
+                Some("Caramba-Connect-Android-arm64.apk"),
             ),
             None
         );
@@ -4526,10 +4538,10 @@ mod app_download_tests {
             resolve_app_download_url(
                 "   ",
                 Some("https://panel.exarobot.top"),
-                Some("caramba-connect-arm64.apk"),
+                Some("Caramba-Connect-Android-arm64.apk"),
             )
             .as_deref(),
-            Some("https://panel.exarobot.top/downloads/caramba-connect-arm64.apk")
+            Some("https://panel.exarobot.top/downloads/Caramba-Connect-Android-arm64.apk")
         );
     }
 
@@ -4540,7 +4552,7 @@ mod app_download_tests {
             None
         );
         assert_eq!(
-            resolve_app_download_url("", None, Some("caramba-connect-arm64.apk")),
+            resolve_app_download_url("", None, Some("Caramba-Connect-Android-arm64.apk")),
             None
         );
     }
@@ -4551,7 +4563,7 @@ mod app_download_tests {
             resolve_app_download_url(
                 "",
                 Some("http://panel.example"),
-                Some("caramba-connect-arm64.apk"),
+                Some("Caramba-Connect-Android-arm64.apk"),
             ),
             None
         );
@@ -4575,8 +4587,34 @@ mod app_download_tests {
     fn android_prefers_arm64_and_ios_has_no_local_file() {
         assert_eq!(
             platform_download_files("android").first().copied(),
-            Some("caramba-connect-arm64.apk")
+            Some("Caramba-Connect-Android-arm64.apk")
         );
         assert!(platform_download_files("ios").is_empty());
+    }
+
+    #[test]
+    fn windows_prefers_the_installer_over_the_portable_zip() {
+        assert_eq!(
+            platform_download_files("windows"),
+            [
+                "Caramba-Connect-Setup-x64.exe",
+                "Caramba-Connect-Windows-x64-portable.zip"
+            ]
+        );
+    }
+
+    /// Имена — контракт с CI и инсталлятором панели: каждая платформа обязана
+    /// использовать единую схему, иначе апгрейд положит файл, который здесь
+    /// никто не найдёт.
+    #[test]
+    fn every_local_file_follows_the_unified_asset_naming() {
+        for platform in APP_DOWNLOAD_PLATFORMS {
+            for name in platform_download_files(platform) {
+                assert!(
+                    name.starts_with("Caramba-Connect-"),
+                    "{platform}: {name} вне схемы Caramba-Connect-<OS>-<arch>.<ext>"
+                );
+            }
+        }
     }
 }

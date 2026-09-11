@@ -19,9 +19,9 @@ stay `caramba` everywhere and are never rebranded.
 
 ## Platform support
 
-Published `client-v1.0.0+105` assets include Android APKs, a macOS DMG, a Windows ZIP and a Linux archive. Artifact availability does not imply device verification for every platform. Read [desktop verification](DESKTOP-VERIFICATION-2026-09-08.md) for the checks actually performed on the recovered desktop implementation.
+Published client releases include Android APKs, a macOS DMG, a Windows installer (Inno Setup) plus a portable ZIP, and a Linux archive with `install.sh`. Artifact availability does not imply device verification for every platform. Read [desktop verification](DESKTOP-VERIFICATION-2026-09-08.md) for the checks actually performed on the recovered desktop implementation.
 
-macOS currently uses proxy mode; an iOS Network Extension and Apple distribution signing are not in place. Signing and notarization require the owner's developer credentials. The Windows runner does not yet request administrator elevation; WinTun adapter creation needs elevated rights.
+macOS currently uses proxy mode; an iOS Network Extension and Apple distribution signing are not in place. Signing and notarization require the owner's developer credentials. The Windows runner requests administrator elevation in its manifest (`requireAdministrator`), because WinTun adapter creation needs elevated rights; see `docs/WINDOWS.md`.
 
 ## Distribution
 
@@ -33,16 +33,18 @@ setting is empty (the setting, when set, wins). The asset names are a contract
 between CI, the installer and the panel — do not rename them:
 
 ```
-caramba-connect-arm64.apk
-caramba-connect-armv7.apk
-caramba-connect-macos-arm64.dmg
-caramba-connect-windows-x64.zip
-caramba-connect-linux-x64.tar.gz
+Caramba-Connect-Android-arm64.apk
+Caramba-Connect-Android-armv7.apk
+Caramba-Connect-Setup-x64.exe
+Caramba-Connect-Windows-x64-portable.zip
+Caramba-Connect-macOS-arm64.dmg
+Caramba-Connect-Linux-x64.tar.gz
 ```
 
-`caramba-connect-macos-arm64.dmg` is historically named: the bundle inside is
-actually universal (`arm64 + x86_64`). The name is wired into the installer and
-the panel, so it stays.
+`Caramba-Connect-macOS-arm64.dmg` is historically named: the bundle inside
+(`Caramba Connect.app`) is actually universal (`arm64 + x86_64`). The name is
+wired into the installer and the panel, so it stays. The old lowercase
+`caramba-connect-*` names are no longer looked up anywhere.
 
 ## Build
 
@@ -97,8 +99,8 @@ Mock UI, no native anything: `flutter run -d <device>` (mock is the default) or
 
 | Workflow | Runner(s) | Produces |
 | --- | --- | --- |
-| `.github/workflows/client-android.yml` | ubuntu-latest | signed `caramba-connect-{arm64,armv7}.apk` |
-| `.github/workflows/client-desktop.yml` | macos-latest / windows-latest / ubuntu-latest, three independent jobs | unsigned DMG, Windows ZIP, Linux tar.gz; plus the iOS compile check inside the macOS job |
+| `.github/workflows/client-android.yml` | ubuntu-latest | signed `Caramba-Connect-Android-{arm64,armv7}.apk` |
+| `.github/workflows/client-desktop.yml` | macos-latest / windows-latest / ubuntu-latest, three independent jobs | unsigned DMG, Windows Setup.exe + portable ZIP, Linux tar.gz; plus the iOS compile check inside the macOS job |
 
 Both trigger on `push: tags: ['v*']` (assets are appended to that tag's release)
 and on `workflow_dispatch` (artifacts stay in the run). Toolchains are pinned:

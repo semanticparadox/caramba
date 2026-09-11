@@ -75,7 +75,9 @@ if [[ "${TARGET}" == "macos-dmg" ]]; then
     exit 1
   fi
 
-  DMG="${ROOT}/build/caramba-connect-macos-arm64.dmg"
+  # Имя файла по единой схеме ассетов релиза (Caramba-Connect-<OS>-<arch>.<ext>);
+  # то же имя ищут apps/caramba-installer и /api/client/app/downloads в панели.
+  DMG="${ROOT}/build/Caramba-Connect-macOS-arm64.dmg"
   STAGE="$(mktemp -d)"
   # ловушка на выходе: временный каталог со стомегабайтным .app не должен
   # оставаться в /var/folders, если hdiutil упадёт.

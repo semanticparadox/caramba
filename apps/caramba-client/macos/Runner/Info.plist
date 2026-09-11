@@ -4,11 +4,10 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
-	<!-- Зачем EXECUTABLE_NAME, а не PRODUCT_NAME: это имя файла внутри
-	     Contents/MacOS, и именно его показывают Dock, «Завершить принудительно»
-	     и Мониторинг системы. PRODUCT_NAME остаётся техническим
-	     (caramba_client.app), потому что на него завязаны сборочные скрипты,
-	     а видимое имя процесса задаётся отдельно в Configs/AppInfo.xcconfig.
+	<!-- EXECUTABLE_NAME это имя файла внутри Contents/MacOS, его показывают
+	     Dock, «Завершить принудительно» и Мониторинг системы. Оно наследует
+	     PRODUCT_NAME = Caramba Connect из Configs/AppInfo.xcconfig, там же
+	     объяснено, почему бандл называется по-человечески, а не caramba_client.
 	     Ключа CFBundleIconFile здесь нет намеренно: пустая строка заставляла
 	     Xcode подкладывать в бандл ещё и легаси AppIcon.icns с неполным набором
 	     размеров рядом с полным Assets.car, то есть два источника одной иконки. -->
@@ -18,10 +17,9 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
-	<!-- Зачем явное имя, а не $(PRODUCT_NAME): PRODUCT_NAME задаёт имя .app
-	     (caramba_client.app), на него завязаны scripts/build.sh и ci-desktop.sh,
-	     менять его нельзя. А CFBundleName это то, что пользователь видит в
-	     строке меню и в «О программе», и там должно стоять название продукта.
+	<!-- Зачем явное имя, а не $(PRODUCT_NAME): CFBundleName это то, что
+	     пользователь видит в строке меню и в «О программе», и оно не должно
+	     зависеть от сборочной переменной, даже если сегодня они совпадают.
 	     FlutterAppDelegate подставляет его же в пункты меню приложения. -->
 	<key>CFBundleName</key>
 	<string>Caramba Connect</string>

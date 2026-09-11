@@ -173,7 +173,12 @@ translations! {
     "guides.linux" => { ru: "Linux", en: "Linux" },
     "guides.tv" => { ru: "Android TV", en: "Android TV" },
     "guides.router" => { ru: "Роутер и ручная настройка", en: "Router and manual setup" },
-    "menu.open_app" => { ru: "🔑 Войти в приложение", en: "🔑 Sign in to the app" },
+    // Первая строка меню app_only: владелец не нашёл, где взять ссылку, пока
+    // она пряталась под «Войти в приложение». Старые подписи остаются в
+    // `command.rs::menu_action` как legacy-алиасы: клавиатуры уже отрисованы.
+    "menu.open_app" => { ru: "🔗 Подключить Caramba Connect", en: "🔗 Connect Caramba Connect" },
+    // Вторая строка меню app_only: ссылки на сайт и файлы из Telegram.
+    "menu.download_app" => { ru: "📥 Скачать приложение", en: "📥 Download the app" },
     "menu.launch_app" => { ru: "🚀 Запустить", en: "🚀 Launch" },
 
     // =========================================================================
@@ -786,12 +791,21 @@ translations! {
     // тап по <code> копирует не на всех клиентах, а вставить ссылку в приложение
     // человеку нужно обязательно.
     "app.copy_link_btn" => { ru: "📋 Скопировать ссылку", en: "📋 Copy the link" },
-    // Адрес APK задаёт оператор в настройках (`app_download_url_android`).
+    // Адреса задаёт оператор в настройках (`app_download_url_<платформа>`);
+    // кнопка есть только у настроенных. Эмодзи различают платформы в строке
+    // из двух кнопок.
     "app.download_android_btn" => { ru: "📲 Скачать для Android", en: "📲 Download for Android" },
+    "app.download_ios_btn" => { ru: "📱 Скачать для iPhone", en: "📱 Download for iPhone" },
+    "app.download_windows_btn" => { ru: "🪟 Скачать для Windows", en: "🪟 Download for Windows" },
+    "app.download_macos_btn" => { ru: "🍎 Скачать для Mac", en: "🍎 Download for Mac" },
+    "app.download_linux_btn" => { ru: "🐧 Скачать для Linux", en: "🐧 Download for Linux" },
     // Выдача установщика файлом прямо в Telegram — путь в обход блокировки
     // домена панели (см. `bot::apk_delivery`). Кнопка появляется, только когда
-    // владелец загрузил APK боту.
-    "app.apk_tg_btn" => { ru: "📦 Получить APK в Telegram", en: "📦 Get the APK in Telegram" },
+    // владелец загрузил боту хоть один файл; платформу человек выбирает дальше.
+    "app.apk_tg_btn" => { ru: "📦 Получить файл в Telegram", en: "📦 Get the file in Telegram" },
+    // {0} = подпись платформы с эмодзи (`FilePlatform::label`). В общем меню
+    // скачивания отличает файл из Telegram от ссылки на ту же платформу.
+    "app.tg_file_platform_btn" => { ru: "{0} в Telegram", en: "{0} in Telegram" },
 
     // =========================================================================
     // Уведомления: подписка, трафик, баланс

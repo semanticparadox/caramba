@@ -132,22 +132,25 @@ jobs:
         with:
           name: caramba-connect-macos
           if-no-files-found: error
-          path: apps/caramba-client/build/dist/caramba-connect-macos-arm64.dmg
+          path: apps/caramba-client/build/dist/Caramba-Connect-macOS-arm64.dmg
 
       - name: Attach DMG to release (tag)
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: apps/caramba-client/build/dist/caramba-connect-macos-arm64.dmg
+          files: apps/caramba-client/build/dist/Caramba-Connect-macOS-arm64.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ---------------------------------------------------------------------------
-  # Windows: ZIP портативной сборки (wintun + libcaramba_core.dll рядом с .exe)
+  # Windows: инсталлятор Inno Setup (Caramba-Connect-Setup-x64.exe: папка
+  # «Caramba Connect» в Program Files, ярлыки, регистрация схем caramba:// и
+  # carambaconnect://) + портативный ZIP с корневой папкой «Caramba Connect/»
+  # (wintun + libcaramba_core.dll + VC++-рантайм рядом с .exe)
   # ---------------------------------------------------------------------------
   windows:
-    name: Windows ZIP
+    name: Windows installer + portable ZIP
     runs-on: windows-latest
     timeout-minutes: 90
     defaults:
@@ -225,6 +228,27 @@ jobs:
       - name: Verify gcc
         run: gcc --version
 
+      # Inno Setup 6 предустановлен на образе windows-latest (ISCC.exe в
+      # C:\Program Files (x86)\Inno Setup 6, в PATH его нет — ci-desktop.sh
+      # ищет по фиксированному пути). Если образ изменится — ставим через choco,
+      # иначе сборка упадёт уже после 40 минут компиляции ядра и Flutter.
+      - name: Ensure Inno Setup
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          iscc="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          if [ -f "$iscc" ]; then
+            echo "ISCC: $iscc"
+            exit 0
+          fi
+          echo "ISCC.exe не найден — ставлю innosetup через choco"
+          # -y обязателен: choco без него ждёт ответа, а stdin шага не закрыт.
+          choco install innosetup -y --no-progress --limit-output
+          if [ ! -f "$iscc" ]; then
+            echo "::error::ISCC.exe не найден после choco install innosetup"
+            exit 1
+          fi
+
       - name: Cache core DLL
         id: cache-dll
         uses: actions/cache@v4
@@ -232,31 +256,38 @@ jobs:
           path: libs/caramba-core/build/libcaramba_core.dll
           key: ${{ runner.os }}-carambacore-dll-${{ hashFiles('libs/caramba-core/**/*.go', 'libs/caramba-core/go.mod', 'libs/caramba-core/go.sum', 'libs/caramba-core/patches/*.patch', 'libs/caramba-core/scripts/*.sh') }}
 
-      - name: Build Windows ZIP
+      # Setup.exe и ZIP собираются из одного staging-каталога, поэтому в
+      # релиз всегда уезжает одна и та же сборка в двух упаковках.
+      - name: Build Windows installer + portable ZIP
         timeout-minutes: 60
         env:
           CARAMBA_SKIP_CORE: ${{ steps.cache-dll.outputs.cache-hit == 'true' && '1' || '0' }}
         run: bash apps/caramba-client/scripts/ci-desktop.sh windows
 
-      - name: Upload artifact (dispatch)
+      - name: Upload artifacts (dispatch)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: caramba-connect-windows
           if-no-files-found: error
-          path: apps/caramba-client/build/dist/caramba-connect-windows-x64.zip
+          path: |
+            apps/caramba-client/build/dist/Caramba-Connect-Setup-x64.exe
+            apps/caramba-client/build/dist/Caramba-Connect-Windows-x64-portable.zip
 
-      - name: Attach ZIP to release (tag)
+      - name: Attach installer and ZIP to release (tag)
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: apps/caramba-client/build/dist/caramba-connect-windows-x64.zip
+          files: |
+            apps/caramba-client/build/dist/Caramba-Connect-Setup-x64.exe
+            apps/caramba-client/build/dist/Caramba-Connect-Windows-x64-portable.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ---------------------------------------------------------------------------
-  # Linux: tar.gz бандла (запуск туннеля требует CAP_NET_ADMIN)
+  # Linux: tar.gz с папкой caramba-connect/ и install.sh (ставит в /opt,
+  # регистрирует caramba://, выдаёт CAP_NET_ADMIN через setcap)
   # ---------------------------------------------------------------------------
   linux:
     name: Linux tar.gz
@@ -309,13 +340,13 @@ jobs:
         with:
           name: caramba-connect-linux
           if-no-files-found: error
-          path: apps/caramba-client/build/dist/caramba-connect-linux-x64.tar.gz
+          path: apps/caramba-client/build/dist/Caramba-Connect-Linux-x64.tar.gz
 
       - name: Attach tarball to release (tag)
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: apps/caramba-client/build/dist/caramba-connect-linux-x64.tar.gz
+          files: apps/caramba-client/build/dist/Caramba-Connect-Linux-x64.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

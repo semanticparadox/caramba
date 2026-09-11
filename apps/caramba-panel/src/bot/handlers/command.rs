@@ -46,10 +46,12 @@ fn menu_action(text: &str) -> Option<MenuAction> {
         "/referral" => return Some(Referral),
         "/devices" => return Some(Devices),
         "/leaderboard" => return Some(Leaderboard),
-        "/login" => return Some(Login),
-        // Установщик файлом прямо в чат. Кнопки в меню нет намеренно: путь
-        // нужен тем, у кого не открылась ссылка на домен панели, и они приходят
-        // сюда по подсказке из мини-аппа или из подписи в чате.
+        // `/link` то же, что кнопка «Подключить Caramba Connect»: команду
+        // можно назвать в инструкции словами, кнопку нет.
+        "/login" | "/link" => return Some(Login),
+        // Установщик файлом прямо в чат (меню платформ, см. `apk_delivery`).
+        // Команда нужна тем, кто пришёл по подсказке из мини-аппа или из
+        // подписи в чате, где кнопки меню не видно.
         "/apk" => return Some(Apk),
         _ => {}
     }
@@ -66,7 +68,10 @@ fn menu_action(text: &str) -> Option<MenuAction> {
         "❓ Support" => return Some(Support),
         "📱 My Devices" => return Some(Devices),
         "🏆 Leaderboard" => return Some(Leaderboard),
-        "🔑 Open in app" | "🔑 Войти в приложение" => return Some(Login),
+        "🔑 Open in app" | "🔑 Войти в приложение" | "🔑 Sign in to the app" =>
+        {
+            return Some(Login);
+        }
         _ => {}
     }
 
@@ -82,6 +87,7 @@ fn menu_action(text: &str) -> Option<MenuAction> {
         ("menu.support", Support),
         ("menu.guides", Guides),
         ("menu.open_app", Login),
+        ("menu.download_app", Apk),
     ] {
         if matches_any_lang(text, key) {
             return Some(action);
@@ -820,7 +826,8 @@ pub async fn message_handler(
                         .await;
                 }
 
-                // Диплинк `/start apk` — человек пришёл по кнопке «Получить в
+                // Диплинк `/start apk` (меню платформ) и `/start apk_<платформа>`
+                // (сразу файл) — человек пришёл по кнопке «Получить в
                 // Telegram» из мини-аппа. Обработан здесь, а не отдельной
                 // веткой выше, намеренно: до этой точки уже пройдены все шлюзы
                 // (бан, выбор языка, соглашение) и отправлено обычное
@@ -831,12 +838,21 @@ pub async fn message_handler(
                 // находит `apk` ни среди tg_id, ни среди реферальных, ни среди
                 // партнёрских кодов и возвращает None — то же, что и любой
                 // другой неизвестный код.
-                if text
-                    .strip_prefix("/start ")
-                    .map(|param| param.trim().eq_ignore_ascii_case("apk"))
-                    .unwrap_or(false)
-                {
-                    crate::bot::apk_delivery::send_apk(&bot, msg.chat.id, lang, &state).await;
+                if let Some(param) = text.strip_prefix("/start ") {
+                    if param.trim().eq_ignore_ascii_case("apk") {
+                        crate::bot::apk_delivery::send_apk(&bot, msg.chat.id, lang, &state).await;
+                    } else if let Some(platform) =
+                        crate::bot::apk_delivery::FilePlatform::from_start_param(param)
+                    {
+                        crate::bot::apk_delivery::send_file(
+                            &bot,
+                            msg.chat.id,
+                            lang,
+                            &state,
+                            platform,
+                        )
+                        .await;
+                    }
                 }
 
                 return Ok(());
@@ -1648,7 +1664,15 @@ pub async fn message_handler(
             }
 
             MenuAction::Apk => {
-                crate::bot::apk_delivery::send_apk(&bot, msg.chat.id, lang, &state).await;
+                // Кнопка «Скачать приложение» показывает всё сразу: ссылки на
+                // сайт и файлы из Telegram. Команда `/apk` только файлы, как и
+                // раньше: на неё ссылаются подсказки «домен заблокирован».
+                if text.trim() == "/apk" {
+                    crate::bot::apk_delivery::send_apk(&bot, msg.chat.id, lang, &state).await;
+                } else {
+                    crate::bot::apk_delivery::send_download_menu(&bot, msg.chat.id, lang, &state)
+                        .await;
+                }
             }
         }
     }
@@ -1736,22 +1760,28 @@ pub async fn send_connect_link(bot: &Bot, state: &AppState, chat_id: ChatId, tg_
 /// и человек должен это знать, раз уж от него зависит, кому она попадёт.
 pub(crate) fn connect_link_text(lang: Lang, link: &str) -> String {
     let link = escape_html(link);
+    let copy = t(lang, "app.copy_link_btn");
     match lang {
+        // Инструкция ПЕРВОЙ строкой, до самой ссылки: владелец не нашёл, где
+        // копировать, когда объяснение шло после длинной ссылки. Название
+        // кнопки берётся из таблицы переводов, чтобы текст не отсылал к
+        // кнопке, которую переименовали.
         Lang::Ru => format!(
-            "🔗 <b>Вход в приложение Caramba Connect</b>\n\n<code>{link}</code>\n\n\
-             Нажмите на ссылку — она скопируется. Откройте приложение, вставьте её, \
-             и оно само подключится: вводить больше ничего не нужно.\n\n\
-             Если ссылка не открывает приложение, скопируйте её кнопкой ниже и \
-             вставьте в приложении на экране «Добавить подключение».\n\n\
+            "Нажмите «{copy}» ниже или на саму ссылку, она скопируется. Затем в \
+             приложении: Добавить подключение → Вставить.\n\n\
+             🔗 <b>Подключение Caramba Connect</b>\n<code>{link}</code>\n\n\
+             Если ссылка не открывает приложение, вставьте её руками на экране \
+             «Добавить подключение»: приложение само подключится, вводить больше \
+             ничего не нужно.\n\n\
              Ссылка работает один раз и только 30 минут. Она не зашифрована: у кого \
-             окажется — тот и войдёт в ваш аккаунт. Никому её не пересылайте."
+             окажется, тот и войдёт в ваш аккаунт. Никому её не пересылайте."
         ),
         Lang::En => format!(
-            "🔗 <b>Sign in to the Caramba Connect app</b>\n\n<code>{link}</code>\n\n\
-             Tap the link to copy it. Open the app and paste it — the app connects on \
-             its own, nothing else to type.\n\n\
-             If the link doesn't open the app, copy it with the button below and paste \
-             it on the \"Add connection\" screen in the app.\n\n\
+            "Tap “{copy}” below or the link itself to copy it. Then in the app: \
+             Add connection → Paste.\n\n\
+             🔗 <b>Caramba Connect link</b>\n<code>{link}</code>\n\n\
+             If the link doesn't open the app, paste it by hand on the \"Add \
+             connection\" screen: the app connects on its own, nothing else to type.\n\n\
              The link works once and only for 30 minutes. It is not encrypted: whoever \
              has it can sign in to your account. Don't forward it to anyone."
         ),
@@ -1836,6 +1866,24 @@ mod connect_link_text_tests {
 
         let en = connect_link_text(Lang::En, "caramba://connect?d=ABC123");
         assert!(en.contains("Add connection"), "{en}");
+    }
+
+    /// Инструкция обязана идти ПЕРВОЙ строкой и называть кнопку копирования
+    /// так же, как она подписана: владелец не нашёл, где взять ссылку.
+    #[test]
+    fn instruction_is_the_first_line_and_names_the_copy_button() {
+        for lang in [Lang::Ru, Lang::En] {
+            let text = connect_link_text(lang, "caramba://connect?d=ABC123");
+            let first = text.lines().next().unwrap_or_default();
+            assert!(
+                first.contains(t(lang, "app.copy_link_btn")),
+                "первая строка не называет кнопку: {first}"
+            );
+            assert!(
+                !first.contains("<code>"),
+                "ссылка раньше инструкции: {first}"
+            );
+        }
     }
 
     /// В HTML parse mode неэкранированный `&` роняет отправку целиком, а

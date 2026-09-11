@@ -379,6 +379,31 @@ pub async fn callback_handler(
                 }
             }
 
+            // Файл конкретной платформы из меню выбора (`apk_send_<id>`).
+            // Неизвестный id (кнопка из старого сообщения после переименования
+            // платформ) сводится к общему меню, а не к молчанию.
+            apk_platform if apk_platform.starts_with(crate::bot::apk_delivery::CALLBACK_PREFIX) => {
+                let _ = bot.answer_callback_query(callback_id).await;
+                if let Some(msg) = q.message {
+                    match crate::bot::apk_delivery::FilePlatform::from_callback_data(apk_platform) {
+                        Some(platform) => {
+                            crate::bot::apk_delivery::send_file(
+                                &bot,
+                                msg.chat().id,
+                                lang,
+                                &state,
+                                platform,
+                            )
+                            .await
+                        }
+                        None => {
+                            crate::bot::apk_delivery::send_apk(&bot, msg.chat().id, lang, &state)
+                                .await
+                        }
+                    }
+                }
+            }
+
             "set_lang_en" | "set_lang_ru" => {
                 // Выбор пользователя перекрывает всё, что мы разрешили выше.
                 let chosen = if data.contains("en") {

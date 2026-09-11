@@ -350,7 +350,14 @@
                     <span class="block text-[10px] uppercase tracking-wider text-slate-500">Адрес интерфейса</span>
                     <span class="font-mono text-slate-900 dark:text-white">{{ awg.address_cidr }}</span>
                 </div>
-                <div class="p-3 bg-slate-950/30 rounded-xl border border-border-default">
+                {# Свой источник онлайна: хендшейк AmneziaWG (UAPI на узле), окно
+                   180 с — не heartbeat узла. Поэтому число не обязано совпадать
+                   ни с «Сейчас», ни с «Онлайн 15 мин» на странице Servers: там
+                   онлайн для ВСЕХ протоколов считается по heartbeat узла (окна
+                   180 с / 900 с соответственно), а AWG-пир может слать хендшейк
+                   и без трафика, который ловит heartbeat. #}
+                <div class="p-3 bg-slate-950/30 rounded-xl border border-border-default"
+                    title="Пиры AmneziaWG с хендшейком свежее 3 минут (данные узла, WireGuard-протокол). Это отдельный источник онлайна — НЕ «Сейчас» и НЕ «Онлайн 15 мин» со страницы Servers: там онлайн для всех протоколов считается по heartbeat узла, а не по хендшейку.">
                     <span class="block text-[10px] uppercase tracking-wider text-slate-500">Онлайн пиров</span>
                     <span class="font-mono text-slate-900 dark:text-white">{{ awg.online_count }}</span>
                 </div>

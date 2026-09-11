@@ -41,8 +41,8 @@ libs/caramba-core/scripts/fetch-wintun.sh
 
 ## Running
 
-The app must run elevated (`requestedExecutionLevel=requireAdministrator`, or a
-UAC relaunch) so wintun can create the adapter. The generated
-`windows/runner/runner.exe.manifest` is still the Flutter default
-(`asInvoker`) — elevation is a packaging decision that has not been made yet;
-see INTEGRATION.md step 2 (Windows).
+The app must run elevated so wintun can create the adapter.
+`windows/runner/runner.exe.manifest` now declares
+`requestedExecutionLevel=requireAdministrator`, so Windows shows a UAC prompt
+on every launch (and the Inno Setup installer runs the post-install launch
+elevated for the same reason); see `docs/WINDOWS.md`.
