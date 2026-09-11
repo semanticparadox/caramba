@@ -774,9 +774,11 @@ name = "caramba-node"
 version = "0.9.80"
 dependencies = [
  "anyhow",
+ "base64",
  "caramba-shared",
  "clap",
  "dotenvy",
+ "hex",
  "machine-uid",
  "md5",
  "prost",
